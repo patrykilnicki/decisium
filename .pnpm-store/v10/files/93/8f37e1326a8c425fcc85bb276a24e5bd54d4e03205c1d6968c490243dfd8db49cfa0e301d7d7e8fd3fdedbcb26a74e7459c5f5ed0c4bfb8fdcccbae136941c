@@ -1,0 +1,53 @@
+{
+  "name": "@central-icons-react/all",
+  "version": "1.1.111",
+  "license": "SEE LICENSE IN LICENSE.md",
+  "homepage": "https://iconists.co/central",
+  "bugs": {
+    "url": "https://github.com/Iconists/central-icons-react/issues",
+    "email": "info@iconists.co"
+  },
+  "sideEffects": false,
+  "main": "./index.js",
+  "module": "./index.mjs",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.mjs",
+      "require": "./index.js"
+    },
+    "./*": {
+      "types": "./*/index.d.ts",
+      "import": "./*/index.mjs",
+      "require": "./*/index.js"
+    }
+  },
+  "files": [
+    "**/*.js",
+    "**/*.mjs",
+    "**/*.map",
+    "**/*.d.ts",
+    "**/*.md",
+    "icons-index.json"
+  ],
+  "scripts": {
+    "preinstall": "node ./license-check.js",
+    "prebuild": "tsc",
+    "build": "tsup",
+    "prepublishOnly": "npm run build",
+    "postbuild": "prettier --write **/*.d.ts *.d.ts && sed -i 's/import(/import(\\/* webpackIgnore: true *\\//g' index.js index.mjs",
+    "dev": "tsup --watch",
+    "lint": "prettier --write ."
+  },
+  "peerDependencies": {
+    "react": ">=14.0.0 <= 19"
+  },
+  "devDependencies": {
+    "@types/node": "^24",
+    "@types/react": ">=14.0.0 <= 19",
+    "tsup": "^8",
+    "typescript": "^5",
+    "prettier": "^3"
+  }
+}

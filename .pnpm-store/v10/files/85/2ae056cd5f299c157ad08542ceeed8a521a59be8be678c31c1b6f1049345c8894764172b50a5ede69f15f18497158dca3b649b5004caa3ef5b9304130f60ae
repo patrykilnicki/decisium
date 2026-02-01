@@ -1,0 +1,1820 @@
+import * as zod_v30 from "zod/v3";
+import * as langchain9 from "langchain";
+import { AgentMiddleware, AgentMiddleware as AgentMiddleware$1, AgentTypeConfig, InferMiddlewareStates, InterruptOnConfig, ReactAgent, ResponseFormat, ResponseFormatUndefined, StructuredTool, SystemMessage, ToolMessage } from "langchain";
+import * as zod0 from "zod";
+import { z } from "zod";
+import * as zod_v4_core0 from "zod/v4/core";
+import { BaseCheckpointSaver, BaseStore } from "@langchain/langgraph-checkpoint";
+import * as _langchain_core_language_models_base0 from "@langchain/core/language_models/base";
+import { BaseLanguageModel, LanguageModelLike } from "@langchain/core/language_models/base";
+import * as _langchain_core_tools3 from "@langchain/core/tools";
+import { ClientTool, ServerTool, StructuredTool as StructuredTool$1 } from "@langchain/core/tools";
+import * as _Command from "@langchain/langgraph";
+import { AnnotationRoot, Command } from "@langchain/langgraph";
+import { z as z$1 } from "zod/v4";
+import * as _messages from "@langchain/core/messages";
+import { Runnable } from "@langchain/core/runnables";
+import { InteropZodObject } from "@langchain/core/utils/types";
+
+//#region src/backends/protocol.d.ts
+type MaybePromise<T> = T | Promise<T>;
+/**
+ * Structured file listing info.
+ *
+ * Minimal contract used across backends. Only "path" is required.
+ * Other fields are best-effort and may be absent depending on backend.
+ */
+interface FileInfo {
+  /** File path */
+  path: string;
+  /** Whether this is a directory */
+  is_dir?: boolean;
+  /** File size in bytes (approximate) */
+  size?: number;
+  /** ISO 8601 timestamp of last modification */
+  modified_at?: string;
+}
+/**
+ * Structured grep match entry.
+ */
+interface GrepMatch {
+  /** File path where match was found */
+  path: string;
+  /** Line number (1-indexed) */
+  line: number;
+  /** The matching line text */
+  text: string;
+}
+/**
+ * File data structure used by backends.
+ *
+ * All file data is represented as objects with this structure:
+ */
+interface FileData {
+  /** Lines of text content */
+  content: string[];
+  /** ISO format timestamp of creation */
+  created_at: string;
+  /** ISO format timestamp of last modification */
+  modified_at: string;
+}
+/**
+ * Result from backend write operations.
+ *
+ * Checkpoint backends populate filesUpdate with {file_path: file_data} for LangGraph state.
+ * External backends set filesUpdate to null (already persisted to disk/S3/database/etc).
+ */
+interface WriteResult {
+  /** Error message on failure, undefined on success */
+  error?: string;
+  /** File path of written file, undefined on failure */
+  path?: string;
+  /**
+   * State update dict for checkpoint backends, null for external storage.
+   * Checkpoint backends populate this with {file_path: file_data} for LangGraph state.
+   * External backends set null (already persisted to disk/S3/database/etc).
+   */
+  filesUpdate?: Record<string, FileData> | null;
+  /** Metadata for the write operation, attached to the ToolMessage */
+  metadata?: Record<string, unknown>;
+}
+/**
+ * Result from backend edit operations.
+ *
+ * Checkpoint backends populate filesUpdate with {file_path: file_data} for LangGraph state.
+ * External backends set filesUpdate to null (already persisted to disk/S3/database/etc).
+ */
+interface EditResult {
+  /** Error message on failure, undefined on success */
+  error?: string;
+  /** File path of edited file, undefined on failure */
+  path?: string;
+  /**
+   * State update dict for checkpoint backends, null for external storage.
+   * Checkpoint backends populate this with {file_path: file_data} for LangGraph state.
+   * External backends set null (already persisted to disk/S3/database/etc).
+   */
+  filesUpdate?: Record<string, FileData> | null;
+  /** Number of replacements made, undefined on failure */
+  occurrences?: number;
+  /** Metadata for the edit operation, attached to the ToolMessage */
+  metadata?: Record<string, unknown>;
+}
+/**
+ * Result of code execution.
+ * Simplified schema optimized for LLM consumption.
+ */
+interface ExecuteResponse {
+  /** Combined stdout and stderr output of the executed command */
+  output: string;
+  /** The process exit code. 0 indicates success, non-zero indicates failure */
+  exitCode: number | null;
+  /** Whether the output was truncated due to backend limitations */
+  truncated: boolean;
+}
+/**
+ * Standardized error codes for file upload/download operations.
+ */
+type FileOperationError = "file_not_found" | "permission_denied" | "is_directory" | "invalid_path";
+/**
+ * Result of a single file download operation.
+ */
+interface FileDownloadResponse {
+  /** The file path that was requested */
+  path: string;
+  /** File contents as Uint8Array on success, null on failure */
+  content: Uint8Array | null;
+  /** Standardized error code on failure, null on success */
+  error: FileOperationError | null;
+}
+/**
+ * Result of a single file upload operation.
+ */
+interface FileUploadResponse {
+  /** The file path that was requested */
+  path: string;
+  /** Standardized error code on failure, null on success */
+  error: FileOperationError | null;
+}
+/**
+ * Protocol for pluggable memory backends (single, unified).
+ *
+ * Backends can store files in different locations (state, filesystem, database, etc.)
+ * and provide a uniform interface for file operations.
+ *
+ * All file data is represented as objects with the FileData structure.
+ *
+ * Methods can return either direct values or Promises, allowing both
+ * synchronous and asynchronous implementations.
+ */
+interface BackendProtocol {
+  /**
+   * Structured listing with file metadata.
+   *
+   * Lists files and directories in the specified directory (non-recursive).
+   * Directories have a trailing / in their path and is_dir=true.
+   *
+   * @param path - Absolute path to directory
+   * @returns List of FileInfo objects for files and directories directly in the directory
+   */
+  lsInfo(path: string): MaybePromise<FileInfo[]>;
+  /**
+   * Read file content with line numbers or an error string.
+   *
+   * @param filePath - Absolute file path
+   * @param offset - Line offset to start reading from (0-indexed), default 0
+   * @param limit - Maximum number of lines to read, default 500
+   * @returns Formatted file content with line numbers, or error message
+   */
+  read(filePath: string, offset?: number, limit?: number): MaybePromise<string>;
+  /**
+   * Read file content as raw FileData.
+   *
+   * @param filePath - Absolute file path
+   * @returns Raw file content as FileData
+   */
+  readRaw(filePath: string): MaybePromise<FileData>;
+  /**
+   * Structured search results or error string for invalid input.
+   *
+   * Searches file contents for a regex pattern.
+   *
+   * @param pattern - Regex pattern to search for
+   * @param path - Base path to search from (default: null)
+   * @param glob - Optional glob pattern to filter files (e.g., "*.py")
+   * @returns List of GrepMatch objects or error string for invalid regex
+   */
+  grepRaw(pattern: string, path?: string | null, glob?: string | null): MaybePromise<GrepMatch[] | string>;
+  /**
+   * Structured glob matching returning FileInfo objects.
+   *
+   * @param pattern - Glob pattern (e.g., `*.py`, `**\/*.ts`)
+   * @param path - Base path to search from (default: "/")
+   * @returns List of FileInfo objects matching the pattern
+   */
+  globInfo(pattern: string, path?: string): MaybePromise<FileInfo[]>;
+  /**
+   * Create a new file.
+   *
+   * @param filePath - Absolute file path
+   * @param content - File content as string
+   * @returns WriteResult with error populated on failure
+   */
+  write(filePath: string, content: string): MaybePromise<WriteResult>;
+  /**
+   * Edit a file by replacing string occurrences.
+   *
+   * @param filePath - Absolute file path
+   * @param oldString - String to find and replace
+   * @param newString - Replacement string
+   * @param replaceAll - If true, replace all occurrences (default: false)
+   * @returns EditResult with error, path, filesUpdate, and occurrences
+   */
+  edit(filePath: string, oldString: string, newString: string, replaceAll?: boolean): MaybePromise<EditResult>;
+  /**
+   * Upload multiple files.
+   * Optional - backends that don't support file upload can omit this.
+   *
+   * @param files - List of [path, content] tuples to upload
+   * @returns List of FileUploadResponse objects, one per input file
+   */
+  uploadFiles?(files: Array<[string, Uint8Array]>): MaybePromise<FileUploadResponse[]>;
+  /**
+   * Download multiple files.
+   * Optional - backends that don't support file download can omit this.
+   *
+   * @param paths - List of file paths to download
+   * @returns List of FileDownloadResponse objects, one per input path
+   */
+  downloadFiles?(paths: string[]): MaybePromise<FileDownloadResponse[]>;
+}
+/**
+ * Protocol for sandboxed backends with isolated runtime.
+ * Sandboxed backends run in isolated environments (e.g., containers)
+ * and communicate via defined interfaces.
+ */
+interface SandboxBackendProtocol extends BackendProtocol {
+  /**
+   * Execute a command in the sandbox.
+   *
+   * @param command - Full shell command string to execute
+   * @returns ExecuteResponse with combined output, exit code, and truncation flag
+   */
+  execute(command: string): MaybePromise<ExecuteResponse>;
+  /** Unique identifier for the sandbox backend instance */
+  readonly id: string;
+}
+/**
+ * Type guard to check if a backend supports execution.
+ *
+ * @param backend - Backend instance to check
+ * @returns True if the backend implements SandboxBackendProtocol
+ */
+declare function isSandboxBackend(backend: BackendProtocol): backend is SandboxBackendProtocol;
+/**
+ * State and store container for backend initialization.
+ *
+ * This provides a clean interface for what backends need to access:
+ * - state: Current agent state (with files, messages, etc.)
+ * - store: Optional persistent store for cross-conversation data
+ *
+ * Different contexts build this differently:
+ * - Tools: Extract state via getCurrentTaskInput(config)
+ * - Middleware: Use request.state directly
+ */
+interface StateAndStore {
+  /** Current agent state with files, messages, etc. */
+  state: unknown;
+  /** Optional BaseStore for persistent cross-conversation storage */
+  store?: BaseStore;
+  /** Optional assistant ID for per-assistant isolation in store */
+  assistantId?: string;
+}
+/**
+ * Factory function type for creating backend instances.
+ *
+ * Backends receive StateAndStore which contains the current state
+ * and optional store, extracted from the execution context.
+ *
+ * @example
+ * ```typescript
+ * // Using in middleware
+ * const middleware = createFilesystemMiddleware({
+ *   backend: (stateAndStore) => new StateBackend(stateAndStore)
+ * });
+ * ```
+ */
+type BackendFactory = (stateAndStore: StateAndStore) => BackendProtocol;
+//#endregion
+//#region src/middleware/fs.d.ts
+/**
+ * Options for creating filesystem middleware.
+ */
+interface FilesystemMiddlewareOptions {
+  /** Backend instance or factory (default: StateBackend) */
+  backend?: BackendProtocol | BackendFactory;
+  /** Optional custom system prompt override */
+  systemPrompt?: string | null;
+  /** Optional custom tool descriptions override */
+  customToolDescriptions?: Record<string, string> | null;
+  /** Optional token limit before evicting a tool result to the filesystem (default: 20000 tokens, ~80KB) */
+  toolTokenLimitBeforeEvict?: number | null;
+}
+/**
+ * Create filesystem middleware with all tools and features.
+ */
+declare function createFilesystemMiddleware(options?: FilesystemMiddlewareOptions): AgentMiddleware<z$1.ZodObject<{
+  files: z$1.ZodDefault<z$1.ZodRecord<z$1.ZodString, z$1.ZodObject<{
+    content: z$1.ZodArray<z$1.ZodString>;
+    created_at: z$1.ZodString;
+    modified_at: z$1.ZodString;
+  }, z$1.core.$strip>>>;
+}, z$1.core.$strip>, undefined, unknown, (langchain9.DynamicStructuredTool<z$1.ZodObject<{
+  path: z$1.ZodDefault<z$1.ZodOptional<z$1.ZodString>>;
+}, z$1.core.$strip>, {
+  path: string;
+}, {
+  path?: string | undefined;
+}, string, "ls"> | langchain9.DynamicStructuredTool<z$1.ZodObject<{
+  file_path: z$1.ZodString;
+  offset: z$1.ZodDefault<z$1.ZodOptional<z$1.ZodCoercedNumber<unknown>>>;
+  limit: z$1.ZodDefault<z$1.ZodOptional<z$1.ZodCoercedNumber<unknown>>>;
+}, z$1.core.$strip>, {
+  file_path: string;
+  offset: number;
+  limit: number;
+}, {
+  file_path: string;
+  offset?: unknown;
+  limit?: unknown;
+}, string, "read_file"> | langchain9.DynamicStructuredTool<z$1.ZodObject<{
+  file_path: z$1.ZodString;
+  content: z$1.ZodString;
+}, z$1.core.$strip>, {
+  file_path: string;
+  content: string;
+}, {
+  file_path: string;
+  content: string;
+}, string | ToolMessage<_messages.MessageStructure<_messages.MessageToolSet>> | Command<unknown, {
+  files: Record<string, FileData>;
+  messages: ToolMessage<_messages.MessageStructure<_messages.MessageToolSet>>[];
+}, string>, "write_file"> | langchain9.DynamicStructuredTool<z$1.ZodObject<{
+  file_path: z$1.ZodString;
+  old_string: z$1.ZodString;
+  new_string: z$1.ZodString;
+  replace_all: z$1.ZodDefault<z$1.ZodOptional<z$1.ZodBoolean>>;
+}, z$1.core.$strip>, {
+  file_path: string;
+  old_string: string;
+  new_string: string;
+  replace_all: boolean;
+}, {
+  file_path: string;
+  old_string: string;
+  new_string: string;
+  replace_all?: boolean | undefined;
+}, string | ToolMessage<_messages.MessageStructure<_messages.MessageToolSet>> | Command<unknown, {
+  files: Record<string, FileData>;
+  messages: ToolMessage<_messages.MessageStructure<_messages.MessageToolSet>>[];
+}, string>, "edit_file"> | langchain9.DynamicStructuredTool<z$1.ZodObject<{
+  pattern: z$1.ZodString;
+  path: z$1.ZodDefault<z$1.ZodOptional<z$1.ZodString>>;
+}, z$1.core.$strip>, {
+  pattern: string;
+  path: string;
+}, {
+  pattern: string;
+  path?: string | undefined;
+}, string, "glob"> | langchain9.DynamicStructuredTool<z$1.ZodObject<{
+  pattern: z$1.ZodString;
+  path: z$1.ZodDefault<z$1.ZodOptional<z$1.ZodString>>;
+  glob: z$1.ZodNullable<z$1.ZodOptional<z$1.ZodString>>;
+}, z$1.core.$strip>, {
+  pattern: string;
+  path: string;
+  glob?: string | null | undefined;
+}, {
+  pattern: string;
+  path?: string | undefined;
+  glob?: string | null | undefined;
+}, string, "grep"> | langchain9.DynamicStructuredTool<z$1.ZodObject<{
+  command: z$1.ZodString;
+}, z$1.core.$strip>, {
+  command: string;
+}, {
+  command: string;
+}, string, "execute">)[]>;
+//#endregion
+//#region src/middleware/subagents.d.ts
+/**
+ * Type definitions for pre-compiled agents.
+ *
+ * @typeParam TRunnable - The type of the runnable (ReactAgent or Runnable).
+ *   When using `createAgent`, this preserves the middleware types for type inference.
+ */
+interface CompiledSubAgent<TRunnable extends ReactAgent | Runnable = ReactAgent | Runnable> {
+  /** The name of the agent */
+  name: string;
+  /** The description of the agent */
+  description: string;
+  /** The agent instance */
+  runnable: TRunnable;
+}
+/**
+ * Type definitions for subagents
+ */
+interface SubAgent {
+  /** The name of the agent */
+  name: string;
+  /** The description of the agent */
+  description: string;
+  /** The system prompt to use for the agent */
+  systemPrompt: string;
+  /** The tools to use for the agent (tool instances, not names). Defaults to defaultTools */
+  tools?: StructuredTool[];
+  /** The model for the agent. Defaults to default_model */
+  model?: LanguageModelLike | string;
+  /** Additional middleware to append after default_middleware */
+  middleware?: readonly AgentMiddleware$1[];
+  /** The tool configs to use for the agent */
+  interruptOn?: Record<string, boolean | InterruptOnConfig>;
+}
+/**
+ * Options for creating subagent middleware
+ */
+interface SubAgentMiddlewareOptions {
+  /** The model to use for subagents */
+  defaultModel: LanguageModelLike | string;
+  /** The tools to use for the default general-purpose subagent */
+  defaultTools?: StructuredTool[];
+  /** Default middleware to apply to all subagents */
+  defaultMiddleware?: AgentMiddleware$1[] | null;
+  /** The tool configs for the default general-purpose subagent */
+  defaultInterruptOn?: Record<string, boolean | InterruptOnConfig> | null;
+  /** A list of additional subagents to provide to the agent */
+  subagents?: (SubAgent | CompiledSubAgent)[];
+  /** Full system prompt override */
+  systemPrompt?: string | null;
+  /** Whether to include the general-purpose agent */
+  generalPurposeAgent?: boolean;
+  /** Custom description for the task tool */
+  taskDescription?: string | null;
+}
+/**
+ * Create subagent middleware with task tool
+ */
+declare function createSubAgentMiddleware(options: SubAgentMiddlewareOptions): AgentMiddleware$1<undefined, undefined, unknown, readonly [langchain9.DynamicStructuredTool<z$1.ZodObject<{
+  description: z$1.ZodString;
+  subagent_type: z$1.ZodString;
+}, z$1.core.$strip>, {
+  description: string;
+  subagent_type: string;
+}, {
+  description: string;
+  subagent_type: string;
+}, string | Command<unknown, Record<string, unknown>, string>, "task">]>;
+//#endregion
+//#region src/middleware/patch_tool_calls.d.ts
+/**
+ * Create middleware that patches dangling tool calls in the messages history.
+ *
+ * When an AI message contains tool_calls but subsequent messages don't include
+ * the corresponding ToolMessage responses, this middleware adds synthetic
+ * ToolMessages saying the tool call was cancelled.
+ *
+ * @returns AgentMiddleware that patches dangling tool calls
+ *
+ * @example
+ * ```typescript
+ * import { createAgent } from "langchain";
+ * import { createPatchToolCallsMiddleware } from "./middleware/patch_tool_calls";
+ *
+ * const agent = createAgent({
+ *   model: "claude-sonnet-4-5-20250929",
+ *   middleware: [createPatchToolCallsMiddleware()],
+ * });
+ * ```
+ */
+declare function createPatchToolCallsMiddleware(): AgentMiddleware<undefined, undefined, unknown, readonly (_langchain_core_tools3.ClientTool | _langchain_core_tools3.ServerTool)[]>;
+//#endregion
+//#region src/backends/state.d.ts
+/**
+ * Backend that stores files in agent state (ephemeral).
+ *
+ * Uses LangGraph's state management and checkpointing. Files persist within
+ * a conversation thread but not across threads. State is automatically
+ * checkpointed after each agent step.
+ *
+ * Special handling: Since LangGraph state must be updated via Command objects
+ * (not direct mutation), operations return filesUpdate in WriteResult/EditResult
+ * for the middleware to apply via Command.
+ */
+declare class StateBackend implements BackendProtocol {
+  private stateAndStore;
+  constructor(stateAndStore: StateAndStore);
+  /**
+   * Get files from current state.
+   */
+  private getFiles;
+  /**
+   * List files and directories in the specified directory (non-recursive).
+   *
+   * @param path - Absolute path to directory
+   * @returns List of FileInfo objects for files and directories directly in the directory.
+   *          Directories have a trailing / in their path and is_dir=true.
+   */
+  lsInfo(path: string): FileInfo[];
+  /**
+   * Read file content with line numbers.
+   *
+   * @param filePath - Absolute file path
+   * @param offset - Line offset to start reading from (0-indexed)
+   * @param limit - Maximum number of lines to read
+   * @returns Formatted file content with line numbers, or error message
+   */
+  read(filePath: string, offset?: number, limit?: number): string;
+  /**
+   * Read file content as raw FileData.
+   *
+   * @param filePath - Absolute file path
+   * @returns Raw file content as FileData
+   */
+  readRaw(filePath: string): FileData;
+  /**
+   * Create a new file with content.
+   * Returns WriteResult with filesUpdate to update LangGraph state.
+   */
+  write(filePath: string, content: string): WriteResult;
+  /**
+   * Edit a file by replacing string occurrences.
+   * Returns EditResult with filesUpdate and occurrences.
+   */
+  edit(filePath: string, oldString: string, newString: string, replaceAll?: boolean): EditResult;
+  /**
+   * Structured search results or error string for invalid input.
+   */
+  grepRaw(pattern: string, path?: string, glob?: string | null): GrepMatch[] | string;
+  /**
+   * Structured glob matching returning FileInfo objects.
+   */
+  globInfo(pattern: string, path?: string): FileInfo[];
+  /**
+   * Upload multiple files.
+   *
+   * Note: Since LangGraph state must be updated via Command objects,
+   * the caller must apply filesUpdate via Command after calling this method.
+   *
+   * @param files - List of [path, content] tuples to upload
+   * @returns List of FileUploadResponse objects, one per input file
+   */
+  uploadFiles(files: Array<[string, Uint8Array]>): FileUploadResponse[] & {
+    filesUpdate?: Record<string, FileData>;
+  };
+  /**
+   * Download multiple files.
+   *
+   * @param paths - List of file paths to download
+   * @returns List of FileDownloadResponse objects, one per input path
+   */
+  downloadFiles(paths: string[]): FileDownloadResponse[];
+}
+//#endregion
+//#region src/middleware/memory.d.ts
+/**
+ * Options for the memory middleware.
+ */
+interface MemoryMiddlewareOptions {
+  /**
+   * Backend instance or factory function for file operations.
+   * Use a factory for StateBackend since it requires runtime state.
+   */
+  backend: BackendProtocol | BackendFactory | ((config: {
+    state: unknown;
+    store?: BaseStore;
+  }) => StateBackend);
+  /**
+   * List of memory file paths to load (e.g., ["~/.deepagents/AGENTS.md", "./.deepagents/AGENTS.md"]).
+   * Display names are automatically derived from the paths.
+   * Sources are loaded in order.
+   */
+  sources: string[];
+}
+/**
+ * Create middleware for loading agent memory from AGENTS.md files.
+ *
+ * Loads memory content from configured sources and injects into the system prompt.
+ * Supports multiple sources that are combined together.
+ *
+ * @param options - Configuration options
+ * @returns AgentMiddleware for memory loading and injection
+ *
+ * @example
+ * ```typescript
+ * const middleware = createMemoryMiddleware({
+ *   backend: new FilesystemBackend({ rootDir: "/" }),
+ *   sources: [
+ *     "~/.deepagents/AGENTS.md",
+ *     "./.deepagents/AGENTS.md",
+ *   ],
+ * });
+ * ```
+ */
+declare function createMemoryMiddleware(options: MemoryMiddlewareOptions): AgentMiddleware<z.ZodObject<{
+  memoryContents: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
+}, z.core.$strip>, undefined, unknown, readonly (_langchain_core_tools3.ClientTool | _langchain_core_tools3.ServerTool)[]>;
+//#endregion
+//#region src/middleware/skills.d.ts
+declare const MAX_SKILL_FILE_SIZE: number;
+declare const MAX_SKILL_NAME_LENGTH = 64;
+declare const MAX_SKILL_DESCRIPTION_LENGTH = 1024;
+/**
+ * Metadata for a skill per Agent Skills specification.
+ */
+interface SkillMetadata$1 {
+  /** Skill identifier (max 64 chars, lowercase alphanumeric and hyphens) */
+  name: string;
+  /** What the skill does (max 1024 chars) */
+  description: string;
+  /** Path to the SKILL.md file in the backend */
+  path: string;
+  /** License name or reference to bundled license file */
+  license?: string | null;
+  /** Environment requirements (max 500 chars) */
+  compatibility?: string | null;
+  /** Arbitrary key-value mapping for additional metadata */
+  metadata?: Record<string, string>;
+  /** List of pre-approved tools (experimental) */
+  allowedTools?: string[];
+}
+/**
+ * Options for the skills middleware.
+ */
+interface SkillsMiddlewareOptions {
+  /**
+   * Backend instance or factory function for file operations.
+   * Use a factory for StateBackend since it requires runtime state.
+   */
+  backend: BackendProtocol | BackendFactory | ((config: {
+    state: unknown;
+    store?: BaseStore;
+  }) => StateBackend);
+  /**
+   * List of skill source paths to load (e.g., ["/skills/user/", "/skills/project/"]).
+   * Paths must use POSIX conventions (forward slashes).
+   * Later sources override earlier ones for skills with the same name (last one wins).
+   */
+  sources: string[];
+}
+/**
+ * Create backend-agnostic middleware for loading and exposing agent skills.
+ *
+ * This middleware loads skills from configurable backend sources and injects
+ * skill metadata into the system prompt. It implements the progressive disclosure
+ * pattern: skill names and descriptions are shown in the prompt, but the agent
+ * reads full SKILL.md content only when needed.
+ *
+ * @param options - Configuration options
+ * @returns AgentMiddleware for skills loading and injection
+ *
+ * @example
+ * ```typescript
+ * const middleware = createSkillsMiddleware({
+ *   backend: new FilesystemBackend({ rootDir: "/" }),
+ *   sources: ["/skills/user/", "/skills/project/"],
+ * });
+ * ```
+ */
+declare function createSkillsMiddleware(options: SkillsMiddlewareOptions): AgentMiddleware<z.ZodObject<{
+  skillsMetadata: z.ZodOptional<z.ZodArray<z.ZodObject<{
+    name: z.ZodString;
+    description: z.ZodString;
+    path: z.ZodString;
+    license: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    compatibility: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    metadata: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
+    allowedTools: z.ZodOptional<z.ZodArray<z.ZodString>>;
+  }, z.core.$strip>>>;
+}, z.core.$strip>, undefined, unknown, readonly (_langchain_core_tools3.ClientTool | _langchain_core_tools3.ServerTool)[]>;
+//#endregion
+//#region src/backends/store.d.ts
+/**
+ * Backend that stores files in LangGraph's BaseStore (persistent).
+ *
+ * Uses LangGraph's Store for persistent, cross-conversation storage.
+ * Files are organized via namespaces and persist across all threads.
+ *
+ * The namespace can include an optional assistant_id for multi-agent isolation.
+ */
+declare class StoreBackend implements BackendProtocol {
+  private stateAndStore;
+  constructor(stateAndStore: StateAndStore);
+  /**
+   * Get the store instance.
+   *
+   * @returns BaseStore instance
+   * @throws Error if no store is available
+   */
+  private getStore;
+  /**
+   * Get the namespace for store operations.
+   *
+   * If an assistant_id is available in stateAndStore, return
+   * [assistant_id, "filesystem"] to provide per-assistant isolation.
+   * Otherwise return ["filesystem"].
+   */
+  protected getNamespace(): string[];
+  /**
+   * Convert a store Item to FileData format.
+   *
+   * @param storeItem - The store Item containing file data
+   * @returns FileData object
+   * @throws Error if required fields are missing or have incorrect types
+   */
+  private convertStoreItemToFileData;
+  /**
+   * Convert FileData to a value suitable for store.put().
+   *
+   * @param fileData - The FileData to convert
+   * @returns Object with content, created_at, and modified_at fields
+   */
+  private convertFileDataToStoreValue;
+  /**
+   * Search store with automatic pagination to retrieve all results.
+   *
+   * @param store - The store to search
+   * @param namespace - Hierarchical path prefix to search within
+   * @param options - Optional query, filter, and page_size
+   * @returns List of all items matching the search criteria
+   */
+  private searchStorePaginated;
+  /**
+   * List files and directories in the specified directory (non-recursive).
+   *
+   * @param path - Absolute path to directory
+   * @returns List of FileInfo objects for files and directories directly in the directory.
+   *          Directories have a trailing / in their path and is_dir=true.
+   */
+  lsInfo(path: string): Promise<FileInfo[]>;
+  /**
+   * Read file content with line numbers.
+   *
+   * @param filePath - Absolute file path
+   * @param offset - Line offset to start reading from (0-indexed)
+   * @param limit - Maximum number of lines to read
+   * @returns Formatted file content with line numbers, or error message
+   */
+  read(filePath: string, offset?: number, limit?: number): Promise<string>;
+  /**
+   * Read file content as raw FileData.
+   *
+   * @param filePath - Absolute file path
+   * @returns Raw file content as FileData
+   */
+  readRaw(filePath: string): Promise<FileData>;
+  /**
+   * Create a new file with content.
+   * Returns WriteResult. External storage sets filesUpdate=null.
+   */
+  write(filePath: string, content: string): Promise<WriteResult>;
+  /**
+   * Edit a file by replacing string occurrences.
+   * Returns EditResult. External storage sets filesUpdate=null.
+   */
+  edit(filePath: string, oldString: string, newString: string, replaceAll?: boolean): Promise<EditResult>;
+  /**
+   * Structured search results or error string for invalid input.
+   */
+  grepRaw(pattern: string, path?: string, glob?: string | null): Promise<GrepMatch[] | string>;
+  /**
+   * Structured glob matching returning FileInfo objects.
+   */
+  globInfo(pattern: string, path?: string): Promise<FileInfo[]>;
+  /**
+   * Upload multiple files.
+   *
+   * @param files - List of [path, content] tuples to upload
+   * @returns List of FileUploadResponse objects, one per input file
+   */
+  uploadFiles(files: Array<[string, Uint8Array]>): Promise<FileUploadResponse[]>;
+  /**
+   * Download multiple files.
+   *
+   * @param paths - List of file paths to download
+   * @returns List of FileDownloadResponse objects, one per input path
+   */
+  downloadFiles(paths: string[]): Promise<FileDownloadResponse[]>;
+}
+//#endregion
+//#region src/backends/filesystem.d.ts
+/**
+ * Backend that reads and writes files directly from the filesystem.
+ *
+ * Files are accessed using their actual filesystem paths. Relative paths are
+ * resolved relative to the current working directory. Content is read/written
+ * as plain text, and metadata (timestamps) are derived from filesystem stats.
+ */
+declare class FilesystemBackend implements BackendProtocol {
+  private cwd;
+  private virtualMode;
+  private maxFileSizeBytes;
+  constructor(options?: {
+    rootDir?: string;
+    virtualMode?: boolean;
+    maxFileSizeMb?: number;
+  });
+  /**
+   * Resolve a file path with security checks.
+   *
+   * When virtualMode=true, treat incoming paths as virtual absolute paths under
+   * this.cwd, disallow traversal (.., ~) and ensure resolved path stays within root.
+   * When virtualMode=false, preserve legacy behavior: absolute paths are allowed
+   * as-is; relative paths resolve under cwd.
+   *
+   * @param key - File path (absolute, relative, or virtual when virtualMode=true)
+   * @returns Resolved absolute path string
+   * @throws Error if path traversal detected or path outside root
+   */
+  private resolvePath;
+  /**
+   * List files and directories in the specified directory (non-recursive).
+   *
+   * @param dirPath - Absolute directory path to list files from
+   * @returns List of FileInfo objects for files and directories directly in the directory.
+   *          Directories have a trailing / in their path and is_dir=true.
+   */
+  lsInfo(dirPath: string): Promise<FileInfo[]>;
+  /**
+   * Read file content with line numbers.
+   *
+   * @param filePath - Absolute or relative file path
+   * @param offset - Line offset to start reading from (0-indexed)
+   * @param limit - Maximum number of lines to read
+   * @returns Formatted file content with line numbers, or error message
+   */
+  read(filePath: string, offset?: number, limit?: number): Promise<string>;
+  /**
+   * Read file content as raw FileData.
+   *
+   * @param filePath - Absolute file path
+   * @returns Raw file content as FileData
+   */
+  readRaw(filePath: string): Promise<FileData>;
+  /**
+   * Create a new file with content.
+   * Returns WriteResult. External storage sets filesUpdate=null.
+   */
+  write(filePath: string, content: string): Promise<WriteResult>;
+  /**
+   * Edit a file by replacing string occurrences.
+   * Returns EditResult. External storage sets filesUpdate=null.
+   */
+  edit(filePath: string, oldString: string, newString: string, replaceAll?: boolean): Promise<EditResult>;
+  /**
+   * Structured search results or error string for invalid input.
+   */
+  grepRaw(pattern: string, dirPath?: string, glob?: string | null): Promise<GrepMatch[] | string>;
+  /**
+   * Try to use ripgrep for fast searching.
+   * Returns null if ripgrep is not available or fails.
+   */
+  private ripgrepSearch;
+  /**
+   * Fallback regex search implementation.
+   */
+  private pythonSearch;
+  /**
+   * Structured glob matching returning FileInfo objects.
+   */
+  globInfo(pattern: string, searchPath?: string): Promise<FileInfo[]>;
+  /**
+   * Upload multiple files to the filesystem.
+   *
+   * @param files - List of [path, content] tuples to upload
+   * @returns List of FileUploadResponse objects, one per input file
+   */
+  uploadFiles(files: Array<[string, Uint8Array]>): Promise<FileUploadResponse[]>;
+  /**
+   * Download multiple files from the filesystem.
+   *
+   * @param paths - List of file paths to download
+   * @returns List of FileDownloadResponse objects, one per input path
+   */
+  downloadFiles(paths: string[]): Promise<FileDownloadResponse[]>;
+}
+//#endregion
+//#region src/backends/composite.d.ts
+/**
+ * Backend that routes file operations to different backends based on path prefix.
+ *
+ * This enables hybrid storage strategies like:
+ * - `/memories/` → StoreBackend (persistent, cross-thread)
+ * - Everything else → StateBackend (ephemeral, per-thread)
+ *
+ * The CompositeBackend handles path prefix stripping/re-adding transparently.
+ */
+declare class CompositeBackend implements BackendProtocol {
+  private default;
+  private routes;
+  private sortedRoutes;
+  constructor(defaultBackend: BackendProtocol, routes: Record<string, BackendProtocol>);
+  /**
+   * Determine which backend handles this key and strip prefix.
+   *
+   * @param key - Original file path
+   * @returns Tuple of [backend, stripped_key] where stripped_key has the route
+   *          prefix removed (but keeps leading slash).
+   */
+  private getBackendAndKey;
+  /**
+   * List files and directories in the specified directory (non-recursive).
+   *
+   * @param path - Absolute path to directory
+   * @returns List of FileInfo objects with route prefixes added, for files and directories
+   *          directly in the directory. Directories have a trailing / in their path and is_dir=true.
+   */
+  lsInfo(path: string): Promise<FileInfo[]>;
+  /**
+   * Read file content, routing to appropriate backend.
+   *
+   * @param filePath - Absolute file path
+   * @param offset - Line offset to start reading from (0-indexed)
+   * @param limit - Maximum number of lines to read
+   * @returns Formatted file content with line numbers, or error message
+   */
+  read(filePath: string, offset?: number, limit?: number): Promise<string>;
+  /**
+   * Read file content as raw FileData.
+   *
+   * @param filePath - Absolute file path
+   * @returns Raw file content as FileData
+   */
+  readRaw(filePath: string): Promise<FileData>;
+  /**
+   * Structured search results or error string for invalid input.
+   */
+  grepRaw(pattern: string, path?: string, glob?: string | null): Promise<GrepMatch[] | string>;
+  /**
+   * Structured glob matching returning FileInfo objects.
+   */
+  globInfo(pattern: string, path?: string): Promise<FileInfo[]>;
+  /**
+   * Create a new file, routing to appropriate backend.
+   *
+   * @param filePath - Absolute file path
+   * @param content - File content as string
+   * @returns WriteResult with path or error
+   */
+  write(filePath: string, content: string): Promise<WriteResult>;
+  /**
+   * Edit a file, routing to appropriate backend.
+   *
+   * @param filePath - Absolute file path
+   * @param oldString - String to find and replace
+   * @param newString - Replacement string
+   * @param replaceAll - If true, replace all occurrences
+   * @returns EditResult with path, occurrences, or error
+   */
+  edit(filePath: string, oldString: string, newString: string, replaceAll?: boolean): Promise<EditResult>;
+  /**
+   * Execute a command via the default backend.
+   * Execution is not path-specific, so it always delegates to the default backend.
+   *
+   * @param command - Full shell command string to execute
+   * @returns ExecuteResponse with combined output, exit code, and truncation flag
+   * @throws Error if the default backend doesn't support command execution
+   */
+  execute(command: string): Promise<ExecuteResponse>;
+  /**
+   * Upload multiple files, batching by backend for efficiency.
+   *
+   * @param files - List of [path, content] tuples to upload
+   * @returns List of FileUploadResponse objects, one per input file
+   */
+  uploadFiles(files: Array<[string, Uint8Array]>): Promise<FileUploadResponse[]>;
+  /**
+   * Download multiple files, batching by backend for efficiency.
+   *
+   * @param paths - List of file paths to download
+   * @returns List of FileDownloadResponse objects, one per input path
+   */
+  downloadFiles(paths: string[]): Promise<FileDownloadResponse[]>;
+}
+//#endregion
+//#region src/backends/sandbox.d.ts
+/**
+ * Base sandbox implementation with execute() as the only abstract method.
+ *
+ * This class provides default implementations for all SandboxBackendProtocol
+ * methods using shell commands executed via execute(). Concrete implementations
+ * only need to implement the execute() method.
+ *
+ * Requires Node.js 20+ on the sandbox host.
+ */
+declare abstract class BaseSandbox implements SandboxBackendProtocol {
+  /** Unique identifier for the sandbox backend */
+  abstract readonly id: string;
+  /**
+   * Execute a command in the sandbox.
+   * This is the only method concrete implementations must provide.
+   */
+  abstract execute(command: string): MaybePromise<ExecuteResponse>;
+  /**
+   * Upload multiple files to the sandbox.
+   * Implementations must support partial success.
+   */
+  abstract uploadFiles(files: Array<[string, Uint8Array]>): MaybePromise<FileUploadResponse[]>;
+  /**
+   * Download multiple files from the sandbox.
+   * Implementations must support partial success.
+   */
+  abstract downloadFiles(paths: string[]): MaybePromise<FileDownloadResponse[]>;
+  /**
+   * List files and directories in the specified directory (non-recursive).
+   *
+   * @param path - Absolute path to directory
+   * @returns List of FileInfo objects for files and directories directly in the directory.
+   */
+  lsInfo(path: string): Promise<FileInfo[]>;
+  /**
+   * Read file content with line numbers.
+   *
+   * @param filePath - Absolute file path
+   * @param offset - Line offset to start reading from (0-indexed)
+   * @param limit - Maximum number of lines to read
+   * @returns Formatted file content with line numbers, or error message
+   */
+  read(filePath: string, offset?: number, limit?: number): Promise<string>;
+  /**
+   * Read file content as raw FileData.
+   *
+   * @param filePath - Absolute file path
+   * @returns Raw file content as FileData
+   */
+  readRaw(filePath: string): Promise<FileData>;
+  /**
+   * Structured search results or error string for invalid input.
+   */
+  grepRaw(pattern: string, path?: string, glob?: string | null): Promise<GrepMatch[] | string>;
+  /**
+   * Structured glob matching returning FileInfo objects.
+   */
+  globInfo(pattern: string, path?: string): Promise<FileInfo[]>;
+  /**
+   * Create a new file with content.
+   */
+  write(filePath: string, content: string): Promise<WriteResult>;
+  /**
+   * Edit a file by replacing string occurrences.
+   */
+  edit(filePath: string, oldString: string, newString: string, replaceAll?: boolean): Promise<EditResult>;
+}
+//#endregion
+//#region src/types.d.ts
+type AnyAnnotationRoot = AnnotationRoot<any>;
+/**
+ * Helper type to extract middleware from a SubAgent definition
+ * Handles both mutable and readonly middleware arrays
+ */
+type ExtractSubAgentMiddleware<T> = T extends {
+  middleware?: infer M;
+} ? M extends readonly AgentMiddleware[] ? M : M extends AgentMiddleware[] ? M : readonly [] : readonly [];
+/**
+ * Helper type to flatten and merge middleware from all subagents
+ */
+type FlattenSubAgentMiddleware<T extends readonly (SubAgent | CompiledSubAgent)[]> = T extends readonly [] ? readonly [] : T extends readonly [infer First, ...infer Rest] ? Rest extends readonly (SubAgent | CompiledSubAgent)[] ? readonly [...ExtractSubAgentMiddleware<First>, ...FlattenSubAgentMiddleware<Rest>] : ExtractSubAgentMiddleware<First> : readonly [];
+/**
+ * Helper type to merge states from subagent middleware
+ */
+type InferSubAgentMiddlewareStates<T extends readonly (SubAgent | CompiledSubAgent)[]> = InferMiddlewareStates<FlattenSubAgentMiddleware<T>>;
+/**
+ * Combined state type including custom middleware and subagent middleware states
+ */
+type MergedDeepAgentState<TMiddleware extends readonly AgentMiddleware[], TSubagents extends readonly (SubAgent | CompiledSubAgent)[]> = InferMiddlewareStates<TMiddleware> & InferSubAgentMiddlewareStates<TSubagents>;
+/**
+ * Type bag that extends AgentTypeConfig with subagent type information.
+ *
+ * This interface bundles all the generic type parameters used throughout the deep agent system
+ * including subagent types for type-safe streaming and delegation.
+ *
+ * @typeParam TResponse - The structured response type when using `responseFormat`.
+ * @typeParam TState - The custom state schema type.
+ * @typeParam TContext - The context schema type.
+ * @typeParam TMiddleware - The middleware array type.
+ * @typeParam TTools - The combined tools type.
+ * @typeParam TSubagents - The subagents array type for type-safe streaming.
+ *
+ * @example
+ * ```typescript
+ * const agent = createDeepAgent({
+ *   middleware: [ResearchMiddleware],
+ *   subagents: [
+ *     { name: "researcher", description: "...", middleware: [CounterMiddleware] }
+ *   ] as const,
+ * });
+ *
+ * // Type inference for streaming
+ * type Types = InferDeepAgentType<typeof agent, "Subagents">;
+ * ```
+ */
+interface DeepAgentTypeConfig<TResponse extends Record<string, any> | ResponseFormatUndefined = Record<string, any> | ResponseFormatUndefined, TState extends AnyAnnotationRoot | InteropZodObject | undefined = AnyAnnotationRoot | InteropZodObject | undefined, TContext extends AnyAnnotationRoot | InteropZodObject = AnyAnnotationRoot | InteropZodObject, TMiddleware extends readonly AgentMiddleware[] = readonly AgentMiddleware[], TTools extends readonly (ClientTool | ServerTool)[] = readonly (ClientTool | ServerTool)[], TSubagents extends readonly (SubAgent | CompiledSubAgent)[] = readonly (SubAgent | CompiledSubAgent)[]> extends AgentTypeConfig<TResponse, TState, TContext, TMiddleware, TTools> {
+  /** The subagents array type for type-safe streaming */
+  Subagents: TSubagents;
+}
+/**
+ * Default type configuration for deep agents.
+ * Used when no explicit type parameters are provided.
+ */
+interface DefaultDeepAgentTypeConfig extends DeepAgentTypeConfig {
+  Response: Record<string, any>;
+  State: undefined;
+  Context: AnyAnnotationRoot;
+  Middleware: readonly AgentMiddleware[];
+  Tools: readonly (ClientTool | ServerTool)[];
+  Subagents: readonly (SubAgent | CompiledSubAgent)[];
+}
+/**
+ * DeepAgent extends ReactAgent with additional subagent type information.
+ *
+ * This type wraps ReactAgent but includes the DeepAgentTypeConfig which
+ * contains subagent types for type-safe streaming and delegation.
+ *
+ * @typeParam TTypes - The DeepAgentTypeConfig containing all type parameters
+ *
+ * @example
+ * ```typescript
+ * const agent: DeepAgent<DeepAgentTypeConfig<...>> = createDeepAgent({ ... });
+ *
+ * // Access subagent types for streaming
+ * type Subagents = InferDeepAgentSubagents<typeof agent>;
+ * ```
+ */
+type DeepAgent<TTypes extends DeepAgentTypeConfig = DeepAgentTypeConfig> = ReactAgent<TTypes> & {
+  /** Type brand for DeepAgent type inference */
+  readonly "~deepAgentTypes": TTypes;
+};
+/**
+ * Helper type to resolve a DeepAgentTypeConfig from either:
+ * - A DeepAgentTypeConfig directly
+ * - A DeepAgent instance (using `typeof agent`)
+ *
+ * @example
+ * ```typescript
+ * const agent = createDeepAgent({ ... });
+ * type Types = ResolveDeepAgentTypeConfig<typeof agent>;
+ * ```
+ */
+type ResolveDeepAgentTypeConfig<T> = T extends {
+  "~deepAgentTypes": infer Types;
+} ? Types extends DeepAgentTypeConfig ? Types : never : T extends DeepAgentTypeConfig ? T : never;
+/**
+ * Helper type to extract any property from a DeepAgentTypeConfig or DeepAgent.
+ *
+ * @typeParam T - The DeepAgentTypeConfig or DeepAgent to extract from
+ * @typeParam K - The property key to extract
+ *
+ * @example
+ * ```typescript
+ * const agent = createDeepAgent({ subagents: [...] });
+ * type Subagents = InferDeepAgentType<typeof agent, "Subagents">;
+ * ```
+ */
+type InferDeepAgentType<T, K extends keyof DeepAgentTypeConfig> = ResolveDeepAgentTypeConfig<T>[K];
+/**
+ * Shorthand helper to extract the Subagents type from a DeepAgentTypeConfig or DeepAgent.
+ *
+ * @example
+ * ```typescript
+ * const agent = createDeepAgent({ subagents: [subagent1, subagent2] });
+ * type Subagents = InferDeepAgentSubagents<typeof agent>;
+ * ```
+ */
+type InferDeepAgentSubagents<T> = InferDeepAgentType<T, "Subagents">;
+/**
+ * Helper type to extract a subagent by name from a DeepAgent.
+ *
+ * @typeParam T - The DeepAgent to extract from
+ * @typeParam TName - The name of the subagent to extract
+ *
+ * @example
+ * ```typescript
+ * const agent = createDeepAgent({
+ *   subagents: [
+ *     { name: "researcher", description: "...", middleware: [ResearchMiddleware] }
+ *   ] as const,
+ * });
+ *
+ * type ResearcherAgent = InferSubagentByName<typeof agent, "researcher">;
+ * ```
+ */
+type InferSubagentByName<T, TName extends string> = InferDeepAgentSubagents<T> extends readonly (infer SA)[] ? SA extends {
+  name: TName;
+} ? SA : never : never;
+/**
+ * Helper type to extract the ReactAgent type from a subagent definition.
+ * This is useful for type-safe streaming of subagent events.
+ *
+ * @typeParam TSubagent - The subagent definition
+ *
+ * @example
+ * ```typescript
+ * type SubagentMiddleware = ExtractSubAgentMiddleware<typeof subagent>;
+ * type SubagentState = InferMiddlewareStates<SubagentMiddleware>;
+ * ```
+ */
+type InferSubagentReactAgentType<TSubagent extends SubAgent | CompiledSubAgent> = TSubagent extends CompiledSubAgent ? TSubagent["runnable"] : TSubagent extends SubAgent ? ReactAgent<AgentTypeConfig<ResponseFormatUndefined, undefined, AnyAnnotationRoot, ExtractSubAgentMiddleware<TSubagent>, readonly []>> : never;
+/**
+ * Configuration parameters for creating a Deep Agent
+ * Matches Python's create_deep_agent parameters
+ *
+ * @typeParam TResponse - The structured response type when using responseFormat
+ * @typeParam ContextSchema - The context schema type
+ * @typeParam TMiddleware - The middleware array type for proper type inference
+ * @typeParam TSubagents - The subagents array type for extracting subagent middleware states
+ * @typeParam TTools - The tools array type
+ */
+interface CreateDeepAgentParams<TResponse extends ResponseFormat = ResponseFormat, ContextSchema extends AnnotationRoot<any> | InteropZodObject = AnnotationRoot<any>, TMiddleware extends readonly AgentMiddleware[] = readonly AgentMiddleware[], TSubagents extends readonly (SubAgent | CompiledSubAgent)[] = readonly (SubAgent | CompiledSubAgent)[], TTools extends readonly (ClientTool | ServerTool)[] = readonly (ClientTool | ServerTool)[]> {
+  /** The model to use (model name string or LanguageModelLike instance). Defaults to claude-sonnet-4-5-20250929 */
+  model?: BaseLanguageModel | string;
+  /** Tools the agent should have access to */
+  tools?: TTools | StructuredTool$1[];
+  /** Custom system prompt for the agent. This will be combined with the base agent prompt */
+  systemPrompt?: string | SystemMessage;
+  /** Custom middleware to apply after standard middleware */
+  middleware?: TMiddleware;
+  /** List of subagent specifications for task delegation */
+  subagents?: TSubagents;
+  /** Structured output response format for the agent (Zod schema or other format) */
+  responseFormat?: TResponse;
+  /** Optional schema for context (not persisted between invocations) */
+  contextSchema?: ContextSchema;
+  /** Optional checkpointer for persisting agent state between runs */
+  checkpointer?: BaseCheckpointSaver | boolean;
+  /** Optional store for persisting longterm memories */
+  store?: BaseStore;
+  /**
+   * Optional backend for filesystem operations.
+   * Can be either a backend instance or a factory function that creates one.
+   * The factory receives a config object with state and store.
+   */
+  backend?: BackendProtocol | ((config: {
+    state: unknown;
+    store?: BaseStore;
+  }) => BackendProtocol);
+  /** Optional interrupt configuration mapping tool names to interrupt configs */
+  interruptOn?: Record<string, boolean | InterruptOnConfig>;
+  /** The name of the agent */
+  name?: string;
+  /**
+   * Optional list of memory file paths (AGENTS.md files) to load
+   * (e.g., ["~/.deepagents/AGENTS.md", "./.deepagents/AGENTS.md"]).
+   * Display names are automatically derived from paths.
+   * Memory is loaded at agent startup and added into the system prompt.
+   */
+  memory?: string[];
+  /**
+   * Optional list of skill source paths (e.g., `["/skills/user/", "/skills/project/"]`).
+   *
+   * Paths use POSIX conventions (forward slashes) and are relative to the backend's root.
+   * Later sources override earlier ones for skills with the same name (last one wins).
+   *
+   * @example
+   * ```typescript
+   * // With FilesystemBackend - skills loaded from disk
+   * const agent = await createDeepAgent({
+   *   backend: new FilesystemBackend({ rootDir: "/home/user/.deepagents" }),
+   *   skills: ["/skills/"],
+   * });
+   *
+   * // With StateBackend - skills provided in state
+   * const agent = await createDeepAgent({
+   *   skills: ["/skills/"],
+   * });
+   * const result = await agent.invoke({
+   *   messages: [...],
+   *   files: {
+   *     "/skills/my-skill/SKILL.md": {
+   *       content: ["---", "name: my-skill", "description: ...", "---", "# My Skill"],
+   *       created_at: new Date().toISOString(),
+   *       modified_at: new Date().toISOString(),
+   *     },
+   *   },
+   * });
+   * ```
+   */
+  skills?: string[];
+}
+//#endregion
+//#region src/agent.d.ts
+/**
+ * Create a Deep Agent with middleware-based architecture.
+ *
+ * Matches Python's create_deep_agent function, using middleware for all features:
+ * - Todo management (todoListMiddleware)
+ * - Filesystem tools (createFilesystemMiddleware)
+ * - Subagent delegation (createSubAgentMiddleware)
+ * - Conversation summarization (summarizationMiddleware)
+ * - Prompt caching (anthropicPromptCachingMiddleware)
+ * - Tool call patching (createPatchToolCallsMiddleware)
+ * - Human-in-the-loop (humanInTheLoopMiddleware) - optional
+ *
+ * @param params Configuration parameters for the agent
+ * @returns ReactAgent instance ready for invocation with properly inferred state types
+ *
+ * @example
+ * ```typescript
+ * // Middleware with custom state
+ * const ResearchMiddleware = createMiddleware({
+ *   name: "ResearchMiddleware",
+ *   stateSchema: z.object({ research: z.string().default("") }),
+ * });
+ *
+ * const agent = createDeepAgent({
+ *   middleware: [ResearchMiddleware],
+ * });
+ *
+ * const result = await agent.invoke({ messages: [...] });
+ * // result.research is properly typed as string
+ * ```
+ */
+declare function createDeepAgent<TResponse extends ResponseFormat = ResponseFormat, ContextSchema extends InteropZodObject = InteropZodObject, const TMiddleware extends readonly AgentMiddleware[] = readonly [], const TSubagents extends readonly (SubAgent | CompiledSubAgent)[] = readonly [], const TTools extends readonly (ClientTool | ServerTool)[] = readonly []>(params?: CreateDeepAgentParams<TResponse, ContextSchema, TMiddleware, TSubagents, TTools>): DeepAgent<DeepAgentTypeConfig<TResponse, undefined, ContextSchema, readonly [AgentMiddleware<zod_v30.ZodObject<{
+  todos: zod_v30.ZodDefault<zod_v30.ZodArray<zod_v30.ZodObject<{
+    content: zod_v30.ZodString;
+    status: zod_v30.ZodEnum<["pending", "in_progress", "completed"]>;
+  }, "strip", zod_v30.ZodTypeAny, {
+    content: string;
+    status: "completed" | "in_progress" | "pending";
+  }, {
+    content: string;
+    status: "completed" | "in_progress" | "pending";
+  }>, "many">>;
+}, "strip", zod_v30.ZodTypeAny, {
+  todos: {
+    content: string;
+    status: "completed" | "in_progress" | "pending";
+  }[];
+}, {
+  todos?: {
+    content: string;
+    status: "completed" | "in_progress" | "pending";
+  }[] | undefined;
+}>, undefined, unknown, readonly [langchain9.DynamicStructuredTool<zod_v30.ZodObject<{
+  todos: zod_v30.ZodArray<zod_v30.ZodObject<{
+    content: zod_v30.ZodString;
+    status: zod_v30.ZodEnum<["pending", "in_progress", "completed"]>;
+  }, "strip", zod_v30.ZodTypeAny, {
+    content: string;
+    status: "completed" | "in_progress" | "pending";
+  }, {
+    content: string;
+    status: "completed" | "in_progress" | "pending";
+  }>, "many">;
+}, "strip", zod_v30.ZodTypeAny, {
+  todos: {
+    content: string;
+    status: "completed" | "in_progress" | "pending";
+  }[];
+}, {
+  todos: {
+    content: string;
+    status: "completed" | "in_progress" | "pending";
+  }[];
+}>, {
+  todos: {
+    content: string;
+    status: "completed" | "in_progress" | "pending";
+  }[];
+}, {
+  todos: {
+    content: string;
+    status: "completed" | "in_progress" | "pending";
+  }[];
+}, _Command.Command<unknown, {
+  todos: {
+    content: string;
+    status: "completed" | "in_progress" | "pending";
+  }[];
+  messages: _messages.ToolMessage<_messages.MessageStructure<_messages.MessageToolSet>>[];
+}, string>, "write_todos">]>, ...(AgentMiddleware<zod0.ZodObject<{
+  skillsMetadata: zod0.ZodOptional<zod0.ZodArray<zod0.ZodObject<{
+    name: zod0.ZodString;
+    description: zod0.ZodString;
+    path: zod0.ZodString;
+    license: zod0.ZodOptional<zod0.ZodNullable<zod0.ZodString>>;
+    compatibility: zod0.ZodOptional<zod0.ZodNullable<zod0.ZodString>>;
+    metadata: zod0.ZodOptional<zod0.ZodRecord<zod0.ZodString, zod0.ZodString>>;
+    allowedTools: zod0.ZodOptional<zod0.ZodArray<zod0.ZodString>>;
+  }, zod_v4_core0.$strip>>>;
+}, zod_v4_core0.$strip>, undefined, unknown, readonly (ClientTool | ServerTool)[]> | AgentMiddleware<zod0.ZodObject<{
+  files: zod0.ZodDefault<zod0.ZodRecord<zod0.ZodString, zod0.ZodObject<{
+    content: zod0.ZodArray<zod0.ZodString>;
+    created_at: zod0.ZodString;
+    modified_at: zod0.ZodString;
+  }, zod_v4_core0.$strip>>>;
+}, zod_v4_core0.$strip>, undefined, unknown, (langchain9.DynamicStructuredTool<zod0.ZodObject<{
+  path: zod0.ZodDefault<zod0.ZodOptional<zod0.ZodString>>;
+}, zod_v4_core0.$strip>, {
+  path: string;
+}, {
+  path?: string | undefined;
+}, string, "ls"> | langchain9.DynamicStructuredTool<zod0.ZodObject<{
+  file_path: zod0.ZodString;
+  offset: zod0.ZodDefault<zod0.ZodOptional<zod0.ZodCoercedNumber<unknown>>>;
+  limit: zod0.ZodDefault<zod0.ZodOptional<zod0.ZodCoercedNumber<unknown>>>;
+}, zod_v4_core0.$strip>, {
+  file_path: string;
+  offset: number;
+  limit: number;
+}, {
+  file_path: string;
+  offset?: unknown;
+  limit?: unknown;
+}, string, "read_file"> | langchain9.DynamicStructuredTool<zod0.ZodObject<{
+  file_path: zod0.ZodString;
+  content: zod0.ZodString;
+}, zod_v4_core0.$strip>, {
+  file_path: string;
+  content: string;
+}, {
+  file_path: string;
+  content: string;
+}, string | _messages.ToolMessage<_messages.MessageStructure<_messages.MessageToolSet>> | _Command.Command<unknown, {
+  files: Record<string, FileData>;
+  messages: _messages.ToolMessage<_messages.MessageStructure<_messages.MessageToolSet>>[];
+}, string>, "write_file"> | langchain9.DynamicStructuredTool<zod0.ZodObject<{
+  file_path: zod0.ZodString;
+  old_string: zod0.ZodString;
+  new_string: zod0.ZodString;
+  replace_all: zod0.ZodDefault<zod0.ZodOptional<zod0.ZodBoolean>>;
+}, zod_v4_core0.$strip>, {
+  file_path: string;
+  old_string: string;
+  new_string: string;
+  replace_all: boolean;
+}, {
+  file_path: string;
+  old_string: string;
+  new_string: string;
+  replace_all?: boolean | undefined;
+}, string | _messages.ToolMessage<_messages.MessageStructure<_messages.MessageToolSet>> | _Command.Command<unknown, {
+  files: Record<string, FileData>;
+  messages: _messages.ToolMessage<_messages.MessageStructure<_messages.MessageToolSet>>[];
+}, string>, "edit_file"> | langchain9.DynamicStructuredTool<zod0.ZodObject<{
+  pattern: zod0.ZodString;
+  path: zod0.ZodDefault<zod0.ZodOptional<zod0.ZodString>>;
+}, zod_v4_core0.$strip>, {
+  pattern: string;
+  path: string;
+}, {
+  pattern: string;
+  path?: string | undefined;
+}, string, "glob"> | langchain9.DynamicStructuredTool<zod0.ZodObject<{
+  pattern: zod0.ZodString;
+  path: zod0.ZodDefault<zod0.ZodOptional<zod0.ZodString>>;
+  glob: zod0.ZodNullable<zod0.ZodOptional<zod0.ZodString>>;
+}, zod_v4_core0.$strip>, {
+  pattern: string;
+  path: string;
+  glob?: string | null | undefined;
+}, {
+  pattern: string;
+  path?: string | undefined;
+  glob?: string | null | undefined;
+}, string, "grep"> | langchain9.DynamicStructuredTool<zod0.ZodObject<{
+  command: zod0.ZodString;
+}, zod_v4_core0.$strip>, {
+  command: string;
+}, {
+  command: string;
+}, string, "execute">)[]> | AgentMiddleware<undefined, zod_v30.ZodObject<{
+  trigger: zod_v30.ZodOptional<zod_v30.ZodUnion<[zod_v30.ZodEffects<zod_v30.ZodObject<{
+    fraction: zod_v30.ZodOptional<zod_v30.ZodNumber>;
+    tokens: zod_v30.ZodOptional<zod_v30.ZodNumber>;
+    messages: zod_v30.ZodOptional<zod_v30.ZodNumber>;
+  }, "strip", zod_v30.ZodTypeAny, {
+    fraction?: number | undefined;
+    tokens?: number | undefined;
+    messages?: number | undefined;
+  }, {
+    fraction?: number | undefined;
+    tokens?: number | undefined;
+    messages?: number | undefined;
+  }>, {
+    fraction?: number | undefined;
+    tokens?: number | undefined;
+    messages?: number | undefined;
+  }, {
+    fraction?: number | undefined;
+    tokens?: number | undefined;
+    messages?: number | undefined;
+  }>, zod_v30.ZodArray<zod_v30.ZodEffects<zod_v30.ZodObject<{
+    fraction: zod_v30.ZodOptional<zod_v30.ZodNumber>;
+    tokens: zod_v30.ZodOptional<zod_v30.ZodNumber>;
+    messages: zod_v30.ZodOptional<zod_v30.ZodNumber>;
+  }, "strip", zod_v30.ZodTypeAny, {
+    fraction?: number | undefined;
+    tokens?: number | undefined;
+    messages?: number | undefined;
+  }, {
+    fraction?: number | undefined;
+    tokens?: number | undefined;
+    messages?: number | undefined;
+  }>, {
+    fraction?: number | undefined;
+    tokens?: number | undefined;
+    messages?: number | undefined;
+  }, {
+    fraction?: number | undefined;
+    tokens?: number | undefined;
+    messages?: number | undefined;
+  }>, "many">]>>;
+  keep: zod_v30.ZodOptional<zod_v30.ZodEffects<zod_v30.ZodObject<{
+    fraction: zod_v30.ZodOptional<zod_v30.ZodNumber>;
+    tokens: zod_v30.ZodOptional<zod_v30.ZodNumber>;
+    messages: zod_v30.ZodOptional<zod_v30.ZodNumber>;
+  }, "strip", zod_v30.ZodTypeAny, {
+    fraction?: number | undefined;
+    tokens?: number | undefined;
+    messages?: number | undefined;
+  }, {
+    fraction?: number | undefined;
+    tokens?: number | undefined;
+    messages?: number | undefined;
+  }>, {
+    fraction?: number | undefined;
+    tokens?: number | undefined;
+    messages?: number | undefined;
+  }, {
+    fraction?: number | undefined;
+    tokens?: number | undefined;
+    messages?: number | undefined;
+  }>>;
+  tokenCounter: zod_v30.ZodOptional<zod_v30.ZodFunction<zod_v30.ZodTuple<[zod_v30.ZodArray<zod_v30.ZodType<_messages.BaseMessage<_messages.MessageStructure<_messages.MessageToolSet>, _messages.MessageType>, zod_v30.ZodTypeDef, _messages.BaseMessage<_messages.MessageStructure<_messages.MessageToolSet>, _messages.MessageType>>, "many">], zod_v30.ZodUnknown>, zod_v30.ZodUnion<[zod_v30.ZodNumber, zod_v30.ZodPromise<zod_v30.ZodNumber>]>>>;
+  summaryPrompt: zod_v30.ZodDefault<zod_v30.ZodString>;
+  trimTokensToSummarize: zod_v30.ZodOptional<zod_v30.ZodNumber>;
+  summaryPrefix: zod_v30.ZodOptional<zod_v30.ZodString>;
+  maxTokensBeforeSummary: zod_v30.ZodOptional<zod_v30.ZodNumber>;
+  messagesToKeep: zod_v30.ZodOptional<zod_v30.ZodNumber>;
+} & {
+  model: zod_v30.ZodOptional<zod_v30.ZodType<_langchain_core_language_models_base0.BaseLanguageModel<any, _langchain_core_language_models_base0.BaseLanguageModelCallOptions>, zod_v30.ZodTypeDef, _langchain_core_language_models_base0.BaseLanguageModel<any, _langchain_core_language_models_base0.BaseLanguageModelCallOptions>>>;
+}, "strip", zod_v30.ZodTypeAny, {
+  trigger?: {
+    fraction?: number | undefined;
+    tokens?: number | undefined;
+    messages?: number | undefined;
+  }[] | {
+    fraction?: number | undefined;
+    tokens?: number | undefined;
+    messages?: number | undefined;
+  } | undefined;
+  keep?: {
+    fraction?: number | undefined;
+    tokens?: number | undefined;
+    messages?: number | undefined;
+  } | undefined;
+  tokenCounter?: ((args_0: _messages.BaseMessage<_messages.MessageStructure<_messages.MessageToolSet>, _messages.MessageType>[], ...args: unknown[]) => number | Promise<number>) | undefined;
+  summaryPrompt: string;
+  trimTokensToSummarize?: number | undefined;
+  summaryPrefix?: string | undefined;
+  maxTokensBeforeSummary?: number | undefined;
+  messagesToKeep?: number | undefined;
+  model?: _langchain_core_language_models_base0.BaseLanguageModel<any, _langchain_core_language_models_base0.BaseLanguageModelCallOptions> | undefined;
+}, {
+  trigger?: {
+    fraction?: number | undefined;
+    tokens?: number | undefined;
+    messages?: number | undefined;
+  }[] | {
+    fraction?: number | undefined;
+    tokens?: number | undefined;
+    messages?: number | undefined;
+  } | undefined;
+  keep?: {
+    fraction?: number | undefined;
+    tokens?: number | undefined;
+    messages?: number | undefined;
+  } | undefined;
+  tokenCounter?: ((args_0: _messages.BaseMessage<_messages.MessageStructure<_messages.MessageToolSet>, _messages.MessageType>[], ...args: unknown[]) => number | Promise<number>) | undefined;
+  summaryPrompt?: string | undefined;
+  trimTokensToSummarize?: number | undefined;
+  summaryPrefix?: string | undefined;
+  maxTokensBeforeSummary?: number | undefined;
+  messagesToKeep?: number | undefined;
+  model?: _langchain_core_language_models_base0.BaseLanguageModel<any, _langchain_core_language_models_base0.BaseLanguageModelCallOptions> | undefined;
+}>, {
+  trigger?: {
+    fraction?: number | undefined;
+    tokens?: number | undefined;
+    messages?: number | undefined;
+  }[] | {
+    fraction?: number | undefined;
+    tokens?: number | undefined;
+    messages?: number | undefined;
+  } | undefined;
+  keep?: {
+    fraction?: number | undefined;
+    tokens?: number | undefined;
+    messages?: number | undefined;
+  } | undefined;
+  tokenCounter?: ((args_0: _messages.BaseMessage<_messages.MessageStructure<_messages.MessageToolSet>, _messages.MessageType>[], ...args: unknown[]) => number | Promise<number>) | undefined;
+  summaryPrompt: string;
+  trimTokensToSummarize?: number | undefined;
+  summaryPrefix?: string | undefined;
+  maxTokensBeforeSummary?: number | undefined;
+  messagesToKeep?: number | undefined;
+  model?: _langchain_core_language_models_base0.BaseLanguageModel<any, _langchain_core_language_models_base0.BaseLanguageModelCallOptions> | undefined;
+}, readonly (ClientTool | ServerTool)[]> | AgentMiddleware<undefined, zod_v30.ZodObject<{
+  enableCaching: zod_v30.ZodOptional<zod_v30.ZodBoolean>;
+  ttl: zod_v30.ZodOptional<zod_v30.ZodEnum<["5m", "1h"]>>;
+  minMessagesToCache: zod_v30.ZodOptional<zod_v30.ZodNumber>;
+  unsupportedModelBehavior: zod_v30.ZodOptional<zod_v30.ZodEnum<["ignore", "warn", "raise"]>>;
+}, "strip", zod_v30.ZodTypeAny, {
+  enableCaching?: boolean | undefined;
+  ttl?: "1h" | "5m" | undefined;
+  minMessagesToCache?: number | undefined;
+  unsupportedModelBehavior?: "ignore" | "raise" | "warn" | undefined;
+}, {
+  enableCaching?: boolean | undefined;
+  ttl?: "1h" | "5m" | undefined;
+  minMessagesToCache?: number | undefined;
+  unsupportedModelBehavior?: "ignore" | "raise" | "warn" | undefined;
+}>, {
+  enableCaching?: boolean | undefined;
+  ttl?: "1h" | "5m" | undefined;
+  minMessagesToCache?: number | undefined;
+  unsupportedModelBehavior?: "ignore" | "raise" | "warn" | undefined;
+}, readonly (ClientTool | ServerTool)[]> | AgentMiddleware<undefined, undefined, unknown, readonly (ClientTool | ServerTool)[]> | AgentMiddleware<undefined, undefined, unknown, readonly [langchain9.DynamicStructuredTool<zod0.ZodObject<{
+  description: zod0.ZodString;
+  subagent_type: zod0.ZodString;
+}, zod_v4_core0.$strip>, {
+  description: string;
+  subagent_type: string;
+}, {
+  description: string;
+  subagent_type: string;
+}, string | _Command.Command<unknown, Record<string, unknown>, string>, "task">]> | AgentMiddleware<zod0.ZodObject<{
+  memoryContents: zod0.ZodOptional<zod0.ZodRecord<zod0.ZodString, zod0.ZodString>>;
+}, zod_v4_core0.$strip>, undefined, unknown, readonly (ClientTool | ServerTool)[]>)[], ...TMiddleware, ...FlattenSubAgentMiddleware<TSubagents>], TTools, TSubagents>>;
+//#endregion
+//#region src/config.d.ts
+/**
+ * Configuration and settings for deepagents.
+ *
+ * Provides project detection, path management, and environment configuration
+ * for skills and agent memory middleware.
+ */
+/**
+ * Options for creating a Settings instance.
+ */
+interface SettingsOptions {
+  /** Starting directory for project detection (defaults to cwd) */
+  startPath?: string;
+}
+/**
+ * Settings interface for project detection and path management.
+ *
+ * Provides access to:
+ * - Project root detection (via .git directory)
+ * - User-level deepagents directory (~/.deepagents)
+ * - Agent-specific directories and files
+ * - Skills directories (user and project level)
+ */
+interface Settings {
+  /** Detected project root directory, or null if not in a git project */
+  readonly projectRoot: string | null;
+  /** Base user-level .deepagents directory (~/.deepagents) */
+  readonly userDeepagentsDir: string;
+  /** Check if currently in a git project */
+  readonly hasProject: boolean;
+  /**
+   * Get the agent directory path.
+   * @param agentName - Name of the agent
+   * @returns Path to ~/.deepagents/{agentName}
+   * @throws Error if agent name is invalid
+   */
+  getAgentDir(agentName: string): string;
+  /**
+   * Ensure agent directory exists and return path.
+   * @param agentName - Name of the agent
+   * @returns Path to ~/.deepagents/{agentName}
+   * @throws Error if agent name is invalid
+   */
+  ensureAgentDir(agentName: string): string;
+  /**
+   * Get user-level agent.md path for a specific agent.
+   * @param agentName - Name of the agent
+   * @returns Path to ~/.deepagents/{agentName}/agent.md
+   */
+  getUserAgentMdPath(agentName: string): string;
+  /**
+   * Get project-level agent.md path.
+   * @returns Path to {projectRoot}/.deepagents/agent.md, or null if not in a project
+   */
+  getProjectAgentMdPath(): string | null;
+  /**
+   * Get user-level skills directory path for a specific agent.
+   * @param agentName - Name of the agent
+   * @returns Path to ~/.deepagents/{agentName}/skills/
+   */
+  getUserSkillsDir(agentName: string): string;
+  /**
+   * Ensure user-level skills directory exists and return path.
+   * @param agentName - Name of the agent
+   * @returns Path to ~/.deepagents/{agentName}/skills/
+   */
+  ensureUserSkillsDir(agentName: string): string;
+  /**
+   * Get project-level skills directory path.
+   * @returns Path to {projectRoot}/.deepagents/skills/, or null if not in a project
+   */
+  getProjectSkillsDir(): string | null;
+  /**
+   * Ensure project-level skills directory exists and return path.
+   * @returns Path to {projectRoot}/.deepagents/skills/, or null if not in a project
+   */
+  ensureProjectSkillsDir(): string | null;
+  /**
+   * Ensure project .deepagents directory exists.
+   * @returns Path to {projectRoot}/.deepagents/, or null if not in a project
+   */
+  ensureProjectDeepagentsDir(): string | null;
+}
+/**
+ * Find the project root by looking for .git directory.
+ *
+ * Walks up the directory tree from startPath (or cwd) looking for a .git
+ * directory, which indicates the project root.
+ *
+ * @param startPath - Directory to start searching from. Defaults to current working directory.
+ * @returns Path to the project root if found, null otherwise.
+ */
+declare function findProjectRoot(startPath?: string): string | null;
+/**
+ * Create a Settings instance with detected environment.
+ *
+ * @param options - Configuration options
+ * @returns Settings instance with project detection and path management
+ */
+declare function createSettings(options?: SettingsOptions): Settings;
+//#endregion
+//#region src/middleware/agent-memory.d.ts
+/**
+ * Options for the agent memory middleware.
+ */
+interface AgentMemoryMiddlewareOptions {
+  /** Settings instance with project detection and paths */
+  settings: Settings;
+  /** The agent identifier */
+  assistantId: string;
+  /** Optional custom template for injecting agent memory into system prompt */
+  systemPromptTemplate?: string;
+}
+/**
+ * Create middleware for loading agent-specific long-term memory.
+ *
+ * This middleware loads the agent's long-term memory from a file (agent.md)
+ * and injects it into the system prompt. The memory is loaded once at the
+ * start of the conversation and stored in state.
+ *
+ * @param options - Configuration options
+ * @returns AgentMiddleware for memory loading and injection
+ *
+ * @deprecated Use `createMemoryMiddleware` from `./memory.js` instead.
+ * This function uses direct filesystem access which limits portability.
+ */
+declare function createAgentMemoryMiddleware(options: AgentMemoryMiddlewareOptions): AgentMiddleware<any, undefined, unknown, readonly (_langchain_core_tools3.ClientTool | _langchain_core_tools3.ServerTool)[]>;
+//#endregion
+//#region src/skills/loader.d.ts
+/**
+ * Metadata for a skill per Agent Skills spec.
+ * @see https://agentskills.io/specification
+ */
+interface SkillMetadata {
+  /** Name of the skill (max 64 chars, lowercase alphanumeric and hyphens) */
+  name: string;
+  /** Description of what the skill does (max 1024 chars) */
+  description: string;
+  /** Absolute path to the SKILL.md file */
+  path: string;
+  /** Source of the skill ('user' or 'project') */
+  source: "user" | "project";
+  /** Optional: License name or reference to bundled license file */
+  license?: string;
+  /** Optional: Environment requirements (max 500 chars) */
+  compatibility?: string;
+  /** Optional: Arbitrary key-value mapping for additional metadata */
+  metadata?: Record<string, string>;
+  /** Optional: Space-delimited list of pre-approved tools */
+  allowedTools?: string;
+}
+/**
+ * Options for listing skills.
+ */
+interface ListSkillsOptions {
+  /** Path to user-level skills directory */
+  userSkillsDir?: string | null;
+  /** Path to project-level skills directory */
+  projectSkillsDir?: string | null;
+}
+/**
+ * Parse YAML frontmatter from a SKILL.md file per Agent Skills spec.
+ *
+ * @param skillMdPath - Path to the SKILL.md file
+ * @param source - Source of the skill ('user' or 'project')
+ * @returns SkillMetadata with all fields, or null if parsing fails
+ */
+declare function parseSkillMetadata(skillMdPath: string, source: "user" | "project"): SkillMetadata | null;
+/**
+ * List skills from user and/or project directories.
+ *
+ * When both directories are provided, project skills with the same name as
+ * user skills will override them.
+ *
+ * @param options - Options specifying which directories to search
+ * @returns Merged list of skill metadata from both sources, with project skills
+ *          taking precedence over user skills when names conflict
+ */
+declare function listSkills(options: ListSkillsOptions): SkillMetadata[];
+//#endregion
+export { type AgentMemoryMiddlewareOptions, type BackendFactory, type BackendProtocol, BaseSandbox, type CompiledSubAgent, CompositeBackend, type CreateDeepAgentParams, type DeepAgent, type DeepAgentTypeConfig, type DefaultDeepAgentTypeConfig, type EditResult, type ExecuteResponse, type ExtractSubAgentMiddleware, type FileData, type FileDownloadResponse, type FileInfo, type FileOperationError, type FileUploadResponse, FilesystemBackend, type FilesystemMiddlewareOptions, type FlattenSubAgentMiddleware, type GrepMatch, type InferDeepAgentSubagents, type InferDeepAgentType, type InferSubAgentMiddlewareStates, type InferSubagentByName, type InferSubagentReactAgentType, type ListSkillsOptions, type SkillMetadata as LoaderSkillMetadata, MAX_SKILL_DESCRIPTION_LENGTH, MAX_SKILL_FILE_SIZE, MAX_SKILL_NAME_LENGTH, type MaybePromise, type MemoryMiddlewareOptions, type MergedDeepAgentState, type ResolveDeepAgentTypeConfig, type SandboxBackendProtocol, type Settings, type SettingsOptions, type SkillMetadata$1 as SkillMetadata, type SkillsMiddlewareOptions, StateBackend, StoreBackend, type SubAgent, type SubAgentMiddlewareOptions, type WriteResult, createAgentMemoryMiddleware, createDeepAgent, createFilesystemMiddleware, createMemoryMiddleware, createPatchToolCallsMiddleware, createSettings, createSkillsMiddleware, createSubAgentMiddleware, findProjectRoot, isSandboxBackend, listSkills, parseSkillMetadata };
+//# sourceMappingURL=index.d.cts.map

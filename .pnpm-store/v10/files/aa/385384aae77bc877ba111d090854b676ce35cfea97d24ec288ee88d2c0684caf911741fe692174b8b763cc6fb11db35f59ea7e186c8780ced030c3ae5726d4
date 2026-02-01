@@ -1,0 +1,46 @@
+const licenseKey = process.env.CENTRAL_LICENSE_KEY;
+
+if (!licenseKey) {
+  throw new Error(
+    "Central Icons license key is not set. Please set CENTRAL_LICENSE_KEY in your environment",
+  );
+}
+
+const licenseCheck = async () => {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+  try {
+    const response = await fetch("https://centralicons.com/license/check", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${licenseKey}`,
+      },
+      body: JSON.stringify({
+        package: "central-icons-react/all",
+        version: "1.1.111",
+      }),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (controller.signal.aborted || response.status >= 500) {
+      // Server Error, handling in customer favour
+      return;
+    }
+
+    const responseJson = await response.json();
+
+    if (responseJson.error) {
+      throw new Error(responseJson.error);
+    }
+    if (!responseJson.data.isValid) {
+      throw new Error("Invalid license key");
+    }
+  } catch (error) {
+    console.error(error);
+  }
+};
+
+licenseCheck();

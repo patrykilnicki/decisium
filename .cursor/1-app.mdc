@@ -1,0 +1,556 @@
+---
+alwaysApply: false
+---
+## Product & System Description — Daily + Ask AI (Agentic SaaS)
+
+### 1. Cel produktu
+
+Budujemy aplikację SaaS typu **personal daily intelligence / reflective assistant**, w której użytkownik:
+
+* codziennie zapisuje plany, myśli i obserwacje (Daily),
+* może zadawać pytania o swoją przeszłą aktywność i wzorce (Ask AI),
+* a system sam dba o pamięć, podsumowania i kontekst dla agentów AI.
+
+Kluczowe założenie:
+**UX jest chat-like, ale architektura NIE jest klasycznym chatem wszędzie.**
+
+---
+
+### 2. Dwa główne flow użytkownika
+
+#### A) Daily (codzienny journaling / check-in)
+
+* Wizualnie: chat experience (bubble, timeline, input na dole).
+* Technicznie: **brak threadów**, brak short-term memory.
+* Każda wiadomość to **atomowy event dnia**, nie część rozmowy.
+
+Daily służy do:
+
+* zapisywania planów dnia,
+* notatek, przemyśleń, obserwacji,
+* incydentalnych pytań o przeszłość (np. „kiedy ostatnio robiłem X”).
+
+Daily **nie jest miejscem do prowadzenia długiej konwersacji**.
+
+---
+
+#### B) Ask AI (refleksja / eksploracja)
+
+* Klasyczny chat jak w ChatGPT.
+* Każda rozmowa ma **thread_id**.
+* Wykorzystuje short-term memory (historia rozmowy) + long-term memory (Supabase).
+
+Ask AI służy do:
+
+* analizy wzorców,
+* porównań,
+* pytań wymagających follow-upów,
+* głębszej eksploracji danych z Daily.
+
+---
+
+### 3. Daily — szczegóły działania
+
+#### 3.1 UX Daily
+
+* Jedna strona `/daily`.
+* Wygląda jak chat:
+
+  * agent inicjuje dzień pytaniem,
+  * użytkownik wpisuje kolejne myśli,
+  * agent może okazjonalnie zareagować (jednorazowo).
+* Brak możliwości:
+
+  * tworzenia nowych wątków,
+  * odpowiadania „w wątku”,
+  * kontynuowania dialogu w nieskończoność.
+
+Każda wiadomość jest **nowym checkpointem dnia**.
+
+---
+
+#### 3.2 Daily Events (model danych)
+
+Każda wiadomość zapisywana jako osobny rekord:
+
+```
+daily_events
+- id
+- user_id
+- date
+- role: user | agent | system
+- type: note | question | note+question | answer | summary
+- content
+- created_at
+```
+
+Nie istnieje `thread_id` dla Daily.
+
+---
+
+### 4. Obsługa pytań w Daily (edge case)
+
+Jeśli użytkownik w Daily napisze coś w stylu:
+
+> „Mam pomysł na template Framera. Czy możesz powiedzieć, kiedy ostatnio robiłem template?”
+
+System:
+
+1. Zapisuje całość jako `daily_event` (note+question).
+2. Klasyfikuje intencję (note / question / note+question).
+3. Jeśli zawiera pytanie:
+
+   * agent robi **jednorazowy retrieval** z long-term memory (Supabase),
+   * generuje odpowiedź inline,
+   * odpowiedź zapisywana jest jako kolejny `daily_event`.
+
+❗ Nie tworzony jest thread.
+❗ Nie utrzymywana jest konwersacja.
+
+Jeśli user zacznie dopytywać → system sugeruje przejście do `/ask`.
+
+---
+
+### 5. Ask AI — szczegóły działania
+
+* Każda rozmowa ma `thread_id`.
+* Pełna historia rozmowy przechowywana jako short-term memory.
+* Przy każdej odpowiedzi:
+
+  * agent robi retrieval z long-term memory (Daily + Summaries),
+  * buduje prompt z hierarchii pamięci.
+
+Ask AI jest jedynym miejscem, gdzie:
+
+* istnieją wątki,
+* użytkownik prowadzi dialog,
+* agent „pamięta” rozmowę.
+
+---
+
+### 6. Pamięć i Supabase
+
+#### 6.1 Long-term memory (persistent)
+
+Przechowywana w Supabase:
+
+* surowe `daily_events`,
+* `daily_summaries`,
+* `weekly_summaries`,
+* `monthly_summaries`,
+* embeddings (vector store).
+
+Każdy wpis użytkownika:
+
+* jest zapisywany jako raw text,
+* jest embeddingowany,
+* trafia do vector store.
+
+---
+
+#### 6.2 Short-term memory
+
+* Używane TYLKO w Ask AI.
+* Oparte o thread state.
+* Nigdy nie używane w Daily.
+
+---
+
+### 7. Hierarchia pamięci (bardzo ważne)
+
+Agent **nigdy nie czyta wszystkiego**.
+
+Hierarchia:
+
+1. Monthly summaries
+2. Weekly summaries
+3. Daily summaries
+4. Raw daily events (tylko jeśli trzeba, semantycznie)
+
+Ask AI zaczyna zawsze od najwyższego poziomu abstrakcji.
+
+---
+
+### 8. Podsumowania (systemowe)
+
+#### 8.1 Daily Summary
+
+* Uruchamiane automatycznie przez system (cron).
+* Stała godzina: 20:00–22:00 (per strefa czasowa usera).
+* Jeśli user był aktywny niedawno → grace window (opóźnienie).
+* Input:
+
+  * wszystkie daily_events z danego dnia.
+* Output:
+
+  * 2–4 fakty,
+  * 1 insight,
+  * opcjonalna sugestia.
+
+Zapisywane jako:
+
+```
+daily_summaries
+- user_id
+- date
+- content
+- created_at
+```
+
+---
+
+#### 8.2 Weekly Summary
+
+* Raz w tygodniu (np. niedziela).
+* Input: **tylko daily_summaries**.
+* Cel: wykrywanie wzorców.
+
+---
+
+#### 8.3 Monthly Summary
+
+* Raz w miesiącu.
+* Input: weekly + daily summaries.
+* Cel: refleksja strategiczna, trendy.
+
+---
+
+### 9. Historia w Daily (scrollowanie)
+
+* Dzisiaj: pełny chat-like timeline.
+* Wczoraj: domyślnie tylko daily summary (z opcją „rozwiń dzień”).
+* Tydzień: weekly summary.
+* Miesiąc: monthly insights.
+
+❗ Brak nieskończonego scrolla do początku czasu.
+❗ Historia jest **progresywnie kondensowana**.
+
+---
+
+### 10. Kluczowe zasady architektoniczne
+
+* Daily = chat UI + event-based memory.
+* Ask = chat UI + thread-based memory.
+* Supabase = źródło prawdy dla long-term memory.
+* Agent nigdy nie dostaje pełnej historii — tylko relewantne fragmenty.
+* Podsumowania są robione asynchronicznie przez system.
+
+---
+
+### 11. Jedno zdanie podsumowujące produkt
+
+---
+
+### 12. Struktura agentów (DeepAgents) — foldery i odpowiedzialności
+
+System oparty jest o **jeden nadrzędny agent** oraz **wyspecjalizowane sub-agenty (micro-agents)**.
+Agenci NIE są rozproszeni po całym kodzie — mają **jasną strukturę katalogów i kontrakty odpowiedzialności**.
+
+---
+
+## 12.1 Główna zasada architektoniczna agentów
+
+* Jeden **Root Agent** (orchestrator)
+* Wiele **wyspecjalizowanych sub-agentów**
+* Sub-agenty:
+
+  * nie znają UI,
+  * nie znają threadów,
+  * wykonują jedno konkretne zadanie,
+  * zapisują wynik do Supabase lub zwracają structured output.
+
+Root Agent:
+
+* decyduje *który agent* ma zostać użyty,
+* łączy wyniki,
+* decyduje co zapisać do memory.
+
+---
+
+## 12.2 Struktura folderów (monorepo)
+
+Agenty są trzymane **wewnątrz repo SaaS**, jako osobny pakiet:
+
+```
+/packages
+  /agents
+    /core
+      root.agent.ts
+      planner.agent.ts
+      classifier.agent.ts
+
+    /daily
+      daily-intake.agent.ts
+      daily-response.agent.ts
+      daily-summary.agent.ts
+
+    /ask
+      ask-router.agent.ts
+      ask-answer.agent.ts
+
+    /summaries
+      weekly-summary.agent.ts
+      monthly-summary.agent.ts
+
+    /retrieval
+      memory-retriever.agent.ts
+
+    /schemas
+      daily.schema.ts
+      summary.schema.ts
+      ask.schema.ts
+
+    index.ts
+```
+
+---
+
+## 12.3 Opis agentów (odpowiedzialności)
+
+### 🧠 `root.agent`
+
+* punkt wejścia dla wszystkich wywołań AI
+* NIE generuje odpowiedzi końcowej
+* odpowiada za:
+
+  * routing,
+  * delegację do sub-agentów,
+  * zebranie wyników,
+  * zapis do memory
+
+---
+
+### 🧭 `classifier.agent`
+
+* klasyfikuje input użytkownika:
+
+  * note
+  * question
+  * note + question
+  * ask-style (eskalacja)
+* działa synchronicznie
+* zwraca **structured output** (enum)
+
+---
+
+### 📥 Daily Agents
+
+#### `daily-intake.agent`
+
+* przyjmuje pojedynczą wiadomość z Daily
+* nie zna historii dnia
+* odpowiada na pytanie:
+
+  > „czy na to trzeba reagować?”
+
+#### `daily-response.agent`
+
+* generuje **jednorazową reakcję agenta**
+* tylko jeśli input zawiera pytanie
+* brak follow-upów
+
+#### `daily-summary.agent`
+
+* uruchamiany asynchronicznie (cron)
+* input: wszystkie daily_events z dnia
+* output:
+
+  * summary
+  * insight
+  * optional suggestion
+
+---
+
+### 💬 Ask Agents
+
+#### `ask-router.agent`
+
+* punkt wejścia dla `/ask`
+* decyduje:
+
+  * jaki kontekst pobrać
+  * jakiego agenta użyć
+
+#### `ask-answer.agent`
+
+* generuje odpowiedź dla użytkownika
+* pracuje na:
+
+  * thread state
+  * retrieved memory
+
+---
+
+### 📚 Retrieval Agent
+
+#### `memory-retriever.agent`
+
+* jedyne miejsce w systemie, które:
+
+  * robi semantic search
+  * zna embedding store
+* input:
+
+  * query
+  * user_id
+* output:
+
+  * lista relewantnych fragmentów pamięci
+
+---
+
+## 12.4 Zasady komunikacji między agentami
+
+* Agenci **nie wywołują się nawzajem bezpośrednio**
+* Komunikacja odbywa się przez:
+
+  * Root Agent
+  * lub LangGraph flow
+
+Każdy agent:
+
+* ma **jeden responsibility**
+* przyjmuje i zwraca **structured data**
+* nie przechowuje stanu
+
+---
+
+## 12.5 Memory a agenci
+
+* Żaden agent:
+
+  * nie ma dostępu do pełnej historii
+  * nie ładuje całych threadów
+* Memory jest zawsze:
+
+  * fetchowane selektywnie
+  * przekazywane jawnie do prompta
+
+---
+
+## 12.6 Zasada skalowania
+
+Nowy agent może zostać dodany tylko jeśli:
+
+* ma jasno zdefiniowane wejście i wyjście
+* rozwiązuje jeden problem
+* nie dubluje odpowiedzialności innego agenta
+
+---
+---
+
+### 12. DeepAgents — wykorzystanie i integracja
+
+W całej architekturze produktowej **DeepAgents (z LangGraph)** są główną warstwą orkiestracji zachowań AI, odpowiadającą za:
+
+1. **Klasyfikację intencji** (note vs question vs escalation),
+2. **Routing logiki** (Daily → Ask → Summary),
+3. **Delegację do wyspecjalizowanych agentów** (micro-agents),
+4. **Wykonywanie zapytań do long-term memory**,
+5. **Generowanie odpowiedzi i insightów**.
+
+DeepAgents są wykorzystywane jako **strukturalny sposób implementacji agent workflow**, zgodnie z dokumentacją:
+[https://docs.langchain.com/oss/python/deepagents/overview](https://docs.langchain.com/oss/python/deepagents/overview)
+
+---
+
+#### 12.1 Jak DeepAgents są używane w systemie
+
+DeepAgents są stosowane w następujących elementach:
+
+* **Root Agent / Orchestrator**
+  — centralny agent, który deleguje do sub-agentów np. classifier, retriever, answerer.
+
+* **Daily flow agents**
+  — mikro-agenty, które obsługują pojedyncze wiadomości w Daily, w tym:
+
+  * analiza nowego wpisu,
+  * single-shot odpowiedź, jeśli zawiera pytanie.
+
+* **Ask AI agents**
+  — mikro-agenty odpowiadające za tradycyjny chat:
+
+  * pobieranie relevant memory,
+  * generowanie odpowiedzi,
+  * zarządzanie historią rozmowy (thread).
+
+* **Summary agents**
+  — osobne workflowy uruchamiane przez scheduler:
+
+  * Daily Summary Agent,
+  * Weekly Summary Agent,
+  * Monthly Summary Agent.
+
+Dla każdego z tych workflowów DeepAgents:
+
+* budują plan wykonania (planner),
+* wykonują zadania w sekwencji lub równolegle,
+* zwracają **structured output**, który jest zapisywany do Supabase i long-term memory.
+
+---
+
+#### 12.2 Jak orkiestracja DeepAgents powinna działać
+
+Orkiestracja agentów opiera się na **LangGraph workflows**, w których:
+
+1. **Root agent** otrzymuje wejście (np. nowy wpis, pytanie, trigger summary),
+2. **Classifier agent** identyfikuje intencję i decyduje o dalszym flow,
+3. **Retriever agent** pobiera semantyczne fragmenty pamięci (Supabase embeddings),
+4. **Answer agent** generuje finalną odpowiedź lub summary,
+5. **Saver agent** zapisuje wyniki i aktualizuje memory.
+
+Przepływ ten jest zdefiniowany jako **strukturalny graph nodes → edges**, dzięki czemu:
+
+* jest czytelny,
+* łatwy do debugowania,
+* skalowalny,
+* zgodny z rekomendowaną praktyką DeepAgents.
+
+---
+
+#### 12.3 Backends i integracja
+
+DeepAgents mogą działać w następujących środowiskach backendowych:
+
+* Node.js/TypeScript (LangChain.js DeepAgents),
+* Python (LangChain Python DeepAgents).
+
+W kontekście tego produktu rekomendowany jest **LangGraph** jako warstwa orkiestracji, z integracją:
+
+* **Supabase jako pamięć długoterminowa** (vector store + summaries),
+* **Edge/Serverless Functions** do odpalania agent tasks,
+* **Scheduler (pg_cron / cron)** do summary jobs.
+
+---
+
+#### 12.4 Najważniejsze efekty integracji DeepAgents
+
+Dzięki wykorzystaniu DeepAgents system uzyskuje:
+
+* **modularne workflowy agentowe**, łatwe do testowania,
+* **separację odpowiedzialności** między różnymi funkcjami AI,
+* **jasną hierarchię pamięci** i retrieval,
+* **kontrolę nad promptami i state**,
+* możliwość łatwego wprowadzenia nowych agentów (np. integrations / tools).
+
+---
+
+### 13. Rola DeepAgents w hierarchii pamięci
+
+DeepAgents operują na **hierarchii semantycznej pamięci**:
+
+1. Monthly summaries,
+2. Weekly summaries,
+3. Daily summaries,
+4. Raw daily events (via retriever, top N).
+
+DeepAgents nie ładują pełnej historii do LLM — używają **retrieval + planning**, aby zmieścić kontekst w ograniczeniach tokenów i generować relewantne odpowiedzi.
+
+---
+
+### 14. Kilka słów o dokumentacji
+
+Integracja i implementacja DeepAgents powinna być zgodna z OSS guide:
+[https://docs.langchain.com/oss/python/deepagents/overview](https://docs.langchain.com/oss/python/deepagents/overview)
+
+---
