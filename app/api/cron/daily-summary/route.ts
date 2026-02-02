@@ -6,30 +6,18 @@ import { format, subDays } from "date-fns";
 // Verify cron secret (set in environment)
 const CRON_SECRET = process.env.CRON_SECRET;
 
-export async function GET() {
-  return NextResponse.json(
-    { error: "Method not allowed. Use POST with Authorization: Bearer <CRON_SECRET>." },
-    { status: 405 }
-  );
-}
-
-export async function POST(request: NextRequest) {
-  // Verify cron secret - support both Vercel Cron (automatic) and manual calls
+function isAuthorized(request: NextRequest): boolean {
   const authHeader = request.headers.get("authorization");
   const vercelCronHeader = request.headers.get("x-vercel-cron");
-  
-  // Allow if it's a Vercel Cron job OR if Authorization header matches
   const isVercelCron = vercelCronHeader === "1";
   const isValidAuth = authHeader === `Bearer ${CRON_SECRET}`;
-  
-  if (!isVercelCron && !isValidAuth) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  return isVercelCron || isValidAuth;
+}
 
+async function runDailySummary(): Promise<NextResponse> {
   try {
     const supabase = await createClient();
 
-    // Get all users
     const { data: users, error: usersError } = await supabase
       .from("users")
       .select("id, timezone");
@@ -38,25 +26,41 @@ export async function POST(request: NextRequest) {
       throw new Error("Failed to fetch users");
     }
 
-    const results = [];
+    const results: Array<{ userId: string; status: string; error?: string }> = [];
 
     for (const user of users) {
       try {
-        // Generate summary for yesterday (or today if it's late)
         const yesterday = format(subDays(new Date(), 1), "yyyy-MM-dd");
         await generateDailySummary(user.id, yesterday);
         results.push({ userId: user.id, status: "success" });
-      } catch (error: any) {
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
         console.error(`Failed to generate summary for user ${user.id}:`, error);
-        results.push({ userId: user.id, status: "error", error: error.message });
+        results.push({ userId: user.id, status: "error", error: message });
       }
     }
 
     return NextResponse.json({ results });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Failed to generate daily summaries";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+// Support GET so that when Vercel returns 307 and the client follows with GET, we still run
+export async function GET(request: NextRequest) {
+  if (!isAuthorized(request)) {
     return NextResponse.json(
-      { error: error.message || "Failed to generate daily summaries" },
-      { status: 500 }
+      { error: "Unauthorized. Use Authorization: Bearer <CRON_SECRET> or call via Vercel Cron." },
+      { status: 401 }
     );
   }
+  return runDailySummary();
+}
+
+export async function POST(request: NextRequest) {
+  if (!isAuthorized(request)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  return runDailySummary();
 }
