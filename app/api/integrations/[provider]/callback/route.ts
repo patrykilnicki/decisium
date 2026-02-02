@@ -5,6 +5,7 @@ import {
   createCalendarWatchService,
   createSyncPipeline,
 } from '@/lib/integrations';
+import { getAppUrl } from '@/lib/utils/app-url';
 
 /**
  * GET /api/integrations/[provider]/callback
@@ -21,8 +22,7 @@ export async function GET(
   const error = searchParams.get('error');
   const errorDescription = searchParams.get('error_description');
 
-  // Base URL for redirects
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
+  const baseUrl = getAppUrl(request);
 
   // Handle OAuth error
   if (error) {
@@ -61,7 +61,6 @@ export async function GET(
 
     // Google Calendar: setup watch (HTTPS only) + initial sync (fire-and-forget)
     if (provider === 'google_calendar') {
-      const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
       const webhookUrl = `${baseUrl}/api/webhooks/google-calendar`;
       const isHttps = webhookUrl.startsWith('https://');
 
