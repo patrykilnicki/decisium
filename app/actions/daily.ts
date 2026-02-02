@@ -15,6 +15,7 @@ import {
 import { getUserContext } from "@/packages/agents/lib/auth";
 import { getCurrentDate } from "@/packages/agents/lib/date-utils";
 import { handleAgentError } from "@/packages/agents/lib/error-handler";
+import { storeEmbedding } from "@/lib/embeddings/store";
 
 export async function initializeDaily(): Promise<DailyWelcomeResult> {
   try {
@@ -70,7 +71,7 @@ export async function processDailyMessage(
     const supabase = await createClient();
 
     // Save user message first
-    const { error: userMsgError } = await supabase
+    const { data: savedEvent, error: userMsgError } = await supabase
       .from("daily_events")
       .insert({
         user_id: userId,
@@ -78,10 +79,30 @@ export async function processDailyMessage(
         role: "user",
         type: "note",
         content: userMessage,
-      });
+      })
+      .select("id")
+      .single();
 
     if (userMsgError) {
       console.error("Failed to save user message:", userMsgError);
+    }
+
+    // Store embedding for memory search (notes must be in embeddings table)
+    if (savedEvent?.id && userMessage.trim()) {
+      try {
+        await storeEmbedding({
+          userId,
+          content: userMessage,
+          metadata: {
+            type: "daily_event",
+            source_id: savedEvent.id,
+            date: currentDate,
+          },
+        });
+      } catch (embeddingError) {
+        console.error("Failed to store embedding for daily note:", embeddingError);
+        // Don't fail the flow - note is saved, embedding is optional for search
+      }
     }
 
     // Process through unified agent

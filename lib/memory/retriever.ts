@@ -74,8 +74,9 @@ export async function retrieveMemory(
   }));
 
   if (fragments.length === 0 && hierarchyLevel === "monthly") {
-    console.warn(
-      `[memory] No embeddings found for user ${userId}. Memory search uses the embeddings table. ` +
+    // Log once per query - new daily notes are auto-embedded; backfill needed for existing data
+    console.info(
+      `[memory] No embeddings for user ${userId}. New notes are auto-embedded. ` +
         "Run `pnpm backfill-embeddings` to populate from existing events/summaries."
     );
   }
