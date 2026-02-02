@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { DailySummaryContent } from "@/packages/agents/schemas/summary.schema";
 import { format } from "date-fns";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ChevronDown01Icon, ChevronUp01Icon } from "@hugeicons/core-free-icons";
+import { ChevronDown, ChevronUp } from "@hugeicons/core-free-icons";
 
 interface DaySummaryCardProps {
   date: string;
@@ -39,7 +39,7 @@ export function DaySummaryCard({
             }}
           >
             <HugeiconsIcon
-              icon={expanded ? ChevronUp01Icon : ChevronDown01Icon}
+              icon={expanded ? ChevronUp : ChevronDown}
               strokeWidth={2}
             />
           </Button>

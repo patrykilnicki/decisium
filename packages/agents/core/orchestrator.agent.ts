@@ -143,12 +143,15 @@ async function toolExecutorNode(
           });
           break;
 
-        case "supabase_store":
-          result = await supabaseStoreTool.invoke(call.args);
+        case "supabase_store": {
+          const raw = await supabaseStoreTool.invoke(call.args as Parameters<typeof supabaseStoreTool.invoke>[0]);
+          result = typeof raw === "string" ? raw : JSON.stringify(raw);
           break;
+        }
 
         case "embedding_generator":
-          result = await embeddingGeneratorTool.invoke(call.args);
+          const embeddingResult = await embeddingGeneratorTool.invoke(call.args as Parameters<typeof embeddingGeneratorTool.invoke>[0]);
+          result = typeof embeddingResult === "string" ? embeddingResult : JSON.stringify(embeddingResult);
           break;
 
         default:
@@ -156,7 +159,7 @@ async function toolExecutorNode(
           const tools = getOrchestratorTools();
           const tool = tools.find(t => t.name === call.name);
           if (tool) {
-            result = await tool.invoke(call.args);
+            result = await tool.invoke(call.args as Parameters<typeof tool.invoke>[0]);
           } else {
             result = JSON.stringify({ error: `Unknown tool: ${call.name}` });
           }
