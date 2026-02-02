@@ -65,18 +65,27 @@ async function backfillDailyEvents() {
   return count;
 }
 
+interface SummaryRow {
+  id: string;
+  user_id: string;
+  content: unknown;
+  date?: string;
+  week_start?: string;
+  month_start?: string;
+}
+
 async function backfillSummaries() {
   const types = [
-    { table: "daily_summaries", type: "daily_summary" as const, dateCol: "date" },
-    { table: "weekly_summaries", type: "weekly_summary" as const, dateCol: "week_start" },
-    { table: "monthly_summaries", type: "monthly_summary" as const, dateCol: "month_start" },
+    { table: "daily_summaries" as const, type: "daily_summary" as const, dateCol: "date" as const },
+    { table: "weekly_summaries" as const, type: "weekly_summary" as const, dateCol: "week_start" as const },
+    { table: "monthly_summaries" as const, type: "monthly_summary" as const, dateCol: "month_start" as const },
   ];
 
   let total = 0;
   for (const { table, type, dateCol } of types) {
     const { data: summaries, error } = await supabase
       .from(table)
-      .select(`id, user_id, content, ${dateCol}`)
+      .select("id, user_id, content, " + dateCol)
       .order(dateCol, { ascending: false });
 
     if (error) {
@@ -93,7 +102,8 @@ async function backfillSummaries() {
       (existing || []).map((e) => e.metadata?.source_id as string)
     );
 
-    const toEmbed = (summaries || []).filter(
+    const rows = (summaries || []) as unknown as SummaryRow[];
+    const toEmbed = rows.filter(
       (s) => !embeddedIds.has(s.id) && s.content
     );
 
@@ -108,7 +118,7 @@ async function backfillSummaries() {
           metadata: {
             type,
             source_id: s.id,
-            date: s[dateCol],
+            date: String(s[dateCol] ?? ""),
           },
         });
         total++;
