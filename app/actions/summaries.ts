@@ -38,16 +38,90 @@ export async function generateDailySummary(userId: string, date: string) {
     .map((e) => `[${e.role}] ${e.type}: ${e.content}`)
     .join("\n");
 
-  const prompt = `Generate a daily summary for ${date} based on these events:
+  const prompt = `GYou are generating a **Daily Summary** for Decisium.
 
+Your goal is not to evaluate performance, but to **reflect what actually happened**, surface **one meaningful pattern**, and optionally offer a **gentle noticing cue** for the future.
+
+Date: ${date}
+
+Input data (events, notes, calendar signals, reflections):
 ${eventsText}
 
-Generate a summary with:
-- 2-4 key facts about the day
-- 1 insight about patterns or themes
-- 1 optional suggestion for the future
+══════════════════════════════════════
+RULES (IMPORTANT)
+══════════════════════════════════════
 
-Return as JSON: {facts: string[], insight: string, suggestion?: string}`;
+- Base everything strictly on the provided data
+- Do NOT invent context, intent, or emotions
+- Use neutral, non-judgmental language
+- Avoid productivity framing (no “productive / unproductive”)
+- Avoid advice unless it naturally follows from the pattern
+- If data is sparse, reflect that explicitly
+
+══════════════════════════════════════
+OUTPUT STRUCTURE
+══════════════════════════════════════
+
+Return valid JSON in the following format:
+
+{
+  "facts": string[],
+  "insight": string,
+  "suggestion"?: string
+}
+
+══════════════════════════════════════
+CONTENT GUIDELINES
+══════════════════════════════════════
+
+### facts (2-4 items)
+- Concrete, observable statements
+- Describe *what happened*, not why
+- Examples:
+  - "Most calendar time was spent in meetings related to one topic."
+  - "There were few written notes despite multiple scheduled events."
+  - "Activity was clustered in the first half of the day."
+
+### insight (1 item)
+- A soft interpretation that connects multiple facts
+- Phrase as a possibility, not a conclusion
+- Use language like:
+  - "This suggests…"
+  - "A possible pattern is…"
+  - "It appears that…"
+- Focus on attention, momentum, or decision-making
+
+### suggestion (optional)
+- Include only if it emerges naturally from the data
+- Must be lightweight and reflective, not prescriptive
+- Frame as noticing, not doing
+- Examples:
+  - "You might want to notice when this kind of day starts to form."
+  - "It could be worth paying attention to how meetings affect follow-up thinking."
+
+Do NOT include:
+- tasks
+- goals
+- habits
+- motivation
+- instructions
+
+══════════════════════════════════════
+TONE CHECK
+══════════════════════════════════════
+
+The summary should feel:
+- accurate
+- calm
+- reflective
+- slightly clarifying
+
+Not:
+- motivating
+- corrective
+- analytical-heavy
+- managerial
+`;
 
   const result = await rootAgent.invoke({
     messages: [{ role: "user", content: prompt }],
@@ -106,6 +180,42 @@ Return as JSON: {facts: string[], insight: string, suggestion?: string}`;
   return summary;
 }
 
+export async function getDailySummaries(userId: string, limit = 30) {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("daily_summaries")
+    .select("*")
+    .eq("user_id", userId)
+    .order("date", { ascending: false })
+    .limit(limit);
+  if (error) throw new Error(`Failed to fetch daily summaries: ${error.message}`);
+  return data ?? [];
+}
+
+export async function getWeeklySummaries(userId: string, limit = 12) {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("weekly_summaries")
+    .select("*")
+    .eq("user_id", userId)
+    .order("week_start", { ascending: false })
+    .limit(limit);
+  if (error) throw new Error(`Failed to fetch weekly summaries: ${error.message}`);
+  return data ?? [];
+}
+
+export async function getMonthlySummaries(userId: string, limit = 12) {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("monthly_summaries")
+    .select("*")
+    .eq("user_id", userId)
+    .order("month_start", { ascending: false })
+    .limit(limit);
+  if (error) throw new Error(`Failed to fetch monthly summaries: ${error.message}`);
+  return data ?? [];
+}
+
 export async function generateWeeklySummary(userId: string, weekStart: string) {
   const supabase = await createClient();
 
@@ -142,16 +252,102 @@ export async function generateWeeklySummary(userId: string, weekStart: string) {
     .map((s) => `${s.date}: ${JSON.stringify(s.content)}`)
     .join("\n");
 
-  const prompt = `Generate a weekly summary for week starting ${weekStart} based on these daily summaries:
+  const prompt = `You are generating a **Weekly Summary** for Decisium.
 
+Your role is to synthesize multiple daily summaries into **clear patterns, recurring themes, and higher-level insights** — without judging performance or prescribing action.
+
+Week starting: ${weekStart}
+
+Input (daily summaries from this week):
 ${summariesText}
 
-Generate a summary with:
-- patterns: array of patterns observed
-- themes: array of recurring themes
-- insights: array of insights
+══════════════════════════════════════
+RULES (STRICT)
+══════════════════════════════════════
 
-Return as JSON: {patterns: string[], themes: string[], insights: string[]}`;
+- Base everything ONLY on the provided daily summaries
+- Do NOT invent missing days, intentions, or causes
+- Do NOT evaluate productivity or success
+- Prefer cautious language over certainty
+- If signals are weak or inconsistent, say so implicitly by keeping insights lighter
+- Patterns must span multiple days (not single-day observations)
+
+══════════════════════════════════════
+OUTPUT FORMAT
+══════════════════════════════════════
+
+Return valid JSON only:
+
+{
+  "patterns": string[],
+  "themes": string[],
+  "insights": string[]
+}
+
+══════════════════════════════════════
+CONTENT DEFINITIONS
+══════════════════════════════════════
+
+### patterns
+- Observable repetitions across days
+- Grounded in facts from daily summaries
+- Descriptive, not interpretive
+- Examples:
+  - "Meetings consistently occupied the majority of scheduled time."
+  - "Most days showed limited follow-up activity after discussions."
+  - "Energy and activity appeared front-loaded earlier in the week."
+
+(2-5 items recommended)
+
+---
+
+### themes
+- Broader recurring subjects or areas of attention
+- More abstract than patterns, but still grounded
+- Often expressed as nouns or short phrases
+- Examples:
+  - "Reactive communication"
+  - "Fragmented focus"
+  - "Exploration without closure"
+  - "Context switching"
+
+(2-4 items recommended)
+
+---
+
+### insights
+- Higher-level interpretations that connect patterns and themes
+- Must remain soft, reflective, and non-judgmental
+- Phrase as possibilities, not conclusions
+- Use language like:
+  - "This week suggests…"
+  - "Across the week, it appears that…"
+  - "One emerging insight is…"
+
+Focus on:
+- attention flow
+- momentum or stagnation
+- decision-making (or avoidance)
+- alignment or drift from intent
+
+(1-3 items recommended)
+
+══════════════════════════════════════
+TONE CHECK
+══════════════════════════════════════
+
+The summary should feel:
+- clarifying
+- calm
+- grounded in reality
+- easy to recognize as true
+
+Not:
+- motivational
+- corrective
+- prescriptive
+- overly analytical
+`;
 
   const result = await rootAgent.invoke({
     messages: [{ role: "user", content: prompt }],
@@ -241,16 +437,113 @@ export async function generateMonthlySummary(userId: string, monthStart: string)
     .map((s) => `Week ${s.week_start}: ${JSON.stringify(s.content)}`)
     .join("\n");
 
-  const prompt = `Generate a monthly summary for month starting ${monthStart} based on these weekly summaries:
+  const prompt = `You are generating a **Monthly Summary** for Decisium.
 
+Your role is to synthesize multiple weekly summaries into **clear trends, strategic-level insights, and reflective observations** about how the user’s work, attention, and decisions evolved over the month.
+
+This is not a performance review.
+This is a **sense-making artifact**.
+
+Month starting: ${monthStart}
+
+Input (weekly summaries from this month):
 ${summariesText}
 
-Generate a summary with:
-- trends: array of trends observed
-- strategic_insights: array of strategic insights
-- reflections: array of reflections
+══════════════════════════════════════
+RULES (VERY IMPORTANT)
+══════════════════════════════════════
 
-Return as JSON: {trends: string[], strategic_insights: string[], reflections: string[]}`;
+- Base everything ONLY on the provided weekly summaries
+- Do NOT invent causes, motivations, or outcomes
+- Do NOT evaluate success or productivity
+- Avoid advice, goals, or action items
+- Prefer cautious, reflective language over certainty
+- Trends must be visible across multiple weeks
+- If data is thin or inconsistent, reflect that subtly
+
+══════════════════════════════════════
+OUTPUT FORMAT
+══════════════════════════════════════
+
+Return valid JSON only:
+
+{
+  "trends": string[],
+  "strategic_insights": string[],
+  "reflections": string[]
+}
+
+══════════════════════════════════════
+CONTENT DEFINITIONS
+══════════════════════════════════════
+
+### trends
+- Sustained patterns visible across weeks
+- Descriptive and observational
+- Focus on *direction*, not judgment
+- Examples:
+  - "Attention gradually shifted from exploration to execution."
+  - "Meetings increasingly shaped the structure of most workdays."
+  - "Several projects showed intermittent momentum rather than steady progress."
+
+(2-5 items recommended)
+
+---
+
+### strategic_insights
+- Higher-level interpretations that connect trends together
+- Concern *how* the user operates over time
+- Frame as possibilities, not conclusions
+- Use language such as:
+  - "Over the month, it appears that…"
+  - "A strategic pattern that emerges is…"
+  - "This month suggests a tendency toward…"
+
+Focus on:
+- decision-making style
+- attention allocation
+- momentum vs stagnation
+- alignment or drift between intent and reality
+
+Avoid:
+- prescriptions
+- optimization framing
+- moral language
+
+(2-4 items recommended)
+
+---
+
+### reflections
+- Gentle, human-level observations meant to resonate
+- Less analytical, more integrative
+- Can reference tension, ambiguity, or learning
+- Examples:
+  - "Much of the month was shaped by reacting rather than choosing."
+  - "Clarity often followed moments where decisions were made explicit."
+  - "The month reflects ongoing exploration rather than closure."
+
+These should feel like:
+> “Yes — that describes this month.”
+
+(2-4 items recommended)
+
+══════════════════════════════════════
+TONE CHECK
+══════════════════════════════════════
+
+The monthly summary should feel:
+- calm
+- accurate
+- reflective
+- identity-aware
+
+Not:
+- motivational
+- corrective
+- instructional
+- managerial
+`;
 
   const result = await rootAgent.invoke({
     messages: [{ role: "user", content: prompt }],

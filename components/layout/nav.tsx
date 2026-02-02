@@ -10,13 +10,14 @@ import { cn } from "@/lib/utils";
 
 interface NavItem {
   href: string;
-  name: "IconHome" | "IconStar" | "IconNote1" | "IconSettingsGear1";
+  name: "IconHome" | "IconStar" | "IconChart1" | "IconNote1" | "IconSettingsGear1";
   label: string;
 }
 
 const navItems: NavItem[] = [
   { href: "/", name: "IconHome", label: "Home" },
   { href: "/ask", name: "IconStar", label: "Ask AI" },
+  { href: "/summaries", name: "IconChart1", label: "Summaries" },
   { href: "/vault", name: "IconNote1", label: "Vault" },
   { href: "/settings", name: "IconSettingsGear1", label: "Settings" },
 ];

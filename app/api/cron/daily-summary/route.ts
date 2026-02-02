@@ -7,9 +7,15 @@ import { format, subDays } from "date-fns";
 const CRON_SECRET = process.env.CRON_SECRET;
 
 export async function POST(request: NextRequest) {
-  // Verify cron secret
+  // Verify cron secret - support both Vercel Cron (automatic) and manual calls
   const authHeader = request.headers.get("authorization");
-  if (authHeader !== `Bearer ${CRON_SECRET}`) {
+  const vercelCronHeader = request.headers.get("x-vercel-cron");
+  
+  // Allow if it's a Vercel Cron job OR if Authorization header matches
+  const isVercelCron = vercelCronHeader === "1";
+  const isValidAuth = authHeader === `Bearer ${CRON_SECRET}`;
+  
+  if (!isVercelCron && !isValidAuth) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
