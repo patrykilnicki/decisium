@@ -6,6 +6,13 @@ import { format, subDays } from "date-fns";
 // Verify cron secret (set in environment)
 const CRON_SECRET = process.env.CRON_SECRET;
 
+export async function GET() {
+  return NextResponse.json(
+    { error: "Method not allowed. Use POST with Authorization: Bearer <CRON_SECRET>." },
+    { status: 405 }
+  );
+}
+
 export async function POST(request: NextRequest) {
   // Verify cron secret - support both Vercel Cron (automatic) and manual calls
   const authHeader = request.headers.get("authorization");
