@@ -31,9 +31,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={inter.variable}>
-      <head>
-      <meta name="google-site-verification" content="9B93rQYjxzvTPxuG7NK7QKObNkFV2uhhiC8K8A1fy1M" />
-      </head>
+
       <body
         className={`${geistSans.variable} ${geistMono.variable} ${domine.variable} antialiased`}
       >
