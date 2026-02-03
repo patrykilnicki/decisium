@@ -116,29 +116,38 @@ export class GoogleCalendarAdapter extends BaseAdapter {
       return this.fetchDataIncremental(calendar, calendarId, options);
     }
 
-    // Full sync: time range + orderBy
+    // Full sync: time range + orderBy, follow all pages
     const now = new Date();
     const timeMin = options?.since ?? new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
     const timeMax = options?.until ?? new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000);
 
-    const response = await calendar.events.list({
-      calendarId,
-      timeMin: timeMin.toISOString(),
-      timeMax: timeMax.toISOString(),
-      singleEvents: true,
-      orderBy: 'startTime',
-      maxResults: options?.limit ?? 100,
-      pageToken: options?.cursor ?? undefined,
-    });
+    const allAtoms: ActivityAtom[] = [];
+    let pageToken: string | undefined = options?.cursor;
+    let nextSyncToken: string | undefined;
 
-    const items = response.data.items ?? [];
-    const atoms = this.normalizeToAtoms(items);
+    do {
+      const response = await calendar.events.list({
+        calendarId,
+        timeMin: timeMin.toISOString(),
+        timeMax: timeMax.toISOString(),
+        singleEvents: true,
+        orderBy: 'startTime',
+        maxResults: options?.limit ?? 250,
+        pageToken,
+      });
+
+      const items = response.data.items ?? [];
+      allAtoms.push(...this.normalizeToAtoms(items));
+
+      pageToken = response.data.nextPageToken ?? undefined;
+      nextSyncToken = response.data.nextSyncToken ?? undefined;
+    } while (pageToken);
 
     return {
-      atoms,
-      nextCursor: response.data.nextPageToken ?? undefined,
-      nextSyncToken: response.data.nextSyncToken ?? undefined,
-      hasMore: !!response.data.nextPageToken,
+      atoms: allAtoms,
+      nextCursor: undefined,
+      nextSyncToken,
+      hasMore: false,
       syncedAt: new Date(),
     };
   }

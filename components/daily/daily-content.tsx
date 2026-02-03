@@ -181,8 +181,8 @@ export function DailyContent() {
       try {
         setLoading(true);
         await initializeDaily();
-        // Fetch today's meetings count
-        const count = await getTodayMeetingsCount();
+        // Fetch today's meetings count (pass client's local date to avoid timezone mismatch)
+        const count = await getTodayMeetingsCount(today);
         setMeetingsCount(count);
       } catch (error) {
         console.error("Failed to initialize daily:", error);
@@ -284,7 +284,7 @@ export function DailyContent() {
       {isEmpty ? (
         // First screen: Empty state with full input below meetings (all in scrollable area)
         <div className="flex-1 overflow-auto min-h-0">
-          <DailyEmptyState showDisclaimer={true} meetingsCount={meetingsCount}>
+          <DailyEmptyState showDisclaimer={true} meetingsCount={meetingsCount} today={today}>
             {failedTasks.length > 0 && (
               <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
                 <div className="flex flex-wrap items-center justify-between gap-3">

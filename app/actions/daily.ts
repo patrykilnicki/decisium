@@ -176,35 +176,60 @@ export async function getDailyEvents(
   }
 }
 
-export async function getTodayMeetingsCount(): Promise<number> {
+export interface TodayMeeting {
+  id: string;
+  title: string | null;
+  occurred_at: string;
+  duration_minutes: number | null;
+  participants: string[] | null;
+  source_url: string | null;
+}
+
+/**
+ * Get today's calendar events (meetings) from activity_atoms.
+ * Uses a 3-day window then filters by date string to avoid timezone edge cases.
+ * @param date - Optional date in YYYY-MM-DD (client's local "today").
+ */
+export async function getTodayMeetings(date?: string): Promise<TodayMeeting[]> {
   try {
-    // Get authenticated user context
     const { userId } = await getUserContext();
-    const today = getCurrentDate();
+    const targetDate = date ?? getCurrentDate();
     const supabase = await createClient();
 
-    // Get start and end of today in UTC
-    const todayStart = new Date(`${today}T00:00:00Z`);
-    const todayEnd = new Date(`${today}T23:59:59Z`);
+    const [y, m, d] = targetDate.split("-").map(Number);
+    const windowStart = new Date(Date.UTC(y, m - 1, d - 1, 0, 0, 0, 0));
+    const windowEnd = new Date(Date.UTC(y, m - 1, d + 2, 0, 0, 0, 0));
 
-    // Query activity_atoms for today's meetings
-    // Meetings are identified by: atom_type = 'event', provider = 'google_calendar', and metadata.isMeeting = true
-    const { count, error } = await supabase
+    const { data, error } = await supabase
       .from("activity_atoms")
-      .select("*", { count: "exact", head: true })
+      .select("id, title, occurred_at, duration_minutes, participants, source_url")
       .eq("user_id", userId)
       .eq("atom_type", "event")
       .eq("provider", "google_calendar")
-      .gte("occurred_at", todayStart.toISOString())
-      .lte("occurred_at", todayEnd.toISOString())
-      .contains("metadata", { isMeeting: true });
+      .gte("occurred_at", windowStart.toISOString())
+      .lt("occurred_at", windowEnd.toISOString())
+      .order("occurred_at", { ascending: true });
 
     if (error) {
-      console.error("Failed to fetch today's meetings count:", error);
-      return 0;
+      console.error("Failed to fetch today's meetings:", error);
+      return [];
     }
 
-    return count ?? 0;
+    const rows = (data ?? []) as TodayMeeting[];
+    return rows.filter((row) => row.occurred_at.slice(0, 10) === targetDate);
+  } catch (error) {
+    console.error("Error getting today's meetings:", error);
+    return [];
+  }
+}
+
+/**
+ * Get count of today's calendar events. Pass client's local date to match user's "today".
+ */
+export async function getTodayMeetingsCount(date?: string): Promise<number> {
+  try {
+    const meetings = await getTodayMeetings(date);
+    return meetings.length;
   } catch (error) {
     console.error("Error getting today's meetings count:", error);
     return 0;

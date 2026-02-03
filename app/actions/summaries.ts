@@ -38,89 +38,81 @@ export async function generateDailySummary(userId: string, date: string) {
     .map((e) => `[${e.role}] ${e.type}: ${e.content}`)
     .join("\n");
 
-  const prompt = `GYou are generating a **Daily Summary** for Decisium.
+  const prompt = `You are generating a **DAILY WORK SUMMARY** for a cognitive productivity app.
 
-Your goal is not to evaluate performance, but to **reflect what actually happened**, surface **one meaningful pattern**, and optionally offer a **gentle noticing cue** for the future.
+This summary is a reflective snapshot, not a performance evaluation.
+The goal is clarity and sense-making — never pressure or judgment.
 
 Date: ${date}
 
-Input data (events, notes, calendar signals, reflections):
+INPUT DATA (events, notes, calendar signals, reflections):
 ${eventsText}
 
 ══════════════════════════════════════
-RULES (IMPORTANT)
+OUTPUT STRUCTURE (required)
 ══════════════════════════════════════
 
-- Base everything strictly on the provided data
-- Do NOT invent context, intent, or emotions
-- Use neutral, non-judgmental language
-- Avoid productivity framing (no “productive / unproductive”)
-- Avoid advice unless it naturally follows from the pattern
-- If data is sparse, reflect that explicitly
-
-══════════════════════════════════════
-OUTPUT STRUCTURE
-══════════════════════════════════════
-
-Return valid JSON in the following format:
+Return valid JSON only. No markdown, no extra text.
 
 {
-  "facts": string[],
-  "insight": string,
-  "suggestion"?: string
+  "score": number (0-100),
+  "score_label": string (e.g. "Excellent", "Solid", "Mixed"),
+  "explanation": string (one short supportive sentence),
+  "time_allocation": {
+    "meetings": number (0-100, percentage of time),
+    "deep_work": number (0-100),
+    "other": number (0-100)
+  },
+  "notes_added": number (integer, count from data),
+  "new_ideas": number (integer, count ideas/captures from data),
+  "narrative_summary": string (2-3 sentences describing the day)
 }
 
-══════════════════════════════════════
-CONTENT GUIDELINES
-══════════════════════════════════════
-
-### facts (2-4 items)
-- Concrete, observable statements
-- Describe *what happened*, not why
-- Examples:
-  - "Most calendar time was spent in meetings related to one topic."
-  - "There were few written notes despite multiple scheduled events."
-  - "Activity was clustered in the first half of the day."
-
-### insight (1 item)
-- A soft interpretation that connects multiple facts
-- Phrase as a possibility, not a conclusion
-- Use language like:
-  - "This suggests…"
-  - "A possible pattern is…"
-  - "It appears that…"
-- Focus on attention, momentum, or decision-making
-
-### suggestion (optional)
-- Include only if it emerges naturally from the data
-- Must be lightweight and reflective, not prescriptive
-- Frame as noticing, not doing
-- Examples:
-  - "You might want to notice when this kind of day starts to form."
-  - "It could be worth paying attention to how meetings affect follow-up thinking."
-
-Do NOT include:
-- tasks
-- goals
-- habits
-- motivation
-- instructions
+time_allocation values must sum to 100. Infer from event types: notes/answers suggest deep work, summary/system or calendar cues suggest meetings; default to reasonable splits if unclear.
 
 ══════════════════════════════════════
-TONE CHECK
+RULES FOR OVERALL SCORE
 ══════════════════════════════════════
 
-The summary should feel:
-- accurate
-- calm
-- reflective
-- slightly clarifying
+- Score reflects alignment, momentum, and sustainability — not hours worked
+- Favor deep work continuity over raw activity
+- Meetings are neutral, not negative
+- Never imply obligation, failure, or expectations
+- Do NOT explain the score mathematically
 
-Not:
-- motivating
-- corrective
-- analytical-heavy
-- managerial
+══════════════════════════════════════
+RULES FOR TONE
+══════════════════════════════════════
+
+- Calm, observational, supportive, non-judgmental
+- No motivational slogans, no "you should"
+
+══════════════════════════════════════
+RULES FOR NARRATIVE SUMMARY
+══════════════════════════════════════
+
+- Describe what happened, not what should have happened
+- Connect activities into a coherent picture
+- Avoid exaggeration or praise inflation
+- Be concrete and grounded
+
+══════════════════════════════════════
+EXAMPLE (style reference only)
+══════════════════════════════════════
+
+{
+  "score": 86,
+  "score_label": "Excellent",
+  "explanation": "You made steady progress and maintained focus without draining your energy.",
+  "time_allocation": { "meetings": 15, "deep_work": 70, "other": 15 },
+  "notes_added": 4,
+  "new_ideas": 2,
+  "narrative_summary": "You spent most of the day in focused work, moving key design tasks forward. Meetings didn't disrupt your momentum, allowing you to stay mentally present through the afternoon. The notes and ideas suggest active exploration rather than reactive work."
+}
+
+Generate the summary for the given date and data. Return only the JSON object.
+
+══════════════════════════════════════
 `;
 
   const result = await rootAgent.invoke({
@@ -134,15 +126,38 @@ Not:
   try {
     const jsonMatch = responseContent.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
-      summaryContent = JSON.parse(jsonMatch[0]);
+      const parsed = JSON.parse(jsonMatch[0]);
+      const notesCount = events.filter((e) => e.type === "note" || e.type === "note+question").length;
+      const ideasCount = events.filter((e) => e.type === "question" || e.type === "note+question").length;
+      const total = (parsed.time_allocation?.meetings ?? 0) + (parsed.time_allocation?.deep_work ?? 0) + (parsed.time_allocation?.other ?? 0);
+      const norm = total > 0 ? total : 1;
+      summaryContent = {
+        score: Math.min(100, Math.max(0, Number(parsed.score) ?? 70)),
+        score_label: parsed.score_label ?? "Solid",
+        explanation: parsed.explanation ?? "Review your day and reflect on patterns.",
+        time_allocation: {
+          meetings: Math.round((Number(parsed.time_allocation?.meetings) ?? 20) * (100 / norm)),
+          deep_work: Math.round((Number(parsed.time_allocation?.deep_work) ?? 60) * (100 / norm)),
+          other: Math.round((Number(parsed.time_allocation?.other) ?? 20) * (100 / norm)),
+        },
+        notes_added: typeof parsed.notes_added === "number" && parsed.notes_added >= 0 ? parsed.notes_added : notesCount,
+        new_ideas: typeof parsed.new_ideas === "number" && parsed.new_ideas >= 0 ? parsed.new_ideas : ideasCount,
+        narrative_summary: parsed.narrative_summary ?? "Review your day and reflect on patterns.",
+      };
     } else {
       throw new Error("No JSON found in response");
     }
   } catch (error) {
-    // Fallback: create basic summary
+    const notesCount = events.filter((e) => e.type === "note" || e.type === "note+question").length;
+    const ideasCount = events.filter((e) => e.type === "question" || e.type === "note+question").length;
     summaryContent = {
-      facts: events.slice(0, 3).map((e) => e.content.substring(0, 100)),
-      insight: "Review your day and reflect on patterns.",
+      score: 70,
+      score_label: "Solid",
+      explanation: "Review your day and reflect on patterns.",
+      time_allocation: { meetings: 20, deep_work: 60, other: 20 },
+      notes_added: notesCount,
+      new_ideas: ideasCount,
+      narrative_summary: "Review your day and reflect on patterns.",
     };
   }
 
@@ -163,7 +178,15 @@ Not:
 
   // Generate and store embedding
   try {
-    const summaryText = `${summaryContent.facts.join(". ")}. ${summaryContent.insight}`;
+    let summaryText: string;
+    if ("score_label" in summaryContent && summaryContent.score_label) {
+      summaryText = `${summaryContent.score_label}: ${summaryContent.explanation} ${summaryContent.narrative_summary}`;
+    } else if ("facts" in summaryContent && Array.isArray((summaryContent as { facts?: string[] }).facts)) {
+      const s = summaryContent as unknown as { facts: string[]; insight: string };
+      summaryText = `${s.facts.join(". ")}. ${s.insight}`;
+    } else {
+      summaryText = JSON.stringify(summaryContent);
+    }
     await storeEmbedding({
       userId,
       content: summaryText,

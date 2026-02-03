@@ -9,6 +9,7 @@
     "lint": "eslint",
     "migrate": "supabase db push",
     "backfill-embeddings": "tsx scripts/backfill-embeddings.ts",
+    "run-daily-summary": "tsx scripts/run-daily-summary.ts",
     "task-worker": "tsx packages/workers/task-runner.ts"
   },
   "dependencies": {

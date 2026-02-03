@@ -11,6 +11,10 @@
     {
       "path": "/api/cron/monthly-summary",
       "schedule": "0 4 1 * *"
+    },
+    {
+      "path": "/api/cron/renew-calendar-watches",
+      "schedule": "0 1 * * *"
     }
   ]
 }

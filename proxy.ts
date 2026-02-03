@@ -41,10 +41,11 @@ export async function proxy(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname;
 
-  // Protect routes that require authentication
+  // Protect routes that require authentication (allow /api/cron for cron secret auth)
   if (
     !user &&
     !pathname.startsWith("/auth") &&
+    !pathname.startsWith("/api/cron") &&
     pathname !== "/"
   ) {
     const url = request.nextUrl.clone();

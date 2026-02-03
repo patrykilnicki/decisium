@@ -94,13 +94,17 @@ export function SummariesContent() {
   }
 
   return (
-    <div className="flex flex-col h-full">
-      <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 z-10 p-4">
-        <h1 className="text-xl font-semibold">Summaries</h1>
-        <p className="text-sm text-muted-foreground">
-          Daily, weekly, and monthly insights from your entries
-        </p>
-      </header>
+    <div
+    className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-background p-4"
+    style={{
+      backgroundImage: "url(/bg.svg)",
+      backgroundRepeat: "no-repeat",
+      backgroundPosition: "top left",
+      backgroundSize: "auto 50vh",
+    }}
+  >
+    <div className="flex flex-col h-full max-w-2xl mx-auto">
+  
 
       <div className="flex-1 overflow-auto p-4">
         <Tabs defaultValue="daily" className="w-full">
@@ -164,6 +168,7 @@ export function SummariesContent() {
             )}
           </TabsContent>
         </Tabs>
+      </div>
       </div>
     </div>
   );
