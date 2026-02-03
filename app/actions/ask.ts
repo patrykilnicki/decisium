@@ -2,10 +2,14 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { AskThread, AskMessageInput } from "@/packages/agents/schemas/ask.schema";
-import { processAskPageMessage } from "@/packages/agents/core/main.agent";
 import { getUserContext } from "@/packages/agents/lib/auth";
 import { buildConversationHistory } from "@/packages/agents/lib/context";
 import { handleAgentError } from "@/packages/agents/lib/error-handler";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { enqueueTask } from "@/lib/tasks/task-repository";
+import type { TaskType } from "@/lib/tasks/task-definitions";
+import { getAgentMode, type RootGraphState } from "@/packages/agents/core/root.agent";
+import { createInitialOrchestratorState } from "@/packages/agents/schemas/orchestrator.schema";
 
 export async function createThread(userId: string, title?: string): Promise<AskThread> {
   const supabase = await createClient();
@@ -118,40 +122,50 @@ export async function sendMessage(
       throw new Error(`Failed to save user message: ${userMsgError.message}`);
     }
 
-    // Process through unified agent
-    const result = await processAskPageMessage({
-      userId,
-      threadId,
-      userMessage: messageInput.content,
-      currentDate,
-      userEmail,
-      conversationHistory,
-    });
+    const mode = getAgentMode();
+    const adminClient = createAdminClient();
 
-    // Save assistant response
-    const { data: savedAssistantMessage, error: assistantMsgError } = await supabase
-      .from("ask_messages")
-      .insert({
-        thread_id: threadId,
-        role: "assistant",
-        content: result.agentResponse,
-      })
-      .select()
-      .single();
+    let taskType: TaskType;
+    let initialState: object;
 
-    if (assistantMsgError) {
-      console.error("Failed to save assistant message:", assistantMsgError);
+    if (mode === "agentic") {
+      taskType = "orchestrator.router";
+      initialState = {
+        ...createInitialOrchestratorState({
+          userId,
+          threadId,
+          userMessage: messageInput.content,
+          currentDate,
+          userEmail,
+          conversationHistory,
+        }),
+        userMessageId: savedUserMessage.id,
+      };
+    } else {
+      taskType = "root.save_user_message";
+      const rootState: RootGraphState = {
+        userId,
+        threadId,
+        userMessage: messageInput.content,
+        currentDate,
+        userEmail,
+        conversationHistory,
+        userMessageId: savedUserMessage.id,
+      };
+      initialState = rootState;
     }
 
-    // Update thread timestamp
-    await supabase
-      .from("ask_threads")
-      .update({ updated_at: new Date().toISOString() })
-      .eq("id", threadId);
+    const task = await enqueueTask(adminClient, {
+      user_id: userId,
+      session_id: threadId,
+      task_type: taskType,
+      input: { state: initialState },
+    });
 
     return {
       userMessage: savedUserMessage,
-      assistantMessage: savedAssistantMessage,
+      taskId: task.id,
+      mode,
     };
   } catch (error) {
     handleAgentError(error, {

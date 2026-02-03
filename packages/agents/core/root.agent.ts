@@ -61,6 +61,46 @@ export interface RootMessageResult {
   assistantMessageId?: string;
 }
 
+async function storeAskEmbedding(params: {
+  userId: string;
+  threadId: string;
+  content: string;
+  sourceId: string;
+  currentDate: string;
+}): Promise<void> {
+  try {
+    const embeddingResultStr = await embeddingGeneratorTool.invoke({
+      content: params.content,
+    });
+    const embeddingResult = typeof embeddingResultStr === "string"
+      ? JSON.parse(embeddingResultStr)
+      : embeddingResultStr;
+
+    if (
+      embeddingResult?.embedding &&
+      Array.isArray(embeddingResult.embedding) &&
+      embeddingResult.embedding.length > 0
+    ) {
+      await supabaseStoreTool.invoke({
+        table: "embeddings",
+        data: {
+          user_id: params.userId,
+          content: params.content,
+          embedding: embeddingResult.embedding,
+          metadata: {
+            type: "ask_message",
+            source_id: params.sourceId,
+            thread_id: params.threadId,
+            date: params.currentDate,
+          },
+        },
+      });
+    }
+  } catch (embeddingError) {
+    console.error("Error storing embedding for ask message:", embeddingError);
+  }
+}
+
 // Node Implementations
 
 async function memoryRetrieverNode(
@@ -159,6 +199,17 @@ async function saveUserMessageNode(
   }
 
   try {
+    if (state.userMessageId) {
+      await storeAskEmbedding({
+        userId: state.userId,
+        threadId: state.threadId,
+        content: state.userMessage,
+        sourceId: state.userMessageId,
+        currentDate: state.currentDate,
+      });
+      return { userMessageId: state.userMessageId };
+    }
+
     const savedMessageStr = await supabaseStoreTool.invoke({
       table: "ask_messages",
       data: {
@@ -172,40 +223,14 @@ async function saveUserMessageNode(
       ? JSON.parse(savedMessageStr)
       : savedMessageStr;
 
-    // Generate and store embedding for user message
-    if (savedMessage?.id && state.userMessage) {
-      try {
-        const embeddingResultStr = await embeddingGeneratorTool.invoke({
-          content: state.userMessage,
-        });
-        const embeddingResult = typeof embeddingResultStr === "string"
-          ? JSON.parse(embeddingResultStr)
-          : embeddingResultStr;
-
-        if (
-          embeddingResult?.embedding &&
-          Array.isArray(embeddingResult.embedding) &&
-          embeddingResult.embedding.length > 0
-        ) {
-          await supabaseStoreTool.invoke({
-            table: "embeddings",
-            data: {
-              user_id: state.userId,
-              content: state.userMessage,
-              embedding: embeddingResult.embedding,
-              metadata: {
-                type: "ask_message",
-                source_id: savedMessage.id,
-                thread_id: state.threadId,
-                date: state.currentDate,
-              },
-            },
-          });
-        }
-      } catch (embeddingError) {
-        console.error("Error storing embedding for user message:", embeddingError);
-        // Don't fail the message save if embedding fails
-      }
+    if (savedMessage?.id) {
+      await storeAskEmbedding({
+        userId: state.userId,
+        threadId: state.threadId,
+        content: state.userMessage,
+        sourceId: savedMessage.id,
+        currentDate: state.currentDate,
+      });
     }
 
     return { userMessageId: savedMessage?.id };
@@ -227,6 +252,17 @@ async function saveAssistantMessageNode(
   }
 
   try {
+    if (state.assistantMessageId) {
+      await storeAskEmbedding({
+        userId: state.userId,
+        threadId: state.threadId,
+        content: state.agentResponse,
+        sourceId: state.assistantMessageId,
+        currentDate: state.currentDate,
+      });
+      return { assistantMessageId: state.assistantMessageId };
+    }
+
     const savedMessageStr = await supabaseStoreTool.invoke({
       table: "ask_messages",
       data: {
@@ -240,46 +276,22 @@ async function saveAssistantMessageNode(
       ? JSON.parse(savedMessageStr)
       : savedMessageStr;
 
-    // Generate and store embedding for assistant message
-    if (savedMessage?.id && state.agentResponse) {
-      try {
-        const embeddingResultStr = await embeddingGeneratorTool.invoke({
-          content: state.agentResponse,
-        });
-        const embeddingResult = typeof embeddingResultStr === "string"
-          ? JSON.parse(embeddingResultStr)
-          : embeddingResultStr;
-
-        if (
-          embeddingResult?.embedding &&
-          Array.isArray(embeddingResult.embedding) &&
-          embeddingResult.embedding.length > 0
-        ) {
-          await supabaseStoreTool.invoke({
-            table: "embeddings",
-            data: {
-              user_id: state.userId,
-              content: state.agentResponse,
-              embedding: embeddingResult.embedding,
-              metadata: {
-                type: "ask_message",
-                source_id: savedMessage.id,
-                thread_id: state.threadId,
-                date: state.currentDate,
-              },
-            },
-          });
-        }
-      } catch (embeddingError) {
-        console.error("Error storing embedding for assistant message:", embeddingError);
-        // Don't fail the message save if embedding fails
-      }
+    if (savedMessage?.id) {
+      await storeAskEmbedding({
+        userId: state.userId,
+        threadId: state.threadId,
+        content: state.agentResponse,
+        sourceId: savedMessage.id,
+        currentDate: state.currentDate,
+      });
     }
 
     // Update thread updated_at
     try {
-      const { createClient } = await import("@/lib/supabase/server");
-      const supabase = await createClient();
+      const shouldUseAdmin = process.env.TASK_WORKER === "true";
+      const supabase = shouldUseAdmin
+        ? (await import("@/lib/supabase/admin")).createAdminClient()
+        : await (await import("@/lib/supabase/server")).createClient();
       await supabase
         .from("ask_threads")
         .update({ updated_at: new Date().toISOString() })
@@ -452,3 +464,11 @@ export function getRootGraph(mode?: AgentMode) {
 
 // Re-export orchestrator types for convenience
 export type { OrchestratorMessageResult } from "./orchestrator.agent";
+
+// Export nodes for durable task handlers
+export {
+  saveUserMessageNode,
+  memoryRetrieverNode,
+  rootResponseAgentNode,
+  saveAssistantMessageNode,
+};

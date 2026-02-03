@@ -62,7 +62,7 @@ export function Nav() {
 
   return (
     <aside
-      className="flex w-16 flex-col items-center gap-6 border-r bg-background py-6 shadow-sm"
+      className="flex w-16 flex-col items-center justify-between gap-6 border-r border-border/40 bg-background py-6 shadow-sm"
       aria-label="Main navigation"
     >
       {/* Primary action - green gradient button with sparkle */}
@@ -74,13 +74,13 @@ export function Nav() {
         <CentralIcon
           name="IconSparkle"
           iconFill="filled"
-          size={20}
+          size={24}
           className="text-white"
         />
       </Link>
 
       {/* Nav items */}
-      <nav className="flex flex-1 flex-col gap-4" aria-label="Navigation links">
+      <nav className="flex flex-col gap-4" aria-label="Navigation links">
         {navItems.map((item) => {
           const isActive =
             item.href === "/"
@@ -91,7 +91,7 @@ export function Nav() {
               key={item.name}
               href={item.href}
               className={cn(
-                "flex size-10 items-center justify-center rounded-lg transition-colors",
+                "flex size-12 items-center justify-center rounded-lg transition-colors",
                 isActive
                   ? "bg-muted text-foreground"
                   : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
@@ -102,8 +102,8 @@ export function Nav() {
               <CentralIcon
                 name={item.name}
                 iconFill={isActive ? "filled" : "outlined"}
-                iconStroke="1.5"
-                size={22}
+                iconStroke="2"
+                size={24}
               />
             </Link>
           );

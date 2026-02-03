@@ -2,6 +2,7 @@ import { createDeepAgent, type SubAgent } from "deepagents";
 import { createLLM, type LLMProvider } from "../lib/llm";
 import { getCurrentDate, getCurrentDateWithDay } from "../lib/date-utils";
 import { handleAgentError } from "../lib/error-handler";
+import { createSafeAgentInvoker } from "../lib/agent-invocation";
 import {
   memorySearchTool,
   supabaseStoreTool,
@@ -27,6 +28,11 @@ interface MainAgentConfig {
   llmProvider?: LLMProvider;
   model?: string;
   temperature?: number;
+  /**
+   * Recursion limit for agent invocations
+   * Default: 100 (accommodates subagent routing and tool calls)
+   */
+  recursionLimit?: number;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -148,8 +154,13 @@ ${contextInfo}
 User message: ${input.userMessage}
 `.trim();
 
-    // Invoke the agent
-    const result = await agent.invoke({
+    // Use safe agent invoker with recursion limit handling
+    const safeInvoke = createSafeAgentInvoker(agent, {
+      recursionLimit: config?.recursionLimit ?? 100,
+      extractPartialOnLimit: true,
+    });
+
+    const invocationResult = await safeInvoke({
       messages: [
         {
           role: "user",
@@ -157,6 +168,8 @@ User message: ${input.userMessage}
         },
       ],
     });
+
+    const result = invocationResult.data;
 
     // Extract the response
     const lastMessage = result.messages?.[result.messages.length - 1];
@@ -172,6 +185,11 @@ User message: ${input.userMessage}
           )
           .join("");
       }
+    }
+
+    // If we got a partial result, append a warning
+    if (invocationResult.partial && invocationResult.warning) {
+      agentResponse = `${agentResponse}\n\n_Note: ${invocationResult.warning}_`;
     }
 
     // Determine which agent handled the request

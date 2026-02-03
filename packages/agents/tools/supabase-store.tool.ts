@@ -61,8 +61,10 @@ export const supabaseStoreTool = new DynamicStructuredTool({
       }
     }
 
-    const { createClient } = await import("@/lib/supabase/server");
-    const supabase = await createClient();
+    const shouldUseAdmin = process.env.TASK_WORKER === "true";
+    const supabase = shouldUseAdmin
+      ? (await import("@/lib/supabase/admin")).createAdminClient()
+      : await (await import("@/lib/supabase/server")).createClient();
 
     const { data: result, error } = await supabase
       .from(table)

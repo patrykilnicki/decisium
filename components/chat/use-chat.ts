@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import type {
   ChatMessage,
   ThinkingState,
@@ -9,6 +9,10 @@ import type {
   UseChatConfig,
   UseChatReturn,
 } from "./types";
+import type { TaskRecord } from "@/lib/tasks/task-types";
+import type { TaskType } from "@/lib/tasks/task-definitions";
+import { getTaskNodeId } from "@/lib/tasks/task-definitions";
+import { getTaskStepLabel } from "@/packages/agents/lib/step-mappings";
 
 const initialThinkingState: ThinkingState = {
   isThinking: false,
@@ -18,6 +22,11 @@ const initialThinkingState: ThinkingState = {
 
 export function useChat({
   apiEndpoint,
+  mode = "stream",
+  sessionId,
+  tasksEndpoint = "/api/tasks",
+  messagesEndpoint,
+  pollIntervalMs = 1500,
   initialMessages = [],
   onMessageSent,
   onMessageReceived,
@@ -28,14 +37,185 @@ export function useChat({
     useState<ThinkingState>(initialThinkingState);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [tasks, setTasks] = useState<TaskRecord[]>([]);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const pollerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const getLatestTaskGroup = useCallback(
+    (allTasks: TaskRecord[]): TaskRecord[] => {
+    const roots = allTasks.filter((task) => !task.parentTaskId);
+    const sortedRoots = [...roots].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+    const latestRoot = sortedRoots[0];
+    if (!latestRoot) return allTasks;
+
+    const byParent = new Map<string, TaskRecord[]>();
+    allTasks.forEach((task) => {
+      if (!task.parentTaskId) return;
+      const existing = byParent.get(task.parentTaskId) ?? [];
+      existing.push(task);
+      byParent.set(task.parentTaskId, existing);
+    });
+
+    const collected = new Map<string, TaskRecord>();
+    const stack = [latestRoot];
+    while (stack.length > 0) {
+      const current = stack.pop();
+      if (!current || collected.has(current.id)) continue;
+      collected.set(current.id, current);
+      const children = byParent.get(current.id) ?? [];
+      children.forEach((child) => stack.push(child));
+    }
+
+      return Array.from(collected.values()).sort(
+        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      );
+    },
+    []
+  );
+
+  function mapTaskStatus(status: string): ThinkingStep["status"] {
+    if (status === "in_progress") return "running";
+    if (status === "completed") return "completed";
+    if (status === "failed") return "error";
+    return "pending";
+  }
+
+  const buildThinkingState = useCallback(
+    (allTasks: TaskRecord[]): ThinkingState => {
+      const tasksForRun = getLatestTaskGroup(allTasks);
+      const steps = tasksForRun.map((task) => {
+        const taskType = task.taskType as TaskType;
+        const stepId = getTaskNodeId(taskType);
+        const label = getTaskStepLabel(taskType);
+        return {
+          stepId,
+          label,
+          status: mapTaskStatus(task.status),
+          timestamp: new Date(task.createdAt).getTime(),
+        };
+      });
+
+      const hasActive = tasksForRun.some(
+        (task) => task.status === "pending" || task.status === "in_progress"
+      );
+
+      return {
+        isThinking: hasActive,
+        steps,
+        streamedContent: undefined,
+      };
+    },
+    [getLatestTaskGroup]
+  );
+
+  const fetchTasks = useCallback(async () => {
+    if (!sessionId) return [];
+    const response = await fetch(
+      `${tasksEndpoint}?sessionId=${encodeURIComponent(sessionId)}`
+    );
+    if (!response.ok) {
+      const errorBody = await response.json().catch(() => ({}));
+      throw new Error(errorBody.error ?? "Failed to fetch tasks");
+    }
+    const data = (await response.json()) as TaskRecord[];
+    return Array.isArray(data) ? data : [];
+  }, [sessionId, tasksEndpoint]);
+
+  const refreshMessages = useCallback(async () => {
+    const endpoint = messagesEndpoint ?? apiEndpoint;
+    const response = await fetch(endpoint);
+    if (!response.ok) return;
+    const data = (await response.json()) as Array<{
+      id: string;
+      role: ChatMessage["role"];
+      content: string;
+      created_at?: string;
+    }>;
+
+    if (!Array.isArray(data)) return;
+    const nextMessages = data
+      .filter((msg) => msg != null && msg.role != null)
+      .map((msg) => ({
+        id: msg.id,
+        role: msg.role,
+        content: msg.content,
+        createdAt: msg.created_at,
+      }));
+    setMessages(nextMessages);
+  }, [apiEndpoint, messagesEndpoint]);
+
+  const stopTaskPolling = useCallback(() => {
+    if (pollerRef.current) {
+      clearInterval(pollerRef.current);
+      pollerRef.current = null;
+    }
+  }, []);
+
+  const pollTasks = useCallback(async () => {
+    if (!sessionId) return;
+    try {
+      const latestTasks = await fetchTasks();
+      setTasks(latestTasks);
+
+      const thinking = buildThinkingState(latestTasks);
+      setThinkingState(thinking);
+
+      const latestFailed = getLatestTaskGroup(latestTasks).find(
+        (task) => task.status === "failed" && task.lastError
+      );
+      if (latestFailed?.lastError) {
+        setError(latestFailed.lastError);
+      }
+
+      if (!thinking.isThinking) {
+        await refreshMessages();
+        stopTaskPolling();
+      }
+    } catch (pollError) {
+      const message =
+        pollError instanceof Error ? pollError.message : "Failed to poll tasks";
+      setError(message);
+    }
+  }, [
+    buildThinkingState,
+    fetchTasks,
+    getLatestTaskGroup,
+    refreshMessages,
+    sessionId,
+    stopTaskPolling,
+  ]);
+
+  const startTaskPolling = useCallback(() => {
+    if (pollerRef.current) return;
+    pollTasks();
+    pollerRef.current = setInterval(pollTasks, pollIntervalMs);
+  }, [pollIntervalMs, pollTasks]);
 
   const reset = useCallback(() => {
     setMessages(initialMessages);
     setThinkingState(initialThinkingState);
     setIsLoading(false);
     setError(null);
-  }, [initialMessages]);
+    stopTaskPolling();
+  }, [initialMessages, stopTaskPolling]);
+
+  const retryTask = useCallback(
+    async (taskId: string) => {
+      await fetch(`/api/tasks/${taskId}/retry`, { method: "POST" });
+      startTaskPolling();
+    },
+    [startTaskPolling]
+  );
+
+  const cancelTask = useCallback(
+    async (taskId: string) => {
+      await fetch(`/api/tasks/${taskId}/cancel`, { method: "POST" });
+      startTaskPolling();
+    },
+    [startTaskPolling]
+  );
 
   const handleStreamEvent = useCallback((event: StreamEvent) => {
     switch (event.type) {
@@ -175,82 +355,112 @@ export function useChat({
       setError(null);
 
       try {
-        const response = await fetch(apiEndpoint, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Accept: "text/event-stream",
-          },
-          body: JSON.stringify({ content }),
-          signal: abortControllerRef.current.signal,
-        });
+        if (mode === "task") {
+          const response = await fetch(apiEndpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ content }),
+            signal: abortControllerRef.current.signal,
+          });
 
-        if (!response.ok) {
-          const errorBody = await response.json().catch(() => ({}));
-          throw new Error(errorBody.error ?? "Failed to send message");
-        }
+          if (!response.ok) {
+            const errorBody = await response.json().catch(() => ({}));
+            throw new Error(errorBody.error ?? "Failed to send message");
+          }
 
-        const reader = response.body?.getReader();
-        if (!reader) {
-          throw new Error("No response body");
-        }
+          const result = await response.json();
+          if (result?.userMessage) {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === userMessage.id
+                  ? {
+                      ...result.userMessage,
+                      createdAt: result.userMessage.created_at,
+                    }
+                  : m
+              )
+            );
+          }
 
-        const decoder = new TextDecoder();
-        let buffer = "";
+          startTaskPolling();
+        } else {
+          const response = await fetch(apiEndpoint, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "text/event-stream",
+            },
+            body: JSON.stringify({ content }),
+            signal: abortControllerRef.current.signal,
+          });
 
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
+          if (!response.ok) {
+            const errorBody = await response.json().catch(() => ({}));
+            throw new Error(errorBody.error ?? "Failed to send message");
+          }
 
-          buffer += decoder.decode(value, { stream: true });
+          const reader = response.body?.getReader();
+          if (!reader) {
+            throw new Error("No response body");
+          }
 
-          // Process complete events from buffer
-          const lines = buffer.split("\n\n");
-          buffer = lines.pop() ?? "";
+          const decoder = new TextDecoder();
+          let buffer = "";
 
-          for (const line of lines) {
-            if (!line.startsWith("data: ")) continue;
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
 
-            try {
-              const eventData = line.slice(6);
-              const event: StreamEvent = JSON.parse(eventData);
+            buffer += decoder.decode(value, { stream: true });
 
-              handleStreamEvent(event);
+            // Process complete events from buffer
+            const lines = buffer.split("\n\n");
+            buffer = lines.pop() ?? "";
 
-              // Handle message data if present
-              if (event.userMessage) {
-                // Replace temp user message with real one
-                setMessages((prev) =>
-                  prev.map((m) =>
-                    m.id === userMessage.id
-                      ? {
-                          ...event.userMessage!,
-                          createdAt: event.userMessage!.createdAt,
-                        }
-                      : m
-                  )
-                );
-              }
+            for (const line of lines) {
+              if (!line.startsWith("data: ")) continue;
 
-              if (event.assistantMessage) {
-                setMessages((prev) => {
-                  // Check if assistant message already exists
-                  const exists = prev.some(
-                    (m) => m.id === event.assistantMessage!.id
+              try {
+                const eventData = line.slice(6);
+                const event: StreamEvent = JSON.parse(eventData);
+
+                handleStreamEvent(event);
+
+                // Handle message data if present
+                if (event.userMessage) {
+                  // Replace temp user message with real one
+                  setMessages((prev) =>
+                    prev.map((m) =>
+                      m.id === userMessage.id
+                        ? {
+                            ...event.userMessage!,
+                            createdAt: event.userMessage!.createdAt,
+                          }
+                        : m
+                    )
                   );
-                  if (exists) return prev;
-                  return [
-                    ...prev,
-                    {
-                      ...event.assistantMessage!,
-                      createdAt: event.assistantMessage!.createdAt,
-                    },
-                  ];
-                });
-                onMessageReceived?.(event.assistantMessage);
+                }
+
+                if (event.assistantMessage) {
+                  setMessages((prev) => {
+                    // Check if assistant message already exists
+                    const exists = prev.some(
+                      (m) => m.id === event.assistantMessage!.id
+                    );
+                    if (exists) return prev;
+                    return [
+                      ...prev,
+                      {
+                        ...event.assistantMessage!,
+                        createdAt: event.assistantMessage!.createdAt,
+                      },
+                    ];
+                  });
+                  onMessageReceived?.(event.assistantMessage);
+                }
+              } catch (parseError) {
+                console.warn("Failed to parse SSE event:", parseError);
               }
-            } catch (parseError) {
-              console.warn("Failed to parse SSE event:", parseError);
             }
           }
         }
@@ -268,14 +478,30 @@ export function useChat({
         setMessages((prev) => prev.filter((m) => m.id !== userMessage.id));
       } finally {
         setIsLoading(false);
-        setThinkingState((prev) => ({
-          ...prev,
-          isThinking: false,
-        }));
+        if (mode !== "task") {
+          setThinkingState((prev) => ({
+            ...prev,
+            isThinking: false,
+          }));
+        }
       }
     },
-    [apiEndpoint, handleStreamEvent, onMessageSent, onMessageReceived, onError]
+    [
+      apiEndpoint,
+      handleStreamEvent,
+      mode,
+      onMessageReceived,
+      onMessageSent,
+      onError,
+      startTaskPolling,
+    ]
   );
+
+  useEffect(() => {
+    if (mode !== "task" || !sessionId) return;
+    startTaskPolling();
+    return () => stopTaskPolling();
+  }, [mode, sessionId, startTaskPolling, stopTaskPolling]);
 
   return {
     messages,
@@ -285,5 +511,8 @@ export function useChat({
     error,
     reset,
     setMessages,
+    tasks,
+    retryTask,
+    cancelTask,
   };
 }
