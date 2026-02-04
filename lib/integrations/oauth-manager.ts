@@ -68,36 +68,65 @@ export class OAuthManager {
    * Service role client bypasses RLS automatically.
    * 
    * Optimized: Uses explicit column selection instead of '*' for better performance.
+   * Includes retry logic for transient network errors.
    */
-  async getIntegration(integrationId: string): Promise<Integration | null> {
-    try {
-      const startTime = Date.now();
-      const { data, error } = await this.supabase
-        .from('integrations')
-        .select('id, user_id, provider, status, scopes, external_user_id, external_email, metadata, connected_at, last_sync_at, last_sync_status, last_sync_error, sync_cursor, created_at, updated_at')
-        .eq('id', integrationId)
-        .maybeSingle(); // Use maybeSingle() to avoid errors when no row found
+  async getIntegration(integrationId: string, retries = 2): Promise<Integration | null> {
+    const startTime = Date.now();
+    
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        const { data, error } = await this.supabase
+          .from('integrations')
+          .select('id, user_id, provider, status, scopes, external_user_id, external_email, metadata, connected_at, last_sync_at, last_sync_status, last_sync_error, sync_cursor, created_at, updated_at')
+          .eq('id', integrationId)
+          .maybeSingle(); // Use maybeSingle() to avoid errors when no row found
 
-      const duration = Date.now() - startTime;
-      if (duration > 1000) {
-        console.warn(`[oauth-manager] Slow query for integration ${integrationId}: ${duration}ms`);
-      }
+        const duration = Date.now() - startTime;
+        if (duration > 1000) {
+          console.warn(`[oauth-manager] Slow query for integration ${integrationId}: ${duration}ms (attempt ${attempt + 1})`);
+        }
 
-      if (error) {
-        console.error(`[oauth-manager] Error fetching integration ${integrationId}:`, error);
+        if (error) {
+          const isNetworkError = error.message?.includes('ECONNRESET') || 
+                                 error.message?.includes('fetch failed') ||
+                                 error.message?.includes('timeout');
+          
+          if (isNetworkError && attempt < retries) {
+            const delay = Math.min(1000 * Math.pow(2, attempt), 5000); // Exponential backoff, max 5s
+            console.warn(`[oauth-manager] Network error fetching integration ${integrationId}, retrying in ${delay}ms (attempt ${attempt + 1}/${retries + 1})`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            continue;
+          }
+          
+          console.error(`[oauth-manager] Error fetching integration ${integrationId}:`, error);
+          return null;
+        }
+
+        if (!data) {
+          console.log(`[oauth-manager] Integration ${integrationId} not found`);
+          return null;
+        }
+
+        return this.mapIntegration(data);
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const isNetworkError = errorMessage.includes('ECONNRESET') || 
+                               errorMessage.includes('fetch failed') ||
+                               errorMessage.includes('timeout');
+        
+        if (isNetworkError && attempt < retries) {
+          const delay = Math.min(1000 * Math.pow(2, attempt), 5000); // Exponential backoff, max 5s
+          console.warn(`[oauth-manager] Network exception fetching integration ${integrationId}, retrying in ${delay}ms (attempt ${attempt + 1}/${retries + 1})`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+        
+        console.error(`[oauth-manager] Exception fetching integration ${integrationId}:`, error);
         return null;
       }
-
-      if (!data) {
-        console.log(`[oauth-manager] Integration ${integrationId} not found`);
-        return null;
-      }
-
-      return this.mapIntegration(data);
-    } catch (error) {
-      console.error(`[oauth-manager] Exception fetching integration ${integrationId}:`, error);
-      return null;
     }
+    
+    return null;
   }
 
   /**

@@ -45,7 +45,8 @@ export async function POST(request: NextRequest) {
   console.log(`[webhook] Processing sync for integration ${watch.integrationId} (syncToken: ${watch.syncToken ? 'present' : 'null'})`);
 
   // Enqueue immediately (ensures sync happens even if instant processing fails)
-  const { error: enqueueError } = await supabase
+  const enqueueStart = Date.now();
+  const { data: enqueueData, error: enqueueError } = await supabase
     .from('pending_calendar_syncs')
     .upsert(
       {
@@ -54,10 +55,16 @@ export async function POST(request: NextRequest) {
         created_at: new Date().toISOString(),
       },
       { onConflict: 'integration_id' }
-    );
+    )
+    .select();
+
+  const enqueueDuration = Date.now() - enqueueStart;
+  console.log(`[webhook] Enqueued pending sync in ${enqueueDuration}ms`);
 
   if (enqueueError) {
     console.error('[webhook] Failed to enqueue pending sync:', enqueueError);
+  } else {
+    console.log(`[webhook] Successfully enqueued pending sync (integration_id: ${watch.integrationId})`);
   }
 
   // Process sync immediately (fire-and-forget) - don't await, return 200 right away
@@ -75,10 +82,11 @@ export async function POST(request: NextRequest) {
  * If this completes successfully, the pending sync will be removed.
  * If it fails or times out, the cron will process it.
  * 
- * Uses a timeout to prevent hanging (25s max, leaving 5s buffer for webhook response).
+ * Uses a shorter timeout (15s) to fail fast and let cron handle it.
+ * Network issues between Vercel and Supabase can cause long delays.
  */
 async function processSyncImmediately(integrationId: string, syncToken: string | null): Promise<void> {
-  const TIMEOUT_MS = 25 * 1000; // 25 seconds max for instant sync
+  const TIMEOUT_MS = 15 * 1000; // 15 seconds max - fail fast, let cron handle it
   
   try {
     const syncPromise = (async () => {
@@ -88,10 +96,29 @@ async function processSyncImmediately(integrationId: string, syncToken: string |
       console.log(`[webhook] Starting instant sync for integration ${integrationId}`);
 
       // Verify integration exists before attempting sync (helps debug timeout issues)
-      const integration = await oauthManager.getIntegration(integrationId);
+      // Use shorter timeout for this check (5s)
+      const fetchStart = Date.now();
+      console.log(`[webhook] Fetching integration ${integrationId}...`);
+      
+      const integration = await Promise.race([
+        oauthManager.getIntegration(integrationId),
+        new Promise<null>((resolve) =>
+          setTimeout(() => {
+            const duration = Date.now() - fetchStart;
+            console.warn(`[webhook] Timeout fetching integration ${integrationId} after ${duration}ms (5s limit) - will be processed by cron`);
+            resolve(null);
+          }, 5000)
+        ),
+      ]);
+
+      const fetchDuration = Date.now() - fetchStart;
+      console.log(`[webhook] Integration fetch completed in ${fetchDuration}ms`);
+
       if (!integration) {
-        throw new Error(`Integration ${integrationId} not found - may have been deleted`);
+        throw new Error(`Integration ${integrationId} not found or timeout - will be processed by cron`);
       }
+
+      console.log(`[webhook] Integration found: ${integration.provider}, status: ${integration.status}`);
 
       const progress = await syncPipeline.sync(integrationId, {
         syncToken: syncToken ?? undefined,
@@ -117,12 +144,18 @@ async function processSyncImmediately(integrationId: string, syncToken: string |
     await Promise.race([
       syncPromise,
       new Promise<void>((_, reject) =>
-        setTimeout(() => reject(new Error('Instant sync timeout (25s) - will be processed by cron')), TIMEOUT_MS)
+        setTimeout(() => reject(new Error('Instant sync timeout (15s) - will be processed by cron')), TIMEOUT_MS)
       ),
     ]);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error(`[webhook] Instant sync failed for ${integrationId}:`, errorMessage);
+    const isNetworkError = errorMessage.includes('ECONNRESET') || errorMessage.includes('fetch failed') || errorMessage.includes('timeout');
+    
+    if (isNetworkError) {
+      console.warn(`[webhook] Network error during instant sync for ${integrationId} - will be processed by cron:`, errorMessage);
+    } else {
+      console.error(`[webhook] Instant sync failed for ${integrationId}:`, errorMessage);
+    }
     // Don't throw - let cron handle it via the pending queue
   }
 }

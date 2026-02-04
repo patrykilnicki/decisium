@@ -130,10 +130,13 @@ export class SyncPipeline {
       console.log(`[sync-pipeline] Integration found: ${integration.provider}, status: ${integration.status}`);
 
       // Get authenticated adapter
+      const adapterStart = Date.now();
+      console.log(`[sync-pipeline] Getting authenticated adapter...`);
       const { adapter, accessToken } = await this.oauthManager.getAuthenticatedAdapter(
         integrationId
       );
-      console.log(`[sync-pipeline] Authenticated adapter obtained`);
+      const adapterDuration = Date.now() - adapterStart;
+      console.log(`[sync-pipeline] Authenticated adapter obtained in ${adapterDuration}ms`);
 
       // Determine cursor / syncToken (Google Calendar incremental)
       // For Google Calendar, if syncToken is provided, use it (incremental sync)
@@ -155,9 +158,11 @@ export class SyncPipeline {
       };
 
       // Fetch data
-      console.log(`[sync-pipeline] Fetching data from adapter...`);
+      const fetchStart = Date.now();
+      console.log(`[sync-pipeline] Fetching data from adapter (syncToken: ${syncToken ? 'present' : 'none'}, fullSync: ${options.fullSync})...`);
       const result: SyncResult = await adapter.fetchData(accessToken, fetchOptions);
-      console.log(`[sync-pipeline] Fetched ${result.atoms.length} atoms, hasMore: ${result.hasMore}, nextSyncToken: ${result.nextSyncToken ? 'present' : 'none'}`);
+      const fetchDuration = Date.now() - fetchStart;
+      console.log(`[sync-pipeline] Fetched ${result.atoms.length} atoms in ${fetchDuration}ms, hasMore: ${result.hasMore}, nextSyncToken: ${result.nextSyncToken ? 'present' : 'none'}`);
       progress.atomsProcessed = result.atoms.length;
       progress.hasMore = result.hasMore;
       progress.currentCursor = result.nextCursor;
@@ -175,13 +180,15 @@ export class SyncPipeline {
 
       // Process and store atoms
       if (result.atoms.length > 0) {
+        const storeStart = Date.now();
         console.log(`[sync-pipeline] Storing ${result.atoms.length} atoms...`);
         const stored = await this.storeAtoms(
           integration,
           result.atoms,
           options.generateEmbeddings ?? true
         );
-        console.log(`[sync-pipeline] Stored ${stored.atomsStored} atoms, generated ${stored.embeddingsGenerated} embeddings`);
+        const storeDuration = Date.now() - storeStart;
+        console.log(`[sync-pipeline] Stored ${stored.atomsStored} atoms, generated ${stored.embeddingsGenerated} embeddings in ${storeDuration}ms`);
         progress.atomsStored = stored.atomsStored;
         progress.embeddingsGenerated = stored.embeddingsGenerated;
       } else {
