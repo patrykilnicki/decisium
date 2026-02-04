@@ -95,10 +95,19 @@ export class SyncPipeline {
     try {
       console.log(`[sync-pipeline] Starting sync for integration ${integrationId} (fullSync: ${options.fullSync}, syncToken: ${options.syncToken ? 'present' : 'none'})`);
 
-      // Get integration
-      const integration = await this.oauthManager.getIntegration(integrationId);
+      // Get integration with timeout protection
+      const integration = await Promise.race([
+        this.oauthManager.getIntegration(integrationId),
+        new Promise<null>((resolve) =>
+          setTimeout(() => {
+            console.error(`[sync-pipeline] Timeout fetching integration ${integrationId} (5s)`);
+            resolve(null);
+          }, 5000)
+        ),
+      ]);
+
       if (!integration) {
-        throw new Error('Integration not found');
+        throw new Error(`Integration ${integrationId} not found or timeout fetching`);
       }
 
       if (integration.status !== 'active') {

@@ -64,19 +64,38 @@ export class OAuthManager {
 
   /**
    * Get an integration by ID
+   * Uses maybeSingle() to avoid errors when no row found.
+   * Service role client bypasses RLS automatically.
    */
   async getIntegration(integrationId: string): Promise<Integration | null> {
-    const { data, error } = await this.supabase
-      .from('integrations')
-      .select('*')
-      .eq('id', integrationId)
-      .single();
+    try {
+      const startTime = Date.now();
+      const { data, error } = await this.supabase
+        .from('integrations')
+        .select('*')
+        .eq('id', integrationId)
+        .maybeSingle(); // Use maybeSingle() to avoid errors when no row found
 
-    if (error || !data) {
+      const duration = Date.now() - startTime;
+      if (duration > 1000) {
+        console.warn(`[oauth-manager] Slow query for integration ${integrationId}: ${duration}ms`);
+      }
+
+      if (error) {
+        console.error(`[oauth-manager] Error fetching integration ${integrationId}:`, error);
+        return null;
+      }
+
+      if (!data) {
+        console.log(`[oauth-manager] Integration ${integrationId} not found`);
+        return null;
+      }
+
+      return this.mapIntegration(data);
+    } catch (error) {
+      console.error(`[oauth-manager] Exception fetching integration ${integrationId}:`, error);
       return null;
     }
-
-    return this.mapIntegration(data);
   }
 
   /**
