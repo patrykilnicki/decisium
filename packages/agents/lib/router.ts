@@ -1,7 +1,5 @@
-import { ChatOpenAI } from "@langchain/openai";
-import { ChatAnthropic } from "@langchain/anthropic";
 import type { DynamicStructuredTool } from "@langchain/core/tools";
-import { createLLM, type LLMConfig, type ChatModel } from "./llm";
+import { createLLM, type ChatModel } from "./llm";
 import { getCurrentDate } from "./date-utils";
 import { ROUTER_SYSTEM_PROMPT } from "../prompts";
 
@@ -49,33 +47,39 @@ export function createRouterAgent(
   };
 }
 
+interface ToolCallResponse {
+  tool_calls?: Array<{ name?: string; args?: Record<string, unknown>; id?: string }>;
+}
+
 /**
  * Check if the LLM response contains tool calls
  */
-export function hasToolCalls(response: any): boolean {
-  return (
-    response?.tool_calls &&
-    Array.isArray(response.tool_calls) &&
-    response.tool_calls.length > 0
+export function hasToolCalls(response: unknown): boolean {
+  const r = response as ToolCallResponse;
+  return Boolean(
+    r?.tool_calls &&
+    Array.isArray(r.tool_calls) &&
+    r.tool_calls.length > 0
   );
 }
 
 /**
  * Extract tool calls from LLM response
  */
-export function extractToolCalls(response: any): Array<{
+export function extractToolCalls(response: unknown): Array<{
   name: string;
-  args: Record<string, any>;
+  args: Record<string, unknown>;
   id: string;
 }> {
   if (!hasToolCalls(response)) {
     return [];
   }
 
-  return response.tool_calls.map((call: any) => ({
-    name: call.name,
-    args: call.args || {},
-    id: call.id || `call_${Date.now()}`,
+  const r = response as ToolCallResponse;
+  return (r.tool_calls ?? []).map((call: { name?: string; args?: Record<string, unknown>; id?: string }) => ({
+    name: call.name ?? "",
+    args: call.args ?? {},
+    id: call.id ?? `call_${Date.now()}`,
   }));
 }
 
@@ -85,7 +89,7 @@ export function extractToolCalls(response: any): Array<{
 export function getToolDefinitions(tools: DynamicStructuredTool[]): Array<{
   name: string;
   description: string;
-  schema: any;
+  schema: unknown;
 }> {
   return tools.map((tool) => ({
     name: tool.name,

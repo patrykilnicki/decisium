@@ -6,8 +6,15 @@ import { format, startOfWeek, subWeeks } from "date-fns";
 const CRON_SECRET = process.env.CRON_SECRET;
 
 export async function POST(request: NextRequest) {
+  // Verify cron secret - support both Vercel Cron (automatic) and manual calls
   const authHeader = request.headers.get("authorization");
-  if (authHeader !== `Bearer ${CRON_SECRET}`) {
+  const vercelCronHeader = request.headers.get("x-vercel-cron");
+  
+  // Allow if it's a Vercel Cron job OR if Authorization header matches
+  const isVercelCron = vercelCronHeader === "1";
+  const isValidAuth = authHeader === `Bearer ${CRON_SECRET}`;
+  
+  if (!isVercelCron && !isValidAuth) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -29,17 +36,16 @@ export async function POST(request: NextRequest) {
       try {
         await generateWeeklySummary(user.id, lastWeekStart);
         results.push({ userId: user.id, status: "success" });
-      } catch (error: any) {
+      } catch (error: unknown) {
         console.error(`Failed to generate weekly summary for user ${user.id}:`, error);
-        results.push({ userId: user.id, status: "error", error: error.message });
+        const message = error instanceof Error ? error.message : String(error);
+        results.push({ userId: user.id, status: "error", error: message });
       }
     }
 
     return NextResponse.json({ results });
-  } catch (error: any) {
-    return NextResponse.json(
-      { error: error.message || "Failed to generate weekly summaries" },
-      { status: 500 }
-    );
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Failed to generate weekly summaries";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

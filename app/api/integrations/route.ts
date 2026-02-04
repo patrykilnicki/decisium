@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createOAuthManager } from '@/lib/integrations';
+import { getAppUrl } from '@/lib/utils/app-url';
 
 /**
  * GET /api/integrations
@@ -89,10 +90,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Start OAuth flow
+    // Start OAuth flow with correct redirect URI for current environment
+    const baseUrl = getAppUrl(request);
+    const redirectUri = `${baseUrl}/api/integrations/${provider}/callback`;
     const oauthManager = createOAuthManager(supabase);
     const result = await oauthManager.startOAuthFlow(user.id, provider, {
       useExtendedScopes,
+      redirectUri,
     });
 
     return NextResponse.json({

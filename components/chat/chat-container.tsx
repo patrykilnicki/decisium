@@ -1,7 +1,6 @@
 "use client";
 
 import { useRef, useEffect, useCallback, useState } from "react";
-import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ArrowDown, MessageSquare } from "lucide-react";
 import { ChatMessage } from "./chat-message";
@@ -17,6 +16,7 @@ export function ChatContainer({
   placeholder = "Type a message...",
   emptyStateTitle = "Start a conversation",
   emptyStateDescription = "Send a message to begin.",
+  emptyState,
 }: ChatContainerProps) {
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -66,26 +66,29 @@ export function ChatContainer({
   const isEmpty = messages.length === 0 && !thinkingState?.isThinking;
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full min-h-0">
+      
       {/* Messages Area */}
       <div
         ref={scrollAreaRef}
-        className="flex-1 overflow-y-auto scroll-smooth"
+        className="flex-1 overflow-y-auto scroll-smooth min-h-0"
       >
         {isEmpty ? (
-          // Empty State
-          <div className="flex flex-col items-center justify-center h-full p-8 text-center">
-            <div className="size-16 rounded-full bg-muted flex items-center justify-center mb-4">
-              <MessageSquare className="size-8 text-muted-foreground" />
+          // Empty State (custom or default)
+          emptyState ?? (
+            <div className="flex flex-col items-center justify-center h-full p-8 text-center">
+              <div className="size-16 rounded-full bg-muted flex items-center justify-center mb-4">
+                <MessageSquare className="size-8 text-muted-foreground" />
+              </div>
+              <h2 className="text-xl font-semibold mb-2">{emptyStateTitle}</h2>
+              <p className="text-muted-foreground text-sm max-w-sm">
+                {emptyStateDescription}
+              </p>
             </div>
-            <h2 className="text-xl font-semibold mb-2">{emptyStateTitle}</h2>
-            <p className="text-muted-foreground text-sm max-w-sm">
-              {emptyStateDescription}
-            </p>
-          </div>
+          )
         ) : (
           // Messages List
-          <div className="max-w-3xl mx-auto p-4 space-y-4">
+          <div className="max-w-4xl mx-auto p-4 space-y-4">
             {messages.map((message) => (
               <ChatMessage key={message.id} message={message} />
             ))}

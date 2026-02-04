@@ -6,7 +6,34 @@ export const DailySummaryContentSchema = z.object({
   suggestion: z.string().optional(),
 });
 
-export type DailySummaryContent = z.infer<typeof DailySummaryContentSchema>;
+/** Reflection-style daily summary (context, key_entry, identity_insight, etc.) */
+export const DailySummaryContentReflectionSchema = z.object({
+  context: z.string().optional(),
+  key_entry: z.string().optional(),
+  identity_insight: z.string().optional(),
+  reflection_prompt: z.string().optional(),
+  pattern_observation: z.string().optional(),
+});
+
+/** Productivity-style daily summary (score, time allocation, narrative) */
+export const DailySummaryContentProductivitySchema = z.object({
+  score: z.number().min(0).max(100),
+  score_label: z.string(),
+  explanation: z.string(),
+  time_allocation: z.object({
+    meetings: z.number().min(0).max(100),
+    deep_work: z.number().min(0).max(100),
+    other: z.number().min(0).max(100),
+  }),
+  notes_added: z.number().min(0),
+  new_ideas: z.number().min(0),
+  narrative_summary: z.string(),
+});
+
+export type DailySummaryContent =
+  | z.infer<typeof DailySummaryContentSchema>
+  | z.infer<typeof DailySummaryContentReflectionSchema>
+  | z.infer<typeof DailySummaryContentProductivitySchema>;
 
 export const DailySummarySchema = z.object({
   id: z.string().uuid().optional(),

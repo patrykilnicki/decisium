@@ -39,6 +39,8 @@ export interface DailyGraphState {
   eventsToSave?: DailyEvent[];
   dailyStarted?: boolean;
   shouldEnd?: boolean;
+  userEventId?: string;
+  agentEventId?: string;
 }
 
 export interface DailyWelcomeResult {
@@ -59,7 +61,7 @@ function createDailyWelcomeAgent(config?: {
   model?: string;
   temperature?: number;
   currentDate?: string;
-}): any {
+}): ReturnType<typeof createSimpleAgent> {
   return createSimpleAgent({
     systemPrompt: DAILY_WELCOME_SYSTEM_PROMPT,
     temperature: config?.temperature ?? 0.7,
@@ -73,7 +75,7 @@ function createClassifierAgent(config?: {
   llmProvider?: "openai" | "anthropic" | "openrouter";
   model?: string;
   temperature?: number;
-}): any {
+}): ReturnType<typeof createSimpleAgent> {
   return createSimpleAgent({
     systemPrompt: DAILY_CLASSIFIER_SYSTEM_PROMPT,
     temperature: config?.temperature ?? 0.1,
@@ -87,7 +89,7 @@ function createDailyResponseAgent(config?: {
   model?: string;
   temperature?: number;
   currentDate?: string;
-}): any {
+}): ReturnType<typeof createSimpleAgent> {
   return createSimpleAgent({
     systemPrompt: DAILY_RESPONSE_SYSTEM_PROMPT,
     temperature: config?.temperature ?? 0.5,
@@ -282,34 +284,39 @@ async function saveEventsNode(
   state: DailyGraphState
 ): Promise<Partial<DailyGraphState>> {
   const events: DailyEvent[] = [];
+  let userEventId = state.userEventId;
+  let agentEventId = state.agentEventId;
 
   // Save user message
   if (state.userMessage) {
     try {
-      const userEvent: DailyEvent = {
-        user_id: state.userId,
-        date: state.currentDate,
-        role: "user",
-        type: "note", // User message stored as 'note' type
-        content: state.userMessage,
-      };
+      if (!userEventId) {
+        const userEvent: DailyEvent = {
+          user_id: state.userId,
+          date: state.currentDate,
+          role: "user",
+          type: "note", // User message stored as 'note' type
+          content: state.userMessage,
+        };
 
-      const savedEventStr = await supabaseStoreTool.invoke({
-        table: "daily_events",
-        data: userEvent,
-      });
-      const savedEvent = typeof savedEventStr === "string" 
-        ? JSON.parse(savedEventStr) 
-        : savedEventStr;
+        const savedEventStr = await supabaseStoreTool.invoke({
+          table: "daily_events",
+          data: userEvent,
+        });
+        const savedEvent = typeof savedEventStr === "string"
+          ? JSON.parse(savedEventStr)
+          : savedEventStr;
+        userEventId = savedEvent?.id ?? userEventId;
+        events.push(userEvent);
+      }
 
-      // Store embedding separately in embeddings table
-      if (savedEvent?.id) {
+      if (userEventId) {
         try {
           const embeddingResultStr = await embeddingGeneratorTool.invoke({
             content: state.userMessage,
           });
-          const embeddingResult = typeof embeddingResultStr === "string" 
-            ? JSON.parse(embeddingResultStr) 
+          const embeddingResult = typeof embeddingResultStr === "string"
+            ? JSON.parse(embeddingResultStr)
             : embeddingResultStr;
 
           if (
@@ -325,7 +332,7 @@ async function saveEventsNode(
                 embedding: embeddingResult.embedding,
                 metadata: {
                   type: "daily_event",
-                  source_id: savedEvent.id,
+                  source_id: userEventId,
                   date: state.currentDate,
                 },
               },
@@ -333,11 +340,8 @@ async function saveEventsNode(
           }
         } catch (embeddingError) {
           console.error("Error storing embedding:", embeddingError);
-          // Don't fail the event save if embedding fails
         }
       }
-
-      events.push(userEvent);
     } catch (error) {
       console.error("Error saving user event:", error);
     }
@@ -346,30 +350,35 @@ async function saveEventsNode(
   // Save agent response
   if (state.agentResponse) {
     try {
-      const agentEvent: DailyEvent = {
-        user_id: state.userId,
-        date: state.currentDate,
-        role: "agent",
-        type: "answer", // Agent response stored as 'answer' type
-        content: state.agentResponse,
-      };
+      if (!agentEventId) {
+        const agentEvent: DailyEvent = {
+          user_id: state.userId,
+          date: state.currentDate,
+          role: "agent",
+          type: "answer", // Agent response stored as 'answer' type
+          content: state.agentResponse,
+        };
 
-      await supabaseStoreTool.invoke({
-        table: "daily_events",
-        data: agentEvent,
-      });
-
-      events.push(agentEvent);
+        const savedEventStr = await supabaseStoreTool.invoke({
+          table: "daily_events",
+          data: agentEvent,
+        });
+        const savedEvent = typeof savedEventStr === "string"
+          ? JSON.parse(savedEventStr)
+          : savedEventStr;
+        agentEventId = savedEvent?.id ?? agentEventId;
+        events.push(agentEvent);
+      }
     } catch (error) {
       console.error("Error saving agent event:", error);
     }
   }
 
-  return { eventsToSave: events };
+  return { eventsToSave: events, userEventId, agentEventId };
 }
 
 function noteAcknowledgmentNode(
-  state: DailyGraphState
+  _state: DailyGraphState
 ): Partial<DailyGraphState> {
   return {
     agentResponse: "Got it! If you have any notes or ideas, share them here.",
@@ -377,7 +386,7 @@ function noteAcknowledgmentNode(
 }
 
 function suggestAskAiNode(
-  state: DailyGraphState
+  _state: DailyGraphState
 ): Partial<DailyGraphState> {
   return {
     agentResponse:
@@ -497,3 +506,18 @@ export function createDailyMessageGraph() {
 
   return workflow.compile();
 }
+
+// Export nodes and routing for durable task handlers
+export {
+  checkDailyStartedNode,
+  dailyWelcomeAgentNode,
+  saveAgentMessageNode,
+  classifierAgentNode,
+  memoryRetrieverNode,
+  dailyResponseAgentNode,
+  saveEventsNode,
+  noteAcknowledgmentNode,
+  suggestAskAiNode,
+  routeAfterClassifier,
+  routeAfterCheckDailyStarted,
+};

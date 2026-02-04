@@ -1,0 +1,28 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/daily-summary",
+      "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/cron/weekly-summary",
+      "schedule": "0 3 * * 0"
+    },
+    {
+      "path": "/api/cron/monthly-summary",
+      "schedule": "0 4 1 * *"
+    },
+    {
+      "path": "/api/cron/renew-calendar-watches",
+      "schedule": "0 1 * * *"
+    },
+    {
+      "path": "/api/cron/integration-sync",
+      "schedule": "0 */6 * * *"
+    },
+    {
+      "path": "/api/cron/process-pending-calendar-syncs",
+      "schedule": "*/1 * * * *"
+    }
+  ]
+}

@@ -126,13 +126,14 @@ export class CalendarWatchService {
 
   /**
    * Get watch by channel ID (for webhook lookup).
+   * Uses maybeSingle() so 0 rows return null instead of 406 from PostgREST.
    */
   async getWatchByChannelId(channelId: string): Promise<CalendarWatch | null> {
     const { data, error } = await this.supabase
       .from('calendar_watches')
       .select('*')
       .eq('channel_id', channelId)
-      .single();
+      .maybeSingle();
 
     if (error || !data) return null;
     return this.mapWatch(data);
@@ -140,13 +141,14 @@ export class CalendarWatchService {
 
   /**
    * Get watch by integration ID.
+   * Uses maybeSingle() so 0 rows return null instead of 406 from PostgREST.
    */
   async getWatchByIntegrationId(integrationId: string): Promise<CalendarWatch | null> {
     const { data, error } = await this.supabase
       .from('calendar_watches')
       .select('*')
       .eq('integration_id', integrationId)
-      .single();
+      .maybeSingle();
 
     if (error || !data) return null;
     return this.mapWatch(data);

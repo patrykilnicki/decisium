@@ -38,18 +38,19 @@ export default function ThreadPage() {
     isLoading,
     error,
     setMessages,
+    tasks,
+    retryTask,
+    cancelTask,
   } = useChat({
     apiEndpoint: `/api/ask/threads/${threadId}/messages`,
+    mode: "task",
+    sessionId: threadId,
+    tasksEndpoint: "/api/tasks",
+    messagesEndpoint: `/api/ask/threads/${threadId}/messages`,
   });
 
-  // Load initial messages
-  useEffect(() => {
-    if (threadId) {
-      loadMessages();
-    }
-  }, [threadId]);
-
-  async function loadMessages() {
+  const loadMessages = useCallback(async () => {
+    if (!threadId) return;
     try {
       setInitialLoading(true);
       const response = await fetch(`/api/ask/threads/${threadId}/messages`);
@@ -68,7 +69,14 @@ export default function ThreadPage() {
     } finally {
       setInitialLoading(false);
     }
-  }
+  }, [threadId, setMessages]);
+
+  // Load initial messages
+  useEffect(() => {
+    if (threadId) {
+      loadMessages();
+    }
+  }, [threadId, loadMessages]);
 
   const handleSend = useCallback(
     async (content: string) => {
@@ -77,12 +85,15 @@ export default function ThreadPage() {
     [sendMessage]
   );
 
+  const failedTasks =
+    tasks?.filter((task) => task.status === "failed") ?? [];
+
   return (
     <ProtectedRoute>
       <AppLayout>
-        <div className="flex flex-col h-full relative">
+        <div className="flex flex-col h-full relative min-h-0">
           {/* Header */}
-          <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 z-10">
+          <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 z-10 shrink-0">
             <div className="flex items-center gap-4 p-4">
               <Button variant="ghost" size="sm" asChild>
                 <Link href="/ask">← Back</Link>
@@ -93,7 +104,7 @@ export default function ThreadPage() {
 
           {/* Chat Area */}
           {initialLoading ? (
-            <div className="flex-1 flex items-center justify-center">
+            <div className="flex-1 flex items-center justify-center min-h-0">
               <div className="flex flex-col items-center gap-3 text-muted-foreground">
                 <Loader2 className="size-6 animate-spin" />
                 <span className="text-sm">Loading messages...</span>
@@ -109,6 +120,32 @@ export default function ThreadPage() {
               emptyStateTitle="Start the conversation"
               emptyStateDescription="Ask me anything about your data, patterns, or get insights from your history."
             />
+          )}
+
+          {failedTasks.length > 0 && (
+            <div className="px-4 pb-4">
+              <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <span>Some steps failed. You can retry or cancel.</span>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => retryTask?.(failedTasks[0].id)}
+                    >
+                      Retry
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => cancelTask?.(failedTasks[0].id)}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
           )}
 
           {/* Error display */}

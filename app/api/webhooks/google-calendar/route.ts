@@ -1,18 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { createOAuthManager, createSyncPipeline, createCalendarWatchService } from '@/lib/integrations';
+import { createCalendarWatchService } from '@/lib/integrations';
 
 // Service role for webhook (no user session)
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  }
 );
 
 /**
  * POST /api/webhooks/google-calendar
  * Google Calendar push notification webhook.
- * Google sends POST with X-Goog-* headers when events change.
- * Must respond with 200/201/202/204 quickly; process sync async.
+ *
+ * Industry standard approach:
+ * - Respond immediately with 200 (within ~1s)
+ * - Enqueue sync for async processing
+ * - Cron runs every 1 min to process pending syncs
  */
 export async function POST(request: NextRequest) {
   const channelId = request.headers.get('x-goog-channel-id');
@@ -22,39 +31,46 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Missing X-Goog-Channel-ID' }, { status: 400 });
   }
 
+  // Quick lookup of watch by channel ID
   const watchService = createCalendarWatchService(supabase);
   const watch = await watchService.getWatchByChannelId(channelId);
 
   if (!watch) {
-    // Unknown channel - return 200 to stop Google retrying
+    // Unknown channel - return 200 to prevent Google from retrying
     return new NextResponse(null, { status: 200 });
   }
 
-  // sync = channel created; exists = events changed
+  // Ignore sync notifications (sent when watch is created)
   if (resourceState === 'sync') {
     return new NextResponse(null, { status: 200 });
   }
 
+  // Only process 'exists' (changes occurred)
   if (resourceState !== 'exists') {
+    console.log(`[webhook] Ignoring resourceState: ${resourceState}`);
     return new NextResponse(null, { status: 200 });
   }
 
-  // Fire-and-forget incremental sync (don't await)
-  runIncrementalSync(watch.integrationId, watch.syncToken ?? undefined).catch((err) => {
-    console.error(`[webhook] Incremental sync failed for ${watch.integrationId}:`, err);
-  });
+  console.log(`[webhook] Calendar change for integration ${watch.integrationId}`);
 
+  // Enqueue for async processing by cron (runs every 1 min)
+  const { error: enqueueError } = await supabase
+    .from('pending_calendar_syncs')
+    .upsert(
+      {
+        integration_id: watch.integrationId,
+        sync_token: watch.syncToken,
+        created_at: new Date().toISOString(),
+      },
+      { onConflict: 'integration_id' }
+    );
+
+  if (enqueueError) {
+    console.error('[webhook] Failed to enqueue sync:', enqueueError);
+  } else {
+    console.log(`[webhook] Enqueued sync for integration ${watch.integrationId}`);
+  }
+
+  // Return 200 immediately - cron will process the sync
   return new NextResponse(null, { status: 200 });
-}
-
-async function runIncrementalSync(integrationId: string, syncToken?: string): Promise<void> {
-  const oauthManager = createOAuthManager(supabase);
-  const syncPipeline = createSyncPipeline(supabase, oauthManager);
-
-  await syncPipeline.sync(integrationId, {
-    syncToken,
-    fullSync: !syncToken,
-    generateEmbeddings: true,
-    calendarId: 'primary',
-  });
 }

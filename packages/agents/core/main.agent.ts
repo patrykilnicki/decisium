@@ -2,18 +2,14 @@ import { createDeepAgent, type SubAgent } from "deepagents";
 import { createLLM, type LLMProvider } from "../lib/llm";
 import { getCurrentDate, getCurrentDateWithDay } from "../lib/date-utils";
 import { handleAgentError } from "../lib/error-handler";
-import {
-  memorySearchTool,
-  supabaseStoreTool,
-  embeddingGeneratorTool,
-} from "../tools";
+import { createSafeAgentInvoker } from "../lib/agent-invocation";
+import { memorySearchTool } from "../tools";
 import {
   MAIN_AGENT_SYSTEM_PROMPT,
   DAILY_SUBAGENT_SYSTEM_PROMPT,
   ASK_SUBAGENT_SYSTEM_PROMPT,
 } from "../prompts";
 import {
-  type MainAgentContext,
   type MainAgentInput,
   type MainAgentResult,
   formatContextForPrompt,
@@ -27,6 +23,11 @@ interface MainAgentConfig {
   llmProvider?: LLMProvider;
   model?: string;
   temperature?: number;
+  /**
+   * Recursion limit for agent invocations
+   * Default: 100 (accommodates subagent routing and tool calls)
+   */
+  recursionLimit?: number;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -83,9 +84,9 @@ function createAskSubagent(currentDate: string): SubAgent {
 
 /**
  * Create the main orchestrating agent with subagents
- * @returns A deepagent instance (typed as any to avoid deep type inference issues with LangChain)
+ * @returns A deepagent instance (typed as unknown to avoid deep type inference issues with LangChain)
  */
-export function createMainAgent(config?: MainAgentConfig): any {
+export function createMainAgent(config?: MainAgentConfig): unknown {
   const provider =
     config?.llmProvider ||
     (process.env.LLM_PROVIDER as LLMProvider) ||
@@ -114,10 +115,11 @@ export function createMainAgent(config?: MainAgentConfig): any {
   // Create the main agent with subagents
   // Note: Storage tools are removed - storage is handled by calling code
   return createDeepAgent({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- deepagents expects LangChain model type
     model: llm as any,
     systemPrompt,
     subagents: [dailySubagent, askSubagent],
-    // Only memory search for reading - storage handled by calling code
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- deepagents expects LangChain tools type
     tools: [memorySearchTool] as any,
   });
 }
@@ -148,8 +150,17 @@ ${contextInfo}
 User message: ${input.userMessage}
 `.trim();
 
-    // Invoke the agent
-    const result = await agent.invoke({
+    // Raw invoke result has messages; we then map to MainAgentResult
+    type InvokeResult = { messages?: Array<{ content?: string | Array<{ text?: string }> }> };
+    const safeInvoke = createSafeAgentInvoker<InvokeResult>(
+      agent as { invoke: (input: unknown, config?: { recursionLimit?: number }) => Promise<InvokeResult> },
+      {
+        recursionLimit: config?.recursionLimit ?? 100,
+        extractPartialOnLimit: true,
+      }
+    );
+
+    const invocationResult = await safeInvoke({
       messages: [
         {
           role: "user",
@@ -157,6 +168,8 @@ User message: ${input.userMessage}
         },
       ],
     });
+
+    const result = invocationResult.data;
 
     // Extract the response
     const lastMessage = result.messages?.[result.messages.length - 1];
@@ -167,11 +180,16 @@ User message: ${input.userMessage}
         agentResponse = lastMessage.content;
       } else if (Array.isArray(lastMessage.content)) {
         agentResponse = lastMessage.content
-          .map((block: any) =>
+          .map((block: { text?: string } | string) =>
             typeof block === "string" ? block : block?.text || ""
           )
           .join("");
       }
+    }
+
+    // If we got a partial result, append a warning
+    if (invocationResult.partial && invocationResult.warning) {
+      agentResponse = `${agentResponse}\n\n_Note: ${invocationResult.warning}_`;
     }
 
     // Determine which agent handled the request

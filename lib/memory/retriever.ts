@@ -2,6 +2,27 @@ import { createClient } from "@supabase/supabase-js";
 import { generateEmbedding } from "@/packages/agents/lib/embeddings";
 import { MemoryFragment, MemoryRetrievalResult } from "@/packages/agents/schemas/memory.schema";
 
+interface EmbeddingRow {
+  id: string;
+  user_id: string;
+  content: string;
+  metadata: unknown;
+  similarity: number;
+  created_at: string;
+}
+
+interface ActivityAtomRow {
+  id: string;
+  user_id: string;
+  provider: string;
+  atom_type: string;
+  title?: string;
+  content: string;
+  occurred_at: string;
+  source_url?: string;
+  similarity: number;
+}
+
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -64,7 +85,7 @@ export async function retrieveMemory(
     throw new Error(`Memory retrieval failed: ${error.message}`);
   }
 
-  const fragments: MemoryFragment[] = (data || []).map((item: any) => ({
+  const fragments: MemoryFragment[] = (data || []).map((item: EmbeddingRow) => ({
     id: item.id,
     user_id: item.user_id,
     content: item.content,
@@ -74,8 +95,9 @@ export async function retrieveMemory(
   }));
 
   if (fragments.length === 0 && hierarchyLevel === "monthly") {
-    console.warn(
-      `[memory] No embeddings found for user ${userId}. Memory search uses the embeddings table. ` +
+    // Log once per query - new daily notes are auto-embedded; backfill needed for existing data
+    console.info(
+      `[memory] No embeddings for user ${userId}. New notes are auto-embedded. ` +
         "Run `pnpm backfill-embeddings` to populate from existing events/summaries."
     );
   }
@@ -168,7 +190,7 @@ export async function retrieveMemoryAllTypes(
     throw new Error(`Memory retrieval failed: ${error.message}`);
   }
 
-  const fragments: MemoryFragment[] = (data || []).map((item: any) => ({
+  const fragments: MemoryFragment[] = (data || []).map((item: EmbeddingRow) => ({
     id: item.id,
     user_id: item.user_id,
     content: item.content,
@@ -221,7 +243,7 @@ export async function retrieveActivityAtoms(
     return [];
   }
 
-  return (data || []).map((item: any) => ({
+  return (data || []).map((item: ActivityAtomRow) => ({
     id: item.id,
     userId: item.user_id,
     provider: item.provider,
@@ -375,7 +397,7 @@ export async function getRecentActivityAtoms(
     return [];
   }
 
-  return (data || []).map((item: any) => ({
+  return (data || []).map((item: ActivityAtomRow) => ({
     id: item.id,
     userId: item.user_id,
     provider: item.provider,

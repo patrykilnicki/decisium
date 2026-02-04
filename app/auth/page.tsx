@@ -1,23 +1,20 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { Suspense, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/client";
 
-export default function AuthPage() {
+function AuthPageContent() {
   const [googleLoading, setGoogleLoading] = useState(false);
-  const [authError, setAuthError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("error") === "auth") {
-      setAuthError("Authentication failed. Please try again.");
-    }
-  }, []);
+  const searchParams = useSearchParams();
+  const authError =
+    searchParams.get("error") === "auth"
+      ? "Authentication failed. Please try again."
+      : null;
 
   async function handleGoogleSignIn() {
     setGoogleLoading(true);
-    setAuthError(null);
     const supabase = createClient();
     await supabase.auth.signInWithOAuth({
       provider: "google",
@@ -81,5 +78,30 @@ export default function AuthPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function AuthPage() {
+  return (
+    <Suspense fallback={
+      <div
+        className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-background p-4"
+        style={{
+          backgroundImage: "url(/bg.svg)",
+          backgroundRepeat: "no-repeat",
+          backgroundPosition: "top left",
+          backgroundSize: "auto 50vh",
+        }}
+      >
+        <div className="relative z-10 flex w-full max-w-sm flex-col items-center text-center">
+          <h1 className="text-4xl font-bold text-foreground">Decisium</h1>
+          <p className="mt-2 text-base font-normal text-muted-foreground">
+            Welcome stranger
+          </p>
+        </div>
+      </div>
+    }>
+      <AuthPageContent />
+    </Suspense>
   );
 }

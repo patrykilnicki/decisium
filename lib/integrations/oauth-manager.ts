@@ -64,19 +64,80 @@ export class OAuthManager {
 
   /**
    * Get an integration by ID
+   * Uses maybeSingle() to avoid errors when no row found.
+   * Service role client bypasses RLS automatically.
+   * 
+   * Optimized: Uses explicit column selection instead of '*' for better performance.
+   * Includes retry logic for transient network errors.
+   * Uses Promise.race with timeout to prevent hanging queries.
    */
-  async getIntegration(integrationId: string): Promise<Integration | null> {
-    const { data, error } = await this.supabase
-      .from('integrations')
-      .select('*')
-      .eq('id', integrationId)
-      .single();
+  async getIntegration(integrationId: string, retries = 1): Promise<Integration | null> {
+    const startTime = Date.now();
+    const QUERY_TIMEOUT_MS = 8000; // 8 second timeout per query attempt
+    
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        // Wrap query in Promise.race with timeout
+        const queryPromise = this.supabase
+          .from('integrations')
+          .select('id, user_id, provider, status, scopes, external_user_id, external_email, metadata, connected_at, last_sync_at, last_sync_status, last_sync_error, sync_cursor, created_at, updated_at')
+          .eq('id', integrationId)
+          .maybeSingle();
 
-    if (error || !data) {
-      return null;
+        const timeoutPromise = new Promise<{ data: null; error: { message: string } }>((resolve) =>
+          setTimeout(() => resolve({ data: null, error: { message: 'Query timeout (8s)' } }), QUERY_TIMEOUT_MS)
+        );
+
+        const { data, error } = await Promise.race([queryPromise, timeoutPromise]);
+
+        const duration = Date.now() - startTime;
+        if (duration > 1000) {
+          console.warn(`[oauth-manager] Slow query for integration ${integrationId}: ${duration}ms (attempt ${attempt + 1})`);
+        }
+
+        if (error) {
+          const isNetworkError = error.message?.includes('ECONNRESET') || 
+                                 error.message?.includes('fetch failed') ||
+                                 error.message?.includes('timeout') ||
+                                 error.message?.includes('aborted');
+          
+          if (isNetworkError && attempt < retries) {
+            const delay = Math.min(1000 * Math.pow(2, attempt), 3000); // Exponential backoff, max 3s
+            console.warn(`[oauth-manager] Network error fetching integration ${integrationId}, retrying in ${delay}ms (attempt ${attempt + 1}/${retries + 1})`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            continue;
+          }
+          
+          console.error(`[oauth-manager] Error fetching integration ${integrationId}:`, error);
+          return null;
+        }
+
+        if (!data) {
+          console.log(`[oauth-manager] Integration ${integrationId} not found`);
+          return null;
+        }
+
+        return this.mapIntegration(data);
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const isNetworkError = errorMessage.includes('ECONNRESET') || 
+                               errorMessage.includes('fetch failed') ||
+                               errorMessage.includes('timeout') ||
+                               errorMessage.includes('aborted');
+        
+        if (isNetworkError && attempt < retries) {
+          const delay = Math.min(1000 * Math.pow(2, attempt), 3000); // Exponential backoff, max 3s
+          console.warn(`[oauth-manager] Network exception fetching integration ${integrationId}, retrying in ${delay}ms (attempt ${attempt + 1}/${retries + 1})`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+        
+        console.error(`[oauth-manager] Exception fetching integration ${integrationId}:`, error);
+        return null;
+      }
     }
-
-    return this.mapIntegration(data);
+    
+    return null;
   }
 
   /**
@@ -211,11 +272,13 @@ export class OAuthManager {
   }
 
   /**
-   * Complete OAuth flow - exchange code for tokens and activate integration
+   * Complete OAuth flow - exchange code for tokens and activate integration.
+   * redirectUri must match the URI used when starting the flow (e.g. from getAppUrl(request)).
    */
   async completeOAuthFlow(
     code: string,
-    state: string
+    state: string,
+    options?: { redirectUri?: string }
   ): Promise<Integration> {
     // Decode state
     const stateData = this.decodeState(state);
@@ -235,8 +298,10 @@ export class OAuthManager {
       throw new Error(`Integration is not in pending state: ${integration.status}`);
     }
 
-    // Get adapter
-    const config = getAdapterConfig(provider);
+    // Get adapter with same redirectUri as auth request (required by Google OAuth)
+    const config = getAdapterConfig(provider, {
+      redirectUri: options?.redirectUri,
+    });
     const adapter = createAdapter(provider, config);
 
     // Exchange code for tokens
@@ -406,8 +471,19 @@ export class OAuthManager {
       throw new Error('Integration not found');
     }
 
-    if (integration.status !== 'active') {
-      throw new Error(`Integration is not active: ${integration.status}`);
+    // Allow 'active' and 'error' statuses (error integrations can be retried)
+    // Block 'revoked' and 'pending' statuses
+    if (integration.status === 'revoked') {
+      throw new Error(`Integration is revoked and cannot be used`);
+    }
+    
+    if (integration.status === 'pending') {
+      throw new Error(`Integration is pending and not yet ready`);
+    }
+
+    // If status is 'error', log a warning but allow token access (for retry)
+    if (integration.status === 'error') {
+      console.warn(`[oauth-manager] Getting access token for integration ${integrationId} with 'error' status - attempting recovery`);
     }
 
     const tokens = await this.getTokens(integrationId);
@@ -524,9 +600,14 @@ export class OAuthManager {
       updateData.last_sync_error = null;
     }
 
-    // If sync failed, mark integration as error
+    // If sync failed, mark integration as error (but don't override if already revoked)
+    // This allows retry attempts for error integrations
     if (status === 'error') {
-      updateData.status = 'error';
+      // Only set to error if not already revoked (revoked should stay revoked)
+      const currentIntegration = await this.getIntegration(integrationId);
+      if (currentIntegration && currentIntegration.status !== 'revoked') {
+        updateData.status = 'error';
+      }
     }
 
     await this.supabase

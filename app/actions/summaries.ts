@@ -4,7 +4,15 @@ import { createClient } from "@/lib/supabase/server";
 import { rootAgent } from "@/packages/agents/core/root.agent";
 import { DailySummaryContent, WeeklySummaryContent, MonthlySummaryContent } from "@/packages/agents/schemas/summary.schema";
 import { storeEmbedding } from "@/lib/embeddings/store";
-import { format, startOfWeek, startOfMonth, subDays, subWeeks, subMonths } from "date-fns";
+import { format } from "date-fns";
+
+function lastMessageContentAsString(
+  content: string | Array<{ text?: string }> | undefined
+): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) return content.map((b) => b.text ?? "").join("");
+  return "";
+}
 
 export async function generateDailySummary(userId: string, date: string) {
   const supabase = await createClient();
@@ -38,37 +46,128 @@ export async function generateDailySummary(userId: string, date: string) {
     .map((e) => `[${e.role}] ${e.type}: ${e.content}`)
     .join("\n");
 
-  const prompt = `Generate a daily summary for ${date} based on these events:
+  const prompt = `You are generating a **DAILY WORK SUMMARY** for a cognitive productivity app.
 
+This summary is a reflective snapshot, not a performance evaluation.
+The goal is clarity and sense-making — never pressure or judgment.
+
+Date: ${date}
+
+INPUT DATA (events, notes, calendar signals, reflections):
 ${eventsText}
 
-Generate a summary with:
-- 2-4 key facts about the day
-- 1 insight about patterns or themes
-- 1 optional suggestion for the future
+══════════════════════════════════════
+OUTPUT STRUCTURE (required)
+══════════════════════════════════════
 
-Return as JSON: {facts: string[], insight: string, suggestion?: string}`;
+Return valid JSON only. No markdown, no extra text.
+
+{
+  "score": number (0-100),
+  "score_label": string (e.g. "Excellent", "Solid", "Mixed"),
+  "explanation": string (one short supportive sentence),
+  "time_allocation": {
+    "meetings": number (0-100, percentage of time),
+    "deep_work": number (0-100),
+    "other": number (0-100)
+  },
+  "notes_added": number (integer, count from data),
+  "new_ideas": number (integer, count ideas/captures from data),
+  "narrative_summary": string (2-3 sentences describing the day)
+}
+
+time_allocation values must sum to 100. Infer from event types: notes/answers suggest deep work, summary/system or calendar cues suggest meetings; default to reasonable splits if unclear.
+
+══════════════════════════════════════
+RULES FOR OVERALL SCORE
+══════════════════════════════════════
+
+- Score reflects alignment, momentum, and sustainability — not hours worked
+- Favor deep work continuity over raw activity
+- Meetings are neutral, not negative
+- Never imply obligation, failure, or expectations
+- Do NOT explain the score mathematically
+
+══════════════════════════════════════
+RULES FOR TONE
+══════════════════════════════════════
+
+- Calm, observational, supportive, non-judgmental
+- No motivational slogans, no "you should"
+
+══════════════════════════════════════
+RULES FOR NARRATIVE SUMMARY
+══════════════════════════════════════
+
+- Describe what happened, not what should have happened
+- Connect activities into a coherent picture
+- Avoid exaggeration or praise inflation
+- Be concrete and grounded
+
+══════════════════════════════════════
+EXAMPLE (style reference only)
+══════════════════════════════════════
+
+{
+  "score": 86,
+  "score_label": "Excellent",
+  "explanation": "You made steady progress and maintained focus without draining your energy.",
+  "time_allocation": { "meetings": 15, "deep_work": 70, "other": 15 },
+  "notes_added": 4,
+  "new_ideas": 2,
+  "narrative_summary": "You spent most of the day in focused work, moving key design tasks forward. Meetings didn't disrupt your momentum, allowing you to stay mentally present through the afternoon. The notes and ideas suggest active exploration rather than reactive work."
+}
+
+Generate the summary for the given date and data. Return only the JSON object.
+
+══════════════════════════════════════
+`;
 
   const result = await rootAgent.invoke({
     messages: [{ role: "user", content: prompt }],
   });
 
-  const responseContent = result.messages[result.messages.length - 1]?.content || "";
+  const responseContent = lastMessageContentAsString(
+    result.messages[result.messages.length - 1]?.content
+  );
 
   // Parse JSON from response (might need to extract JSON from markdown)
   let summaryContent: DailySummaryContent;
   try {
     const jsonMatch = responseContent.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
-      summaryContent = JSON.parse(jsonMatch[0]);
+      const parsed = JSON.parse(jsonMatch[0]);
+      const notesCount = events.filter((e) => e.type === "note" || e.type === "note+question").length;
+      const ideasCount = events.filter((e) => e.type === "question" || e.type === "note+question").length;
+      const total = (parsed.time_allocation?.meetings ?? 0) + (parsed.time_allocation?.deep_work ?? 0) + (parsed.time_allocation?.other ?? 0);
+      const norm = total > 0 ? total : 1;
+      summaryContent = {
+        score: Math.min(100, Math.max(0, Number(parsed.score) ?? 70)),
+        score_label: parsed.score_label ?? "Solid",
+        explanation: parsed.explanation ?? "Review your day and reflect on patterns.",
+        time_allocation: {
+          meetings: Math.round((Number(parsed.time_allocation?.meetings) ?? 20) * (100 / norm)),
+          deep_work: Math.round((Number(parsed.time_allocation?.deep_work) ?? 60) * (100 / norm)),
+          other: Math.round((Number(parsed.time_allocation?.other) ?? 20) * (100 / norm)),
+        },
+        notes_added: typeof parsed.notes_added === "number" && parsed.notes_added >= 0 ? parsed.notes_added : notesCount,
+        new_ideas: typeof parsed.new_ideas === "number" && parsed.new_ideas >= 0 ? parsed.new_ideas : ideasCount,
+        narrative_summary: parsed.narrative_summary ?? "Review your day and reflect on patterns.",
+      };
     } else {
       throw new Error("No JSON found in response");
     }
-  } catch (error) {
-    // Fallback: create basic summary
+  } catch {
+    const notesCount = events.filter((e) => e.type === "note" || e.type === "note+question").length;
+    const ideasCount = events.filter((e) => e.type === "question" || e.type === "note+question").length;
     summaryContent = {
-      facts: events.slice(0, 3).map((e) => e.content.substring(0, 100)),
-      insight: "Review your day and reflect on patterns.",
+      score: 70,
+      score_label: "Solid",
+      explanation: "Review your day and reflect on patterns.",
+      time_allocation: { meetings: 20, deep_work: 60, other: 20 },
+      notes_added: notesCount,
+      new_ideas: ideasCount,
+      narrative_summary: "Review your day and reflect on patterns.",
     };
   }
 
@@ -89,7 +188,15 @@ Return as JSON: {facts: string[], insight: string, suggestion?: string}`;
 
   // Generate and store embedding
   try {
-    const summaryText = `${summaryContent.facts.join(". ")}. ${summaryContent.insight}`;
+    let summaryText: string;
+    if ("score_label" in summaryContent && summaryContent.score_label) {
+      summaryText = `${summaryContent.score_label}: ${summaryContent.explanation} ${summaryContent.narrative_summary}`;
+    } else if ("facts" in summaryContent && Array.isArray((summaryContent as { facts?: string[] }).facts)) {
+      const s = summaryContent as unknown as { facts: string[]; insight: string };
+      summaryText = `${s.facts.join(". ")}. ${s.insight}`;
+    } else {
+      summaryText = JSON.stringify(summaryContent);
+    }
     await storeEmbedding({
       userId,
       content: summaryText,
@@ -104,6 +211,42 @@ Return as JSON: {facts: string[], insight: string, suggestion?: string}`;
   }
 
   return summary;
+}
+
+export async function getDailySummaries(userId: string, limit = 30) {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("daily_summaries")
+    .select("*")
+    .eq("user_id", userId)
+    .order("date", { ascending: false })
+    .limit(limit);
+  if (error) throw new Error(`Failed to fetch daily summaries: ${error.message}`);
+  return data ?? [];
+}
+
+export async function getWeeklySummaries(userId: string, limit = 12) {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("weekly_summaries")
+    .select("*")
+    .eq("user_id", userId)
+    .order("week_start", { ascending: false })
+    .limit(limit);
+  if (error) throw new Error(`Failed to fetch weekly summaries: ${error.message}`);
+  return data ?? [];
+}
+
+export async function getMonthlySummaries(userId: string, limit = 12) {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("monthly_summaries")
+    .select("*")
+    .eq("user_id", userId)
+    .order("month_start", { ascending: false })
+    .limit(limit);
+  if (error) throw new Error(`Failed to fetch monthly summaries: ${error.message}`);
+  return data ?? [];
 }
 
 export async function generateWeeklySummary(userId: string, weekStart: string) {
@@ -142,22 +285,110 @@ export async function generateWeeklySummary(userId: string, weekStart: string) {
     .map((s) => `${s.date}: ${JSON.stringify(s.content)}`)
     .join("\n");
 
-  const prompt = `Generate a weekly summary for week starting ${weekStart} based on these daily summaries:
+  const prompt = `You are generating a **Weekly Summary** for Decisium.
 
+Your role is to synthesize multiple daily summaries into **clear patterns, recurring themes, and higher-level insights** — without judging performance or prescribing action.
+
+Week starting: ${weekStart}
+
+Input (daily summaries from this week):
 ${summariesText}
 
-Generate a summary with:
-- patterns: array of patterns observed
-- themes: array of recurring themes
-- insights: array of insights
+══════════════════════════════════════
+RULES (STRICT)
+══════════════════════════════════════
 
-Return as JSON: {patterns: string[], themes: string[], insights: string[]}`;
+- Base everything ONLY on the provided daily summaries
+- Do NOT invent missing days, intentions, or causes
+- Do NOT evaluate productivity or success
+- Prefer cautious language over certainty
+- If signals are weak or inconsistent, say so implicitly by keeping insights lighter
+- Patterns must span multiple days (not single-day observations)
+
+══════════════════════════════════════
+OUTPUT FORMAT
+══════════════════════════════════════
+
+Return valid JSON only:
+
+{
+  "patterns": string[],
+  "themes": string[],
+  "insights": string[]
+}
+
+══════════════════════════════════════
+CONTENT DEFINITIONS
+══════════════════════════════════════
+
+### patterns
+- Observable repetitions across days
+- Grounded in facts from daily summaries
+- Descriptive, not interpretive
+- Examples:
+  - "Meetings consistently occupied the majority of scheduled time."
+  - "Most days showed limited follow-up activity after discussions."
+  - "Energy and activity appeared front-loaded earlier in the week."
+
+(2-5 items recommended)
+
+---
+
+### themes
+- Broader recurring subjects or areas of attention
+- More abstract than patterns, but still grounded
+- Often expressed as nouns or short phrases
+- Examples:
+  - "Reactive communication"
+  - "Fragmented focus"
+  - "Exploration without closure"
+  - "Context switching"
+
+(2-4 items recommended)
+
+---
+
+### insights
+- Higher-level interpretations that connect patterns and themes
+- Must remain soft, reflective, and non-judgmental
+- Phrase as possibilities, not conclusions
+- Use language like:
+  - "This week suggests…"
+  - "Across the week, it appears that…"
+  - "One emerging insight is…"
+
+Focus on:
+- attention flow
+- momentum or stagnation
+- decision-making (or avoidance)
+- alignment or drift from intent
+
+(1-3 items recommended)
+
+══════════════════════════════════════
+TONE CHECK
+══════════════════════════════════════
+
+The summary should feel:
+- clarifying
+- calm
+- grounded in reality
+- easy to recognize as true
+
+Not:
+- motivational
+- corrective
+- prescriptive
+- overly analytical
+`;
 
   const result = await rootAgent.invoke({
     messages: [{ role: "user", content: prompt }],
   });
 
-  const responseContent = result.messages[result.messages.length - 1]?.content || "";
+  const responseContent = lastMessageContentAsString(
+    result.messages[result.messages.length - 1]?.content
+  );
 
   let summaryContent: WeeklySummaryContent;
   try {
@@ -167,7 +398,7 @@ Return as JSON: {patterns: string[], themes: string[], insights: string[]}`;
     } else {
       throw new Error("No JSON found in response");
     }
-  } catch (error) {
+  } catch {
     summaryContent = {
       patterns: [],
       themes: [],
@@ -241,22 +472,121 @@ export async function generateMonthlySummary(userId: string, monthStart: string)
     .map((s) => `Week ${s.week_start}: ${JSON.stringify(s.content)}`)
     .join("\n");
 
-  const prompt = `Generate a monthly summary for month starting ${monthStart} based on these weekly summaries:
+  const prompt = `You are generating a **Monthly Summary** for Decisium.
 
+Your role is to synthesize multiple weekly summaries into **clear trends, strategic-level insights, and reflective observations** about how the user’s work, attention, and decisions evolved over the month.
+
+This is not a performance review.
+This is a **sense-making artifact**.
+
+Month starting: ${monthStart}
+
+Input (weekly summaries from this month):
 ${summariesText}
 
-Generate a summary with:
-- trends: array of trends observed
-- strategic_insights: array of strategic insights
-- reflections: array of reflections
+══════════════════════════════════════
+RULES (VERY IMPORTANT)
+══════════════════════════════════════
 
-Return as JSON: {trends: string[], strategic_insights: string[], reflections: string[]}`;
+- Base everything ONLY on the provided weekly summaries
+- Do NOT invent causes, motivations, or outcomes
+- Do NOT evaluate success or productivity
+- Avoid advice, goals, or action items
+- Prefer cautious, reflective language over certainty
+- Trends must be visible across multiple weeks
+- If data is thin or inconsistent, reflect that subtly
+
+══════════════════════════════════════
+OUTPUT FORMAT
+══════════════════════════════════════
+
+Return valid JSON only:
+
+{
+  "trends": string[],
+  "strategic_insights": string[],
+  "reflections": string[]
+}
+
+══════════════════════════════════════
+CONTENT DEFINITIONS
+══════════════════════════════════════
+
+### trends
+- Sustained patterns visible across weeks
+- Descriptive and observational
+- Focus on *direction*, not judgment
+- Examples:
+  - "Attention gradually shifted from exploration to execution."
+  - "Meetings increasingly shaped the structure of most workdays."
+  - "Several projects showed intermittent momentum rather than steady progress."
+
+(2-5 items recommended)
+
+---
+
+### strategic_insights
+- Higher-level interpretations that connect trends together
+- Concern *how* the user operates over time
+- Frame as possibilities, not conclusions
+- Use language such as:
+  - "Over the month, it appears that…"
+  - "A strategic pattern that emerges is…"
+  - "This month suggests a tendency toward…"
+
+Focus on:
+- decision-making style
+- attention allocation
+- momentum vs stagnation
+- alignment or drift between intent and reality
+
+Avoid:
+- prescriptions
+- optimization framing
+- moral language
+
+(2-4 items recommended)
+
+---
+
+### reflections
+- Gentle, human-level observations meant to resonate
+- Less analytical, more integrative
+- Can reference tension, ambiguity, or learning
+- Examples:
+  - "Much of the month was shaped by reacting rather than choosing."
+  - "Clarity often followed moments where decisions were made explicit."
+  - "The month reflects ongoing exploration rather than closure."
+
+These should feel like:
+> “Yes — that describes this month.”
+
+(2-4 items recommended)
+
+══════════════════════════════════════
+TONE CHECK
+══════════════════════════════════════
+
+The monthly summary should feel:
+- calm
+- accurate
+- reflective
+- identity-aware
+
+Not:
+- motivational
+- corrective
+- instructional
+- managerial
+`;
 
   const result = await rootAgent.invoke({
     messages: [{ role: "user", content: prompt }],
   });
 
-  const responseContent = result.messages[result.messages.length - 1]?.content || "";
+  const responseContent = lastMessageContentAsString(
+    result.messages[result.messages.length - 1]?.content
+  );
 
   let summaryContent: MonthlySummaryContent;
   try {
@@ -266,7 +596,7 @@ Return as JSON: {trends: string[], strategic_insights: string[], reflections: st
     } else {
       throw new Error("No JSON found in response");
     }
-  } catch (error) {
+  } catch {
     summaryContent = {
       trends: [],
       strategic_insights: [],

@@ -22,6 +22,9 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Daily Intelligence",
   description: "Your personal daily journaling and AI-powered reflection assistant",
+  verification: {
+    google: "9B93rQYjxzvTPxuG7NK7QKObNkFV2uhhiC8K8A1fy1M",
+  },
 };
 
 export default function RootLayout({
@@ -31,6 +34,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={inter.variable}>
+
       <body
         className={`${geistSans.variable} ${geistMono.variable} ${domine.variable} antialiased`}
       >

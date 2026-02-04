@@ -23,11 +23,9 @@ export async function GET(
     }
 
     return NextResponse.json(thread);
-  } catch (error: any) {
-    return NextResponse.json(
-      { error: error.message || "Failed to fetch thread" },
-      { status: 400 }
-    );
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Failed to fetch thread";
+    return NextResponse.json({ error: message }, { status: 400 });
   }
 }
 
@@ -39,10 +37,8 @@ export async function DELETE(
     const { threadId } = await params;
     await deleteThread(threadId);
     return NextResponse.json({ success: true });
-  } catch (error: any) {
-    return NextResponse.json(
-      { error: error.message || "Failed to delete thread" },
-      { status: 400 }
-    );
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Failed to delete thread";
+    return NextResponse.json({ error: message }, { status: 400 });
   }
 }

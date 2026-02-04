@@ -1,6 +1,5 @@
 import { StateGraph, END, START } from "@langchain/langgraph";
-import { ToolNode } from "@langchain/langgraph/prebuilt";
-import { HumanMessage, AIMessage, ToolMessage, SystemMessage } from "@langchain/core/messages";
+import { HumanMessage, ToolMessage, SystemMessage } from "@langchain/core/messages";
 import type { BaseMessage } from "@langchain/core/messages";
 
 import { createRouterAgent, hasToolCalls, extractToolCalls } from "../lib/router";
@@ -8,13 +7,11 @@ import { gradeDocumentsNode, routeAfterGrading } from "../nodes/grade-documents.
 import { rewriteQueryNode } from "../nodes/rewrite-query.node";
 import { getOrchestratorTools } from "../tools/registry";
 import { memorySearchTool, supabaseStoreTool, embeddingGeneratorTool } from "../tools";
-import { buildMemoryContext, buildAgentContext } from "../lib/context";
+import { buildMemoryContext } from "../lib/context";
 import { handleAgentError } from "../lib/error-handler";
-import { getCurrentDate } from "../lib/date-utils";
-import { createLLM } from "../lib/llm";
+import { createLLM, type LLMProvider } from "../lib/llm";
 import {
   type OrchestratorState,
-  type RouteDecision,
   orchestratorChannels,
   createInitialOrchestratorState,
 } from "../schemas/orchestrator.schema";
@@ -81,7 +78,7 @@ async function routerNode(
       const content = typeof response.content === "string"
         ? response.content
         : Array.isArray(response.content)
-          ? response.content.map((c: any) => c.text || c).join("")
+          ? response.content.map((c: unknown) => (typeof c === "string" ? c : (c as { text?: string }).text ?? "")).join("")
           : "";
 
       console.log("[routerNode] Direct response (no tools needed)");
@@ -136,12 +133,14 @@ async function toolExecutorNode(
 
       // Route to the appropriate tool
       switch (call.name) {
-        case "memory_search":
-          result = await memorySearchTool.invoke({
-            userId: call.args.userId || state.userId,
-            query: call.args.query || state.userMessage,
+        case "memory_search": {
+          const raw: unknown = await memorySearchTool.invoke({
+            userId: (call.args.userId as string) ?? state.userId,
+            query: (call.args.query as string) ?? state.userMessage,
           });
+          result = typeof raw === "string" ? raw : JSON.stringify(raw);
           break;
+        }
 
         case "supabase_store": {
           const raw = await supabaseStoreTool.invoke(call.args as Parameters<typeof supabaseStoreTool.invoke>[0]);
@@ -275,7 +274,7 @@ async function synthesizeNode(
   state: OrchestratorState
 ): Promise<Partial<OrchestratorState>> {
   const llm = createLLM({
-    provider: (process.env.LLM_PROVIDER as any) || "anthropic",
+    provider: (process.env.LLM_PROVIDER as LLMProvider) || "anthropic",
     temperature: 0.7,
   });
 
@@ -312,7 +311,7 @@ async function synthesizeNode(
     const content = typeof response.content === "string"
       ? response.content
       : Array.isArray(response.content)
-        ? response.content.map((c: any) => c.text || c).join("")
+        ? response.content.map((c: unknown) => (typeof c === "string" ? c : (c as { text?: string }).text ?? "")).join("")
         : "";
 
     return {
@@ -344,19 +343,22 @@ async function saveMessagesNode(
   }
 
   try {
-    // Save user message
-    const savedUserStr = await supabaseStoreTool.invoke({
-      table: "ask_messages",
-      data: {
-        thread_id: state.threadId,
-        role: "user",
-        content: state.userMessage,
-      },
-    });
-    const savedUser = JSON.parse(savedUserStr);
+    let savedUserId = state.userMessageId;
+    if (!savedUserId) {
+      const savedUserStr = await supabaseStoreTool.invoke({
+        table: "ask_messages",
+        data: {
+          thread_id: state.threadId,
+          role: "user",
+          content: state.userMessage,
+        },
+      });
+      const savedUser = JSON.parse(savedUserStr);
+      savedUserId = savedUser?.id;
+    }
 
     // Generate embedding for user message
-    if (savedUser?.id) {
+    if (savedUserId) {
       try {
         const embeddingResultStr = await embeddingGeneratorTool.invoke({
           content: state.userMessage,
@@ -372,7 +374,7 @@ async function saveMessagesNode(
               embedding: embeddingResult.embedding,
               metadata: {
                 type: "ask_message",
-                source_id: savedUser.id,
+                source_id: savedUserId,
                 thread_id: state.threadId,
                 date: state.currentDate,
               },
@@ -385,8 +387,8 @@ async function saveMessagesNode(
     }
 
     // Save assistant message
-    let savedAssistantId: string | undefined;
-    if (state.agentResponse) {
+    let savedAssistantId: string | undefined = state.assistantMessageId;
+    if (state.agentResponse && !savedAssistantId) {
       const savedAssistantStr = await supabaseStoreTool.invoke({
         table: "ask_messages",
         data: {
@@ -397,51 +399,53 @@ async function saveMessagesNode(
       });
       const savedAssistant = JSON.parse(savedAssistantStr);
       savedAssistantId = savedAssistant?.id;
+    }
 
-      // Generate embedding for assistant message
-      if (savedAssistantId) {
-        try {
-          const embeddingResultStr = await embeddingGeneratorTool.invoke({
-            content: state.agentResponse,
-          });
-          const embeddingResult = JSON.parse(embeddingResultStr);
-
-          if (embeddingResult?.embedding?.length > 0) {
-            await supabaseStoreTool.invoke({
-              table: "embeddings",
-              data: {
-                user_id: state.userId,
-                content: state.agentResponse,
-                embedding: embeddingResult.embedding,
-                metadata: {
-                  type: "ask_message",
-                  source_id: savedAssistantId,
-                  thread_id: state.threadId,
-                  date: state.currentDate,
-                },
-              },
-            });
-          }
-        } catch (e) {
-          console.error("[saveMessagesNode] Error storing assistant message embedding:", e);
-        }
-      }
-
-      // Update thread timestamp
+    // Generate embedding for assistant message
+    if (savedAssistantId && state.agentResponse) {
       try {
-        const { createClient } = await import("@/lib/supabase/server");
-        const supabase = await createClient();
-        await supabase
-          .from("ask_threads")
-          .update({ updated_at: new Date().toISOString() })
-          .eq("id", state.threadId);
+        const embeddingResultStr = await embeddingGeneratorTool.invoke({
+          content: state.agentResponse,
+        });
+        const embeddingResult = JSON.parse(embeddingResultStr);
+
+        if (embeddingResult?.embedding?.length > 0) {
+          await supabaseStoreTool.invoke({
+            table: "embeddings",
+            data: {
+              user_id: state.userId,
+              content: state.agentResponse,
+              embedding: embeddingResult.embedding,
+              metadata: {
+                type: "ask_message",
+                source_id: savedAssistantId,
+                thread_id: state.threadId,
+                date: state.currentDate,
+              },
+            },
+          });
+        }
       } catch (e) {
-        console.error("[saveMessagesNode] Error updating thread timestamp:", e);
+        console.error("[saveMessagesNode] Error storing assistant message embedding:", e);
       }
     }
 
+    // Update thread timestamp
+    try {
+      const shouldUseAdmin = process.env.TASK_WORKER === "true";
+      const supabase = shouldUseAdmin
+        ? (await import("@/lib/supabase/admin")).createAdminClient()
+        : await (await import("@/lib/supabase/server")).createClient();
+      await supabase
+        .from("ask_threads")
+        .update({ updated_at: new Date().toISOString() })
+        .eq("id", state.threadId);
+    } catch (e) {
+      console.error("[saveMessagesNode] Error updating thread timestamp:", e);
+    }
+
     return {
-      userMessageId: savedUser?.id,
+      userMessageId: savedUserId,
       assistantMessageId: savedAssistantId,
       nextRoute: "end",
     };
@@ -505,6 +509,7 @@ function routeOrchestrator(state: OrchestratorState): string {
  */
 export function createOrchestratorGraph() {
   const workflow = new StateGraph<OrchestratorState>({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- LangGraph channels type
     channels: orchestratorChannels as any,
   })
     // Add nodes

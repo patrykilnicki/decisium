@@ -33,6 +33,8 @@ export interface ChatInputProps {
   disabled?: boolean;
   placeholder?: string;
   isLoading?: boolean;
+  /** "default" = compact with send only; "full" = wide with mic left, send right (Figma daily style) */
+  variant?: "default" | "full";
 }
 
 // Chat message props
@@ -58,6 +60,8 @@ export interface ChatContainerProps {
   placeholder?: string;
   emptyStateTitle?: string;
   emptyStateDescription?: string;
+  /** Custom empty state content (overrides emptyStateTitle/Description when set) */
+  emptyState?: React.ReactNode;
 }
 
 // SSE event types for streaming
@@ -85,6 +89,11 @@ export interface StreamEvent {
 // useChat hook configuration
 export interface UseChatConfig {
   apiEndpoint: string;
+  mode?: "stream" | "task";
+  sessionId?: string;
+  tasksEndpoint?: string;
+  messagesEndpoint?: string;
+  pollIntervalMs?: number;
   initialMessages?: ChatMessage[];
   onMessageSent?: (message: ChatMessage) => void;
   onMessageReceived?: (message: ChatMessage) => void;
@@ -100,4 +109,14 @@ export interface UseChatReturn {
   error: string | null;
   reset: () => void;
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
+  tasks?: Array<{
+    id: string;
+    taskType: string;
+    status: string;
+    lastError?: string | null;
+    parentTaskId?: string | null;
+    createdAt: string;
+  }>;
+  retryTask?: (taskId: string) => Promise<void>;
+  cancelTask?: (taskId: string) => Promise<void>;
 }

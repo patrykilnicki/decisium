@@ -20,10 +20,10 @@ export interface BaseAgentConfig {
 /**
  * Create a base agent with shared configuration
  * This is the primary factory function for creating agents
- * 
- * @returns An agent instance (typed as any to avoid deep type inference issues with LangChain types)
+ *
+ * @returns An agent instance (typed as unknown to avoid deep type inference issues with LangChain types)
  */
-export function createBaseAgent(config: BaseAgentConfig): any {
+export function createBaseAgent(config: BaseAgentConfig): unknown {
   const {
     systemPrompt,
     agentType,
@@ -57,16 +57,26 @@ export function createBaseAgent(config: BaseAgentConfig): any {
 
   // Create and return the agent
   return createDeepAgent({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- deepagents expects LangChain types
     model: llm as any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- deepagents expects LangChain types
     tools: tools as any,
     systemPrompt: finalSystemPrompt,
   });
 }
 
+/** Minimal type so callers can use .invoke() on simple agents (welcome, classifier, response) */
+export interface SimpleAgentInvokable {
+  invoke(
+    input: { messages: Array<{ role: string; content: string }> },
+    config?: { recursionLimit?: number }
+  ): Promise<{ messages: Array<{ content?: string }> }>;
+}
+
 /**
  * Create a simple agent without tools (for system messages, classifiers, etc.)
- * 
- * @returns An agent instance (typed as any to avoid deep type inference issues with LangChain types)
+ *
+ * @returns An agent instance with invoke() for use in daily graph nodes
  */
 export function createSimpleAgent(config: {
   systemPrompt: string;
@@ -74,18 +84,18 @@ export function createSimpleAgent(config: {
   llmProvider?: "openai" | "anthropic" | "openrouter";
   model?: string;
   currentDate?: string;
-}): any {
+}): SimpleAgentInvokable {
   return createBaseAgent({
     ...config,
     agentType: "system",
     tools: [], // No tools for simple agents (explicitly set to override agentType defaults)
-  });
+  }) as SimpleAgentInvokable;
 }
 
 /**
  * Create an agent with custom tools
- * 
- * @returns An agent instance (typed as any to avoid deep type inference issues with LangChain types)
+ *
+ * @returns An agent instance (typed as unknown to avoid deep type inference issues with LangChain types)
  */
 export function createAgentWithTools(
   systemPrompt: string,
@@ -96,7 +106,7 @@ export function createAgentWithTools(
     model?: string;
     currentDate?: string;
   }
-): any {
+): unknown {
   return createBaseAgent({
     systemPrompt,
     tools,

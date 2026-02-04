@@ -3,8 +3,8 @@ import { createClient } from '@/lib/supabase/server';
 import {
   createOAuthManager,
   createCalendarWatchService,
-  createSyncPipeline,
 } from '@/lib/integrations';
+import { getAppUrl, getGoogleCalendarWebhookUrl } from '@/lib/utils/app-url';
 
 /**
  * GET /api/integrations/[provider]/callback
@@ -21,8 +21,7 @@ export async function GET(
   const error = searchParams.get('error');
   const errorDescription = searchParams.get('error_description');
 
-  // Base URL for redirects
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
+  const baseUrl = getAppUrl(request);
 
   // Handle OAuth error
   if (error) {
@@ -55,41 +54,30 @@ export async function GET(
       return NextResponse.redirect(errorUrl);
     }
 
-    // Complete OAuth flow
+    // Complete OAuth flow (pass same redirectUri as auth request to avoid redirect_uri_mismatch)
+    const redirectUri = `${baseUrl}/api/integrations/${provider}/callback`;
     const oauthManager = createOAuthManager(supabase);
-    const integration = await oauthManager.completeOAuthFlow(code, state);
+    const integration = await oauthManager.completeOAuthFlow(code, state, {
+      redirectUri,
+    });
 
-    // Google Calendar: setup watch (HTTPS only) + initial sync (fire-and-forget)
+    // Google Calendar: setup watch for real-time updates (HTTPS only)
     if (provider === 'google_calendar') {
-      const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
-      const webhookUrl = `${baseUrl}/api/webhooks/google-calendar`;
+      const webhookUrl = getGoogleCalendarWebhookUrl(baseUrl);
       const isHttps = webhookUrl.startsWith('https://');
 
-      const runInitialSync = async () => {
-        const syncPipeline = createSyncPipeline(supabase, oauthManager);
-        await syncPipeline.sync(integration.id, {
-          fullSync: true,
-          generateEmbeddings: true,
-          calendarId: 'primary',
-        });
-      };
-
       if (isHttps) {
+        // Setup watch in background (fire-and-forget)
         createCalendarWatchService(supabase)
           .setupWatch(integration.id, webhookUrl)
-          .then(runInitialSync)
           .catch((err) => {
             console.error('[OAuth] Google Calendar watch setup failed:', err);
           });
-      } else {
-        // Local dev: skip watch (Google requires HTTPS), run sync only
-        runInitialSync().catch((err) => {
-          console.error('[OAuth] Google Calendar initial sync failed:', err);
-        });
       }
     }
 
-    // Redirect to settings with success
+    // Redirect to settings with success - the UI will show sync modal
+    // The modal handles the initial sync and shows progress to the user
     const successUrl = new URL('/settings', baseUrl);
     successUrl.searchParams.set('connected', provider);
     successUrl.searchParams.set('integration_id', integration.id);

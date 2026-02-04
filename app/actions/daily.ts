@@ -1,13 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import {
-  createDailyInitGraph,
-  DailyWelcomeResult,
-  DailyMessageResult,
-  ClassificationResult,
-} from "@/packages/agents/core/daily.agent";
-import { processDailyPageMessage } from "@/packages/agents/core/main.agent";
+import { DailyWelcomeResult } from "@/packages/agents/core/daily.agent";
 import {
   DailyEventInput,
   DailyEvent as SchemaDailyEvent,
@@ -15,42 +9,15 @@ import {
 import { getUserContext } from "@/packages/agents/lib/auth";
 import { getCurrentDate } from "@/packages/agents/lib/date-utils";
 import { handleAgentError } from "@/packages/agents/lib/error-handler";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { enqueueTask } from "@/lib/tasks/task-repository";
 
 export async function initializeDaily(): Promise<DailyWelcomeResult> {
   try {
-    // Get authenticated user context
-    const { userId, currentDate } = await getUserContext();
-
-    const supabase = await createClient();
-
-    // Check if welcome already sent today
-    const { data: existingWelcome } = await supabase
-      .from("daily_events")
-      .select("*")
-      .eq("user_id", userId)
-      .eq("date", currentDate)
-      .eq("role", "agent")
-      .eq("type", "system")
-      .eq("subtype", "welcome")
-      .limit(1)
-      .maybeSingle();
-
-    if (existingWelcome) {
-      return {
-        welcomeMessage: null,
-        alreadyStarted: true,
-      };
-    }
-
-    // Run initialization graph for welcome message
-    const initGraph = createDailyInitGraph();
-    const result = await initGraph.invoke({
-      userId,
-      currentDate,
-    });
-
+    // Empty state: no welcome message is generated. When the user sends their
+    // first message, the chat opens with the existing conversation flow.
     return {
-      welcomeMessage: result.welcomeMessage || null,
+      welcomeMessage: null,
       alreadyStarted: false,
     };
   } catch (error) {
@@ -63,14 +30,14 @@ export async function initializeDaily(): Promise<DailyWelcomeResult> {
 
 export async function processDailyMessage(
   userMessage: string
-): Promise<DailyMessageResult> {
+): Promise<{ taskId: string; userEventId?: string }> {
   try {
     // Get authenticated user context
-    const { userId, currentDate, userEmail } = await getUserContext();
+    const { userId, currentDate } = await getUserContext();
     const supabase = await createClient();
 
     // Save user message first
-    const { error: userMsgError } = await supabase
+    const { data: savedEvent, error: userMsgError } = await supabase
       .from("daily_events")
       .insert({
         user_id: userId,
@@ -78,41 +45,33 @@ export async function processDailyMessage(
         role: "user",
         type: "note",
         content: userMessage,
-      });
+      })
+      .select("id")
+      .single();
 
     if (userMsgError) {
       console.error("Failed to save user message:", userMsgError);
     }
 
-    // Process through unified agent
-    const result = await processDailyPageMessage({
-      userId,
-      userMessage,
-      currentDate,
-      userEmail,
+    const adminClient = createAdminClient();
+    const sessionId = `daily:${currentDate}`;
+    const task = await enqueueTask(adminClient, {
+      user_id: userId,
+      session_id: sessionId,
+      task_type: "daily.classifier_agent",
+      input: {
+        state: {
+          userId,
+          currentDate,
+          userMessage,
+          userEventId: savedEvent?.id,
+        },
+      },
     });
 
-    // Save agent response
-    if (result.agentResponse) {
-      const { error: agentMsgError } = await supabase
-        .from("daily_events")
-        .insert({
-          user_id: userId,
-          date: currentDate,
-          role: "agent",
-          type: "answer",
-          content: result.agentResponse,
-        });
-
-      if (agentMsgError) {
-        console.error("Failed to save agent response:", agentMsgError);
-      }
-    }
-
     return {
-      agentResponse: result.agentResponse || null,
-      eventsSaved: true,
-      classification: "NOTE" as ClassificationResult,
+      taskId: task.id,
+      userEventId: savedEvent?.id,
     };
   } catch (error) {
     handleAgentError(error, {
@@ -124,7 +83,7 @@ export async function processDailyMessage(
 
 export async function processDailyEvent(
   eventId: string
-): Promise<string | null> {
+): Promise<{ taskId: string } | null> {
   try {
     // Get authenticated user context
     const { userId } = await getUserContext();
@@ -143,7 +102,7 @@ export async function processDailyEvent(
     }
 
     const result = await processDailyMessage(event.content);
-    return result.agentResponse;
+    return { taskId: result.taskId };
   } catch (error) {
     handleAgentError(error, {
       agentType: "daily",
@@ -214,5 +173,73 @@ export async function getDailyEvents(
       agentType: "daily",
       action: "get_daily_events",
     });
+  }
+}
+
+export interface TodayMeeting {
+  id: string;
+  title: string | null;
+  occurred_at: string;
+  duration_minutes: number | null;
+  participants: string[] | null;
+  source_url: string | null;
+}
+
+/**
+ * Get today's calendar events (meetings) from activity_atoms.
+ * Uses a 3-day window then filters by date string to avoid timezone edge cases.
+ * Returns [] when not authenticated (e.g. session not yet available on first load).
+ * @param date - Optional date in YYYY-MM-DD (client's local "today").
+ */
+export async function getTodayMeetings(date?: string): Promise<TodayMeeting[]> {
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return [];
+    }
+
+    const targetDate = date ?? getCurrentDate();
+    const [y, m, d] = targetDate.split("-").map(Number);
+    const windowStart = new Date(Date.UTC(y, m - 1, d - 1, 0, 0, 0, 0));
+    const windowEnd = new Date(Date.UTC(y, m - 1, d + 2, 0, 0, 0, 0));
+
+    const { data, error } = await supabase
+      .from("activity_atoms")
+      .select("id, title, occurred_at, duration_minutes, participants, source_url")
+      .eq("user_id", user.id)
+      .eq("atom_type", "event")
+      .eq("provider", "google_calendar")
+      .gte("occurred_at", windowStart.toISOString())
+      .lt("occurred_at", windowEnd.toISOString())
+      .order("occurred_at", { ascending: true });
+
+    if (error) {
+      console.error("Failed to fetch today's meetings:", error);
+      return [];
+    }
+
+    const rows = (data ?? []) as TodayMeeting[];
+    return rows.filter((row) => row.occurred_at.slice(0, 10) === targetDate);
+  } catch (error) {
+    console.error("Error getting today's meetings:", error);
+    return [];
+  }
+}
+
+/**
+ * Get count of today's calendar events. Pass client's local date to match user's "today".
+ */
+export async function getTodayMeetingsCount(date?: string): Promise<number> {
+  try {
+    const meetings = await getTodayMeetings(date);
+    return meetings.length;
+  } catch (error) {
+    console.error("Error getting today's meetings count:", error);
+    return 0;
   }
 }

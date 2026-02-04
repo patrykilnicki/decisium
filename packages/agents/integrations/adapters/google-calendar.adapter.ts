@@ -116,29 +116,67 @@ export class GoogleCalendarAdapter extends BaseAdapter {
       return this.fetchDataIncremental(calendar, calendarId, options);
     }
 
-    // Full sync: time range + orderBy
+    // Full sync: time range + orderBy, follow all pages
+    // Note: Google Calendar API doesn't always return nextSyncToken when using timeMin/timeMax
+    // So we make a final call without filters to get the syncToken for incremental sync
     const now = new Date();
     const timeMin = options?.since ?? new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
     const timeMax = options?.until ?? new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000);
 
-    const response = await calendar.events.list({
-      calendarId,
-      timeMin: timeMin.toISOString(),
-      timeMax: timeMax.toISOString(),
-      singleEvents: true,
-      orderBy: 'startTime',
-      maxResults: options?.limit ?? 100,
-      pageToken: options?.cursor ?? undefined,
-    });
+    const allAtoms: ActivityAtom[] = [];
+    let pageToken: string | undefined = options?.cursor;
+    let nextSyncToken: string | undefined;
 
-    const items = response.data.items ?? [];
-    const atoms = this.normalizeToAtoms(items);
+    // Fetch all pages with time filters
+    do {
+      const response = await calendar.events.list({
+        calendarId,
+        timeMin: timeMin.toISOString(),
+        timeMax: timeMax.toISOString(),
+        singleEvents: true,
+        orderBy: 'startTime',
+        maxResults: options?.limit ?? 250,
+        pageToken,
+      });
+
+      const items = response.data.items ?? [];
+      allAtoms.push(...this.normalizeToAtoms(items));
+
+      pageToken = response.data.nextPageToken ?? undefined;
+      // nextSyncToken is only available on the last page (when nextPageToken is undefined)
+      if (!pageToken && response.data.nextSyncToken) {
+        nextSyncToken = response.data.nextSyncToken;
+      }
+    } while (pageToken);
+
+    // If we didn't get a syncToken (common when using timeMin/timeMax), paginate without filters
+    // nextSyncToken is only returned on the last page, so we must follow pages until we get it
+    if (!nextSyncToken) {
+      try {
+        let syncPageToken: string | undefined;
+        do {
+          const syncTokenResponse = await calendar.events.list({
+            calendarId,
+            singleEvents: true,
+            maxResults: 250,
+            pageToken: syncPageToken,
+          });
+          syncPageToken = syncTokenResponse.data.nextPageToken ?? undefined;
+          if (!syncPageToken && syncTokenResponse.data.nextSyncToken) {
+            nextSyncToken = syncTokenResponse.data.nextSyncToken;
+          }
+        } while (syncPageToken);
+      } catch (error) {
+        console.warn('[google-calendar-adapter] Failed to get syncToken after full sync:', error);
+        // Continue without syncToken - will do full sync next time
+      }
+    }
 
     return {
-      atoms,
-      nextCursor: response.data.nextPageToken ?? undefined,
-      nextSyncToken: response.data.nextSyncToken ?? undefined,
-      hasMore: !!response.data.nextPageToken,
+      atoms: allAtoms,
+      nextCursor: undefined,
+      nextSyncToken,
+      hasMore: false,
       syncedAt: new Date(),
     };
   }

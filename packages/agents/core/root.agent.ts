@@ -7,10 +7,9 @@ import {
 } from "../tools";
 import { buildMemoryContext, buildAgentContext } from "../lib/context";
 import { handleAgentError } from "../lib/error-handler";
-import { 
-  createOrchestratorGraph, 
+import {
+  createOrchestratorGraph,
   processOrchestratorMessage,
-  type OrchestratorMessageResult 
 } from "./orchestrator.agent";
 import { ROOT_AGENT_SYSTEM_PROMPT } from "../prompts";
 
@@ -61,6 +60,46 @@ export interface RootMessageResult {
   assistantMessageId?: string;
 }
 
+async function storeAskEmbedding(params: {
+  userId: string;
+  threadId: string;
+  content: string;
+  sourceId: string;
+  currentDate: string;
+}): Promise<void> {
+  try {
+    const embeddingResultStr = await embeddingGeneratorTool.invoke({
+      content: params.content,
+    });
+    const embeddingResult = typeof embeddingResultStr === "string"
+      ? JSON.parse(embeddingResultStr)
+      : embeddingResultStr;
+
+    if (
+      embeddingResult?.embedding &&
+      Array.isArray(embeddingResult.embedding) &&
+      embeddingResult.embedding.length > 0
+    ) {
+      await supabaseStoreTool.invoke({
+        table: "embeddings",
+        data: {
+          user_id: params.userId,
+          content: params.content,
+          embedding: embeddingResult.embedding,
+          metadata: {
+            type: "ask_message",
+            source_id: params.sourceId,
+            thread_id: params.threadId,
+            date: params.currentDate,
+          },
+        },
+      });
+    }
+  } catch (embeddingError) {
+    console.error("Error storing embedding for ask message:", embeddingError);
+  }
+}
+
 // Node Implementations
 
 async function memoryRetrieverNode(
@@ -101,7 +140,7 @@ async function rootResponseAgentNode(
     systemPrompt: ROOT_AGENT_SYSTEM_PROMPT,
     agentType: "root",
     currentDate: state.currentDate,
-  });
+  }) as RootAgentInvokable;
 
   // Build conversation history including the new user message
   const fullConversationHistory = state.conversationHistory
@@ -120,18 +159,9 @@ async function rootResponseAgentNode(
   // Use the context as the prompt (it already includes the conversation history with the new message)
   const prompt = context || `User: ${state.userMessage}`;
 
-  // Type assertion to avoid deep type inference issues with LangChain types
-  const result = await (responseAgent.invoke as any)(
-    {
-      messages: [
-        {
-          role: "user",
-          content: prompt,
-        },
-      ],
-    },
-    { recursionLimit: 15 }
-  );
+  const result = await responseAgent.invoke({
+    messages: [{ role: "user", content: prompt }],
+  });
 
   // Extract response content, handling both string and array types
   const lastMessage = result.messages?.[result.messages.length - 1];
@@ -143,7 +173,7 @@ async function rootResponseAgentNode(
     } else if (Array.isArray(lastMessage.content)) {
       // Handle array of content blocks (extract text from each)
       agentResponse = lastMessage.content
-        .map((block: any) => (typeof block === "string" ? block : block?.text || ""))
+        .map((block: { text?: string } | string) => (typeof block === "string" ? block : block?.text || ""))
         .join("");
     }
   }
@@ -159,6 +189,17 @@ async function saveUserMessageNode(
   }
 
   try {
+    if (state.userMessageId) {
+      await storeAskEmbedding({
+        userId: state.userId,
+        threadId: state.threadId,
+        content: state.userMessage,
+        sourceId: state.userMessageId,
+        currentDate: state.currentDate,
+      });
+      return { userMessageId: state.userMessageId };
+    }
+
     const savedMessageStr = await supabaseStoreTool.invoke({
       table: "ask_messages",
       data: {
@@ -172,40 +213,14 @@ async function saveUserMessageNode(
       ? JSON.parse(savedMessageStr)
       : savedMessageStr;
 
-    // Generate and store embedding for user message
-    if (savedMessage?.id && state.userMessage) {
-      try {
-        const embeddingResultStr = await embeddingGeneratorTool.invoke({
-          content: state.userMessage,
-        });
-        const embeddingResult = typeof embeddingResultStr === "string"
-          ? JSON.parse(embeddingResultStr)
-          : embeddingResultStr;
-
-        if (
-          embeddingResult?.embedding &&
-          Array.isArray(embeddingResult.embedding) &&
-          embeddingResult.embedding.length > 0
-        ) {
-          await supabaseStoreTool.invoke({
-            table: "embeddings",
-            data: {
-              user_id: state.userId,
-              content: state.userMessage,
-              embedding: embeddingResult.embedding,
-              metadata: {
-                type: "ask_message",
-                source_id: savedMessage.id,
-                thread_id: state.threadId,
-                date: state.currentDate,
-              },
-            },
-          });
-        }
-      } catch (embeddingError) {
-        console.error("Error storing embedding for user message:", embeddingError);
-        // Don't fail the message save if embedding fails
-      }
+    if (savedMessage?.id) {
+      await storeAskEmbedding({
+        userId: state.userId,
+        threadId: state.threadId,
+        content: state.userMessage,
+        sourceId: savedMessage.id,
+        currentDate: state.currentDate,
+      });
     }
 
     return { userMessageId: savedMessage?.id };
@@ -227,6 +242,17 @@ async function saveAssistantMessageNode(
   }
 
   try {
+    if (state.assistantMessageId) {
+      await storeAskEmbedding({
+        userId: state.userId,
+        threadId: state.threadId,
+        content: state.agentResponse,
+        sourceId: state.assistantMessageId,
+        currentDate: state.currentDate,
+      });
+      return { assistantMessageId: state.assistantMessageId };
+    }
+
     const savedMessageStr = await supabaseStoreTool.invoke({
       table: "ask_messages",
       data: {
@@ -240,46 +266,22 @@ async function saveAssistantMessageNode(
       ? JSON.parse(savedMessageStr)
       : savedMessageStr;
 
-    // Generate and store embedding for assistant message
-    if (savedMessage?.id && state.agentResponse) {
-      try {
-        const embeddingResultStr = await embeddingGeneratorTool.invoke({
-          content: state.agentResponse,
-        });
-        const embeddingResult = typeof embeddingResultStr === "string"
-          ? JSON.parse(embeddingResultStr)
-          : embeddingResultStr;
-
-        if (
-          embeddingResult?.embedding &&
-          Array.isArray(embeddingResult.embedding) &&
-          embeddingResult.embedding.length > 0
-        ) {
-          await supabaseStoreTool.invoke({
-            table: "embeddings",
-            data: {
-              user_id: state.userId,
-              content: state.agentResponse,
-              embedding: embeddingResult.embedding,
-              metadata: {
-                type: "ask_message",
-                source_id: savedMessage.id,
-                thread_id: state.threadId,
-                date: state.currentDate,
-              },
-            },
-          });
-        }
-      } catch (embeddingError) {
-        console.error("Error storing embedding for assistant message:", embeddingError);
-        // Don't fail the message save if embedding fails
-      }
+    if (savedMessage?.id) {
+      await storeAskEmbedding({
+        userId: state.userId,
+        threadId: state.threadId,
+        content: state.agentResponse,
+        sourceId: savedMessage.id,
+        currentDate: state.currentDate,
+      });
     }
 
     // Update thread updated_at
     try {
-      const { createClient } = await import("@/lib/supabase/server");
-      const supabase = await createClient();
+      const shouldUseAdmin = process.env.TASK_WORKER === "true";
+      const supabase = shouldUseAdmin
+        ? (await import("@/lib/supabase/admin")).createAdminClient()
+        : await (await import("@/lib/supabase/server")).createClient();
       await supabase
         .from("ask_threads")
         .update({ updated_at: new Date().toISOString() })
@@ -344,13 +346,20 @@ export function createRootMessageGraph() {
   return workflow.compile();
 }
 
+/** Minimal type for root agent so callers can use .invoke() without casting */
+export interface RootAgentInvokable {
+  invoke(input: { messages: Array<{ role: string; content: string }> }): Promise<{
+    messages: Array<{ content?: string | Array<{ text?: string }> }>;
+  }>;
+}
+
 // Legacy function for backward compatibility
 export function createRootAgent(config?: {
   llmProvider?: "openai" | "anthropic" | "openrouter";
   model?: string;
   temperature?: number;
   currentDate?: string;
-}): any {
+}): RootAgentInvokable {
   return createBaseAgent({
     systemPrompt: ROOT_AGENT_SYSTEM_PROMPT,
     agentType: "root",
@@ -358,10 +367,10 @@ export function createRootAgent(config?: {
     temperature: config?.temperature,
     llmProvider: config?.llmProvider,
     model: config?.model,
-  });
+  }) as RootAgentInvokable;
 }
 
-export const rootAgent: any = createRootAgent();
+export const rootAgent: RootAgentInvokable = createRootAgent();
 
 // ═══════════════════════════════════════════════════════════════
 // AGENTIC MODE INTEGRATION
@@ -452,3 +461,11 @@ export function getRootGraph(mode?: AgentMode) {
 
 // Re-export orchestrator types for convenience
 export type { OrchestratorMessageResult } from "./orchestrator.agent";
+
+// Export nodes for durable task handlers
+export {
+  saveUserMessageNode,
+  memoryRetrieverNode,
+  rootResponseAgentNode,
+  saveAssistantMessageNode,
+};

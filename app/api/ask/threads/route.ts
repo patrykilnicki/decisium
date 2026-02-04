@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createThread, getThreads } from "@/app/actions/ask";
 
-export async function GET(request: NextRequest) {
+export async function GET(_request: NextRequest) {
+  // Route handler signature requires request; not used for list threads
   try {
     const supabase = await createClient();
     const {
@@ -15,11 +16,9 @@ export async function GET(request: NextRequest) {
 
     const threads = await getThreads(user.id);
     return NextResponse.json(threads);
-  } catch (error: any) {
-    return NextResponse.json(
-      { error: error.message || "Failed to fetch threads" },
-      { status: 400 }
-    );
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Failed to fetch threads";
+    return NextResponse.json({ error: message }, { status: 400 });
   }
 }
 
@@ -39,10 +38,8 @@ export async function POST(request: NextRequest) {
 
     const thread = await createThread(user.id, title);
     return NextResponse.json(thread, { status: 201 });
-  } catch (error: any) {
-    return NextResponse.json(
-      { error: error.message || "Failed to create thread" },
-      { status: 400 }
-    );
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Failed to create thread";
+    return NextResponse.json({ error: message }, { status: 400 });
   }
 }

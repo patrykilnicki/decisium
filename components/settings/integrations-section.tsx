@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { IntegrationCard } from "./integration-card";
+import { SyncModal } from "./sync-modal";
 import { Calendar, Mail, FileText, CheckSquare } from "lucide-react";
 
 interface Integration {
@@ -60,6 +61,11 @@ export function IntegrationsSection() {
     type: "success" | "error";
     message: string;
   } | null>(null);
+  
+  // Sync modal state
+  const [syncModalOpen, setSyncModalOpen] = useState(false);
+  const [syncProvider, setSyncProvider] = useState("");
+  const [syncIntegrationId, setSyncIntegrationId] = useState("");
 
   const fetchIntegrations = useCallback(async () => {
     try {
@@ -101,16 +107,16 @@ export function IntegrationsSection() {
   // Handle URL parameters for connection status
   useEffect(() => {
     const connected = searchParams.get("connected");
+    const integrationId = searchParams.get("integration_id");
     const error = searchParams.get("error");
     const errorDescription = searchParams.get("error_description");
 
-    if (connected) {
-      setNotification({
-        type: "success",
-        message: `Successfully connected to ${connected.replace("_", " ")}!`,
-      });
-      // Refresh integrations list
-      fetchIntegrations();
+    if (connected && integrationId) {
+      // Open sync modal immediately after OAuth callback
+      setSyncProvider(connected);
+      setSyncIntegrationId(integrationId);
+      setSyncModalOpen(true);
+      
       // Clear URL params
       router.replace("/settings");
     } else if (error) {
@@ -120,7 +126,7 @@ export function IntegrationsSection() {
       });
       router.replace("/settings");
     }
-  }, [searchParams, fetchIntegrations, router]);
+  }, [searchParams, router]);
 
   // Clear notification after 5 seconds
   useEffect(() => {
@@ -183,32 +189,10 @@ export function IntegrationsSection() {
     }
   }
 
-  async function handleSync(provider: string) {
-    try {
-      const response = await fetch(`/api/integrations/${provider}/sync`, {
-        method: "POST",
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || "Sync failed");
-      }
-
-      const data = await response.json();
-      setNotification({
-        type: "success",
-        message: `Synced ${data.atomsCount} items from ${provider.replace("_", " ")}`,
-      });
-      
-      // Refresh integrations list
-      fetchIntegrations();
-    } catch (error) {
-      console.error("Error syncing:", error);
-      setNotification({
-        type: "error",
-        message: error instanceof Error ? error.message : "Sync failed",
-      });
-    }
+  function handleSyncModalClose() {
+    setSyncModalOpen(false);
+    // Refresh integrations to show updated sync status
+    fetchIntegrations();
   }
 
   function getStatus(provider: string): "connected" | "disconnected" | "error" | "loading" {
@@ -274,11 +258,18 @@ export function IntegrationsSection() {
               lastSyncStatus={status?.integration?.lastSyncStatus}
               onConnect={() => handleConnect(config.provider)}
               onDisconnect={() => handleDisconnect(config.provider)}
-              onSync={status?.connected ? () => handleSync(config.provider) : undefined}
             />
           );
         })}
       </div>
+
+      {/* Sync modal shown after OAuth callback */}
+      <SyncModal
+        open={syncModalOpen}
+        onClose={handleSyncModalClose}
+        provider={syncProvider}
+        integrationId={syncIntegrationId}
+      />
     </div>
   );
 }

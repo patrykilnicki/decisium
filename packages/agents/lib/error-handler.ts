@@ -2,7 +2,7 @@ export interface ErrorContext {
   agentType?: string;
   userId?: string;
   action?: string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 /**
@@ -50,6 +50,20 @@ export function handleAgentError(
 
   // If it's a known error, wrap it
   if (error instanceof Error) {
+    // Check for recursion limit errors - provide helpful guidance
+    if (
+      error.message.includes("Recursion limit") ||
+      error.message.includes("recursionLimit") ||
+      error.name === "GraphRecursionError" ||
+      error.name === "AgentRecursionLimitError"
+    ) {
+      throw new AgentError(
+        "The agent encountered a complex request that required too many steps to complete. Please try simplifying your request or breaking it into smaller parts.",
+        context,
+        error
+      );
+    }
+
     // Check for common error types
     if (error.message.includes("Unauthorized")) {
       throw new AgentError(
@@ -94,7 +108,7 @@ export function handleAgentError(
 /**
  * Wrap async functions with error handling
  */
-export function withErrorHandling<T extends (...args: any[]) => Promise<any>>(
+export function withErrorHandling<T extends (...args: unknown[]) => Promise<unknown>>(
   fn: T,
   context?: ErrorContext
 ): T {
