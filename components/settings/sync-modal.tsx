@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import {
   Dialog,
   DialogContent,
@@ -26,6 +26,7 @@ export function SyncModal({ open, onClose, provider, integrationId }: SyncModalP
   const [status, setStatus] = useState<SyncStatus>("syncing");
   const [eventCount, setEventCount] = useState(0);
   const [errorMessage, setErrorMessage] = useState("");
+  const syncStartedRef = useRef(false);
 
   const displayName = provider.replace("_", " ");
 
@@ -57,11 +58,12 @@ export function SyncModal({ open, onClose, provider, integrationId }: SyncModalP
     }
   }, [integrationId, provider]);
 
-  // Start sync when modal opens
+  // Start sync once when modal opens (ref prevents duplicate calls from Strict Mode or re-renders)
   useEffect(() => {
-    if (open && integrationId && provider) {
-      runSync();
-    }
+    if (!open || !integrationId || !provider) return;
+    if (syncStartedRef.current) return;
+    syncStartedRef.current = true;
+    runSync();
   }, [open, integrationId, provider, runSync]);
 
   // Auto-close on success after 2 seconds
@@ -74,9 +76,10 @@ export function SyncModal({ open, onClose, provider, integrationId }: SyncModalP
     }
   }, [status, onClose]);
 
-  // Reset state when modal closes
+  // Reset state and ref when modal closes (allows sync to run again if modal reopens)
   useEffect(() => {
     if (!open) {
+      syncStartedRef.current = false;
       setStatus("syncing");
       setEventCount(0);
       setErrorMessage("");

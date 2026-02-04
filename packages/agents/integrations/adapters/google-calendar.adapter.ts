@@ -149,19 +149,23 @@ export class GoogleCalendarAdapter extends BaseAdapter {
       }
     } while (pageToken);
 
-    // If we didn't get a syncToken (common when using timeMin/timeMax), make a final call without filters
-    // This ensures we have a syncToken for incremental syncs
+    // If we didn't get a syncToken (common when using timeMin/timeMax), paginate without filters
+    // nextSyncToken is only returned on the last page, so we must follow pages until we get it
     if (!nextSyncToken) {
       try {
-        const syncTokenResponse = await calendar.events.list({
-          calendarId,
-          singleEvents: true,
-          maxResults: 1, // We only need the syncToken, not the data
-        });
-        
-        if (syncTokenResponse.data.nextSyncToken) {
-          nextSyncToken = syncTokenResponse.data.nextSyncToken;
-        }
+        let syncPageToken: string | undefined;
+        do {
+          const syncTokenResponse = await calendar.events.list({
+            calendarId,
+            singleEvents: true,
+            maxResults: 250,
+            pageToken: syncPageToken,
+          });
+          syncPageToken = syncTokenResponse.data.nextPageToken ?? undefined;
+          if (!syncPageToken && syncTokenResponse.data.nextSyncToken) {
+            nextSyncToken = syncTokenResponse.data.nextSyncToken;
+          }
+        } while (syncPageToken);
       } catch (error) {
         console.warn('[google-calendar-adapter] Failed to get syncToken after full sync:', error);
         // Continue without syncToken - will do full sync next time
