@@ -117,6 +117,8 @@ export class GoogleCalendarAdapter extends BaseAdapter {
     }
 
     // Full sync: time range + orderBy, follow all pages
+    // Note: Google Calendar API doesn't always return nextSyncToken when using timeMin/timeMax
+    // So we make a final call without filters to get the syncToken for incremental sync
     const now = new Date();
     const timeMin = options?.since ?? new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
     const timeMax = options?.until ?? new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000);
@@ -125,6 +127,7 @@ export class GoogleCalendarAdapter extends BaseAdapter {
     let pageToken: string | undefined = options?.cursor;
     let nextSyncToken: string | undefined;
 
+    // Fetch all pages with time filters
     do {
       const response = await calendar.events.list({
         calendarId,
@@ -145,6 +148,25 @@ export class GoogleCalendarAdapter extends BaseAdapter {
         nextSyncToken = response.data.nextSyncToken;
       }
     } while (pageToken);
+
+    // If we didn't get a syncToken (common when using timeMin/timeMax), make a final call without filters
+    // This ensures we have a syncToken for incremental syncs
+    if (!nextSyncToken) {
+      try {
+        const syncTokenResponse = await calendar.events.list({
+          calendarId,
+          singleEvents: true,
+          maxResults: 1, // We only need the syncToken, not the data
+        });
+        
+        if (syncTokenResponse.data.nextSyncToken) {
+          nextSyncToken = syncTokenResponse.data.nextSyncToken;
+        }
+      } catch (error) {
+        console.warn('[google-calendar-adapter] Failed to get syncToken after full sync:', error);
+        // Continue without syncToken - will do full sync next time
+      }
+    }
 
     return {
       atoms: allAtoms,

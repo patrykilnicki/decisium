@@ -68,6 +68,7 @@ export interface StoredActivityAtom {
 export class SyncPipeline {
   private supabase: SupabaseClient;
   private oauthManager: OAuthManager;
+  private activeSyncs: Map<string, Promise<SyncProgress>> = new Map();
 
   constructor(supabase: SupabaseClient, oauthManager: OAuthManager) {
     this.supabase = supabase;
@@ -76,8 +77,35 @@ export class SyncPipeline {
 
   /**
    * Run a full sync pipeline for an integration
+   * Prevents concurrent syncs for the same integration (deduplication)
    */
   async sync(
+    integrationId: string,
+    options: SyncOptions = {}
+  ): Promise<SyncProgress> {
+    // Check if there's already an active sync for this integration
+    const existingSync = this.activeSyncs.get(integrationId);
+    if (existingSync) {
+      console.log(`[sync-pipeline] Sync already in progress for integration ${integrationId}, returning existing promise`);
+      return existingSync;
+    }
+
+    // Create sync promise and track it
+    const syncPromise = this.performSync(integrationId, options);
+    this.activeSyncs.set(integrationId, syncPromise);
+
+    // Clean up when sync completes
+    syncPromise.finally(() => {
+      this.activeSyncs.delete(integrationId);
+    });
+
+    return syncPromise;
+  }
+
+  /**
+   * Internal method that performs the actual sync
+   */
+  private async performSync(
     integrationId: string,
     options: SyncOptions = {}
   ): Promise<SyncProgress> {
