@@ -196,15 +196,36 @@ export class SyncPipeline {
       progress.hasMore = result.hasMore;
       progress.currentCursor = result.nextCursor;
 
-      // Delete removed events (Google Calendar incremental sync)
-      if (result.deletedExternalIds && result.deletedExternalIds.length > 0) {
-        console.log(`[sync-pipeline] Deleting ${result.deletedExternalIds.length} removed events`);
-        await this.supabase
+      // Delete removed events
+      // 1. From incremental sync: events with status 'cancelled'
+      // 2. From full sync: events that no longer exist in the calendar
+      let deletedIds = result.deletedExternalIds ?? [];
+      
+      // For full sync, detect deletions by comparing existing atoms with fetched atoms
+      if (options.fullSync && result.atoms.length > 0) {
+        const fetchedExternalIds = new Set(result.atoms.map((a) => a.externalId));
+        
+        // Get existing atoms for this integration
+        const { data: existingAtoms } = await this.supabase
           .from('activity_atoms')
-          .delete()
+          .select('external_id')
           .eq('integration_id', integrationId)
-          .eq('provider', 'google_calendar')
-          .in('external_id', result.deletedExternalIds);
+          .eq('provider', integration.provider);
+        
+        // Find atoms that exist in DB but not in fetched data (deleted from calendar)
+        const existingExternalIds = (existingAtoms ?? []).map((a) => a.external_id);
+        const deletedFromCalendar = existingExternalIds.filter((id) => !fetchedExternalIds.has(id));
+        
+        if (deletedFromCalendar.length > 0) {
+          console.log(`[sync-pipeline] Full sync detected ${deletedFromCalendar.length} deleted events`);
+          deletedIds = [...deletedIds, ...deletedFromCalendar];
+        }
+      }
+      
+      // Process deletions (including embedding cleanup)
+      if (deletedIds.length > 0) {
+        console.log(`[sync-pipeline] Deleting ${deletedIds.length} removed events`);
+        await this.deleteAtomsWithEmbeddings(integrationId, integration.provider, deletedIds);
       }
 
       // Process and store atoms
@@ -347,7 +368,7 @@ export class SyncPipeline {
     const externalIds = atoms.map((a) => a.externalId);
     const { data: existingAtoms } = await this.supabase
       .from('activity_atoms')
-      .select('external_id, content, title, occurred_at, duration_minutes, participants, embedding_id')
+      .select('external_id, content, title, occurred_at, duration_minutes, participants, metadata, embedding_id')
       .eq('user_id', integration.userId)
       .eq('provider', integration.provider)
       .in('external_id', externalIds);
@@ -361,6 +382,7 @@ export class SyncPipeline {
           occurredAt: a.occurred_at,
           durationMinutes: a.duration_minutes ?? undefined,
           participants: a.participants ?? undefined,
+          metadata: a.metadata ?? undefined,
           embeddingId: a.embedding_id ?? undefined,
         },
       ])
@@ -373,17 +395,24 @@ export class SyncPipeline {
     for (const atom of atoms) {
       const existing = existingMap.get(atom.externalId);
       if (existing) {
-        // Atom exists - check if content changed
+        // Atom exists - check if any relevant field changed
         const contentChanged = existing.content !== atom.content;
         const titleChanged = existing.title !== (atom.title ?? undefined);
         const occurredAtChanged = new Date(existing.occurredAt).getTime() !== atom.occurredAt.getTime();
         const durationChanged = existing.durationMinutes !== (atom.durationMinutes ?? undefined);
+        
+        // Participants comparison (sorted to handle order differences)
         const existingParticipants = existing.participants ?? [];
         const newParticipants = atom.participants ?? [];
         const participantsChanged =
           JSON.stringify([...existingParticipants].sort()) !== JSON.stringify([...newParticipants].sort());
+        
+        // Metadata comparison for key fields (location, conferenceUri, status)
+        const existingMeta = existing.metadata as Record<string, unknown> | undefined;
+        const newMeta = atom.metadata as Record<string, unknown> | undefined;
+        const metadataChanged = this.hasMetadataChanged(existingMeta, newMeta);
 
-        if (contentChanged || titleChanged || occurredAtChanged || durationChanged || participantsChanged) {
+        if (contentChanged || titleChanged || occurredAtChanged || durationChanged || participantsChanged || metadataChanged) {
           // Content changed - need new embedding
           atomsNeedingEmbeddings.push(atom);
         } else {
@@ -507,6 +536,102 @@ export class SyncPipeline {
     }
 
     return { atomsStored, embeddingsGenerated };
+  }
+
+  /**
+   * Compare metadata objects for key fields that affect the event
+   */
+  private hasMetadataChanged(
+    existing: Record<string, unknown> | undefined,
+    updated: Record<string, unknown> | undefined
+  ): boolean {
+    // Key metadata fields to compare
+    const keysToCompare = ['location', 'conferenceUri', 'status', 'organizer', 'isAllDay'];
+    
+    for (const key of keysToCompare) {
+      const existingValue = existing?.[key];
+      const updatedValue = updated?.[key];
+      
+      // Handle undefined vs null vs missing
+      if (existingValue !== updatedValue) {
+        // Both falsy but different types (null vs undefined) are considered equal
+        if (!existingValue && !updatedValue) {
+          continue;
+        }
+        return true;
+      }
+    }
+    
+    return false;
+  }
+
+  /**
+   * Delete atoms and their associated embeddings to prevent orphans
+   */
+  private async deleteAtomsWithEmbeddings(
+    integrationId: string,
+    provider: string,
+    externalIds: string[]
+  ): Promise<void> {
+    if (externalIds.length === 0) return;
+
+    // First, get the embedding IDs for atoms being deleted
+    const { data: atomsToDelete } = await this.supabase
+      .from('activity_atoms')
+      .select('embedding_id')
+      .eq('integration_id', integrationId)
+      .eq('provider', provider)
+      .in('external_id', externalIds);
+
+    // Collect unique embedding IDs (filter out nulls)
+    const embeddingIds = [...new Set(
+      (atomsToDelete ?? [])
+        .map((a) => a.embedding_id)
+        .filter((id): id is string => id !== null && id !== undefined)
+    )];
+
+    // Delete the atoms
+    const { error: deleteAtomsError } = await this.supabase
+      .from('activity_atoms')
+      .delete()
+      .eq('integration_id', integrationId)
+      .eq('provider', provider)
+      .in('external_id', externalIds);
+
+    if (deleteAtomsError) {
+      console.error('[sync-pipeline] Error deleting atoms:', deleteAtomsError);
+    } else {
+      console.log(`[sync-pipeline] Deleted ${externalIds.length} atoms`);
+    }
+
+    // Delete orphaned embeddings (only if no other atoms reference them)
+    if (embeddingIds.length > 0) {
+      // Check which embeddings are still referenced by other atoms
+      const { data: stillReferenced } = await this.supabase
+        .from('activity_atoms')
+        .select('embedding_id')
+        .in('embedding_id', embeddingIds);
+
+      const stillReferencedIds = new Set(
+        (stillReferenced ?? []).map((a) => a.embedding_id)
+      );
+
+      // Only delete embeddings that are no longer referenced
+      const orphanedEmbeddingIds = embeddingIds.filter((id) => !stillReferencedIds.has(id));
+
+      if (orphanedEmbeddingIds.length > 0) {
+        const { error: deleteEmbeddingsError } = await this.supabase
+          .from('embeddings')
+          .delete()
+          .in('id', orphanedEmbeddingIds);
+
+        if (deleteEmbeddingsError) {
+          console.error('[sync-pipeline] Error deleting orphaned embeddings:', deleteEmbeddingsError);
+        } else {
+          console.log(`[sync-pipeline] Deleted ${orphanedEmbeddingIds.length} orphaned embeddings`);
+        }
+      }
+    }
   }
 
   /**
