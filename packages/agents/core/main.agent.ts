@@ -150,11 +150,15 @@ ${contextInfo}
 User message: ${input.userMessage}
 `.trim();
 
-    // Use safe agent invoker with recursion limit handling
-    const safeInvoke = createSafeAgentInvoker(agent, {
-      recursionLimit: config?.recursionLimit ?? 100,
-      extractPartialOnLimit: true,
-    });
+    // Raw invoke result has messages; we then map to MainAgentResult
+    type InvokeResult = { messages?: Array<{ content?: string | Array<{ text?: string }> }> };
+    const safeInvoke = createSafeAgentInvoker<InvokeResult>(
+      agent as { invoke: (input: unknown, config?: { recursionLimit?: number }) => Promise<InvokeResult> },
+      {
+        recursionLimit: config?.recursionLimit ?? 100,
+        extractPartialOnLimit: true,
+      }
+    );
 
     const invocationResult = await safeInvoke({
       messages: [

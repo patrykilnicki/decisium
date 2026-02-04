@@ -140,7 +140,7 @@ async function rootResponseAgentNode(
     systemPrompt: ROOT_AGENT_SYSTEM_PROMPT,
     agentType: "root",
     currentDate: state.currentDate,
-  });
+  }) as RootAgentInvokable;
 
   // Build conversation history including the new user message
   const fullConversationHistory = state.conversationHistory
@@ -159,18 +159,9 @@ async function rootResponseAgentNode(
   // Use the context as the prompt (it already includes the conversation history with the new message)
   const prompt = context || `User: ${state.userMessage}`;
 
-  // Type assertion to avoid deep type inference issues with LangChain types
-  const result = await (responseAgent.invoke as (input: unknown, config?: { recursionLimit?: number }) => Promise<{ messages?: Array<{ content?: string | Array<{ text?: string }> }> }>)(
-    {
-      messages: [
-        {
-          role: "user",
-          content: prompt,
-        },
-      ],
-    },
-    { recursionLimit: 15 }
-  );
+  const result = await responseAgent.invoke({
+    messages: [{ role: "user", content: prompt }],
+  });
 
   // Extract response content, handling both string and array types
   const lastMessage = result.messages?.[result.messages.length - 1];
@@ -355,13 +346,20 @@ export function createRootMessageGraph() {
   return workflow.compile();
 }
 
+/** Minimal type for root agent so callers can use .invoke() without casting */
+export interface RootAgentInvokable {
+  invoke(input: { messages: Array<{ role: string; content: string }> }): Promise<{
+    messages: Array<{ content?: string | Array<{ text?: string }> }>;
+  }>;
+}
+
 // Legacy function for backward compatibility
 export function createRootAgent(config?: {
   llmProvider?: "openai" | "anthropic" | "openrouter";
   model?: string;
   temperature?: number;
   currentDate?: string;
-}): unknown {
+}): RootAgentInvokable {
   return createBaseAgent({
     systemPrompt: ROOT_AGENT_SYSTEM_PROMPT,
     agentType: "root",
@@ -369,10 +367,10 @@ export function createRootAgent(config?: {
     temperature: config?.temperature,
     llmProvider: config?.llmProvider,
     model: config?.model,
-  });
+  }) as RootAgentInvokable;
 }
 
-export const rootAgent: unknown = createRootAgent();
+export const rootAgent: RootAgentInvokable = createRootAgent();
 
 // ═══════════════════════════════════════════════════════════════
 // AGENTIC MODE INTEGRATION

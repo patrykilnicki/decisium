@@ -52,7 +52,7 @@ export async function rewriteQuery(
   const rewrittenQuery = typeof response.content === "string"
     ? response.content.trim()
     : Array.isArray(response.content)
-      ? response.content.map((c: { text?: string }) => c.text ?? c).join("").trim()
+      ? response.content.map((c: unknown) => (typeof c === "string" ? c : (c as { text?: string }).text ?? "")).join("").trim()
       : originalQuery;
 
   return rewrittenQuery || originalQuery;

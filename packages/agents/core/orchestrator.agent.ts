@@ -9,7 +9,7 @@ import { getOrchestratorTools } from "../tools/registry";
 import { memorySearchTool, supabaseStoreTool, embeddingGeneratorTool } from "../tools";
 import { buildMemoryContext } from "../lib/context";
 import { handleAgentError } from "../lib/error-handler";
-import { createLLM } from "../lib/llm";
+import { createLLM, type LLMProvider } from "../lib/llm";
 import {
   type OrchestratorState,
   orchestratorChannels,
@@ -78,7 +78,7 @@ async function routerNode(
       const content = typeof response.content === "string"
         ? response.content
         : Array.isArray(response.content)
-          ? response.content.map((c: { text?: string }) => c.text || c).join("")
+          ? response.content.map((c: unknown) => (typeof c === "string" ? c : (c as { text?: string }).text ?? "")).join("")
           : "";
 
       console.log("[routerNode] Direct response (no tools needed)");
@@ -133,12 +133,14 @@ async function toolExecutorNode(
 
       // Route to the appropriate tool
       switch (call.name) {
-        case "memory_search":
-          result = await memorySearchTool.invoke({
-            userId: call.args.userId || state.userId,
-            query: call.args.query || state.userMessage,
+        case "memory_search": {
+          const raw: unknown = await memorySearchTool.invoke({
+            userId: (call.args.userId as string) ?? state.userId,
+            query: (call.args.query as string) ?? state.userMessage,
           });
+          result = typeof raw === "string" ? raw : JSON.stringify(raw);
           break;
+        }
 
         case "supabase_store": {
           const raw = await supabaseStoreTool.invoke(call.args as Parameters<typeof supabaseStoreTool.invoke>[0]);
@@ -272,7 +274,7 @@ async function synthesizeNode(
   state: OrchestratorState
 ): Promise<Partial<OrchestratorState>> {
   const llm = createLLM({
-    provider: (process.env.LLM_PROVIDER as string) || "anthropic",
+    provider: (process.env.LLM_PROVIDER as LLMProvider) || "anthropic",
     temperature: 0.7,
   });
 
@@ -309,7 +311,7 @@ async function synthesizeNode(
     const content = typeof response.content === "string"
       ? response.content
       : Array.isArray(response.content)
-        ? response.content.map((c: { text?: string }) => c.text || c).join("")
+        ? response.content.map((c: unknown) => (typeof c === "string" ? c : (c as { text?: string }).text ?? "")).join("")
         : "";
 
     return {

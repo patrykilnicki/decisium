@@ -6,6 +6,14 @@ import { DailySummaryContent, WeeklySummaryContent, MonthlySummaryContent } from
 import { storeEmbedding } from "@/lib/embeddings/store";
 import { format } from "date-fns";
 
+function lastMessageContentAsString(
+  content: string | Array<{ text?: string }> | undefined
+): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) return content.map((b) => b.text ?? "").join("");
+  return "";
+}
+
 export async function generateDailySummary(userId: string, date: string) {
   const supabase = await createClient();
 
@@ -119,7 +127,9 @@ Generate the summary for the given date and data. Return only the JSON object.
     messages: [{ role: "user", content: prompt }],
   });
 
-  const responseContent = result.messages[result.messages.length - 1]?.content || "";
+  const responseContent = lastMessageContentAsString(
+    result.messages[result.messages.length - 1]?.content
+  );
 
   // Parse JSON from response (might need to extract JSON from markdown)
   let summaryContent: DailySummaryContent;
@@ -376,7 +386,9 @@ Not:
     messages: [{ role: "user", content: prompt }],
   });
 
-  const responseContent = result.messages[result.messages.length - 1]?.content || "";
+  const responseContent = lastMessageContentAsString(
+    result.messages[result.messages.length - 1]?.content
+  );
 
   let summaryContent: WeeklySummaryContent;
   try {
@@ -572,7 +584,9 @@ Not:
     messages: [{ role: "user", content: prompt }],
   });
 
-  const responseContent = result.messages[result.messages.length - 1]?.content || "";
+  const responseContent = lastMessageContentAsString(
+    result.messages[result.messages.length - 1]?.content
+  );
 
   let summaryContent: MonthlySummaryContent;
   try {

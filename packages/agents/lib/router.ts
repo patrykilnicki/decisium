@@ -56,7 +56,7 @@ interface ToolCallResponse {
  */
 export function hasToolCalls(response: unknown): boolean {
   const r = response as ToolCallResponse;
-  return (
+  return Boolean(
     r?.tool_calls &&
     Array.isArray(r.tool_calls) &&
     r.tool_calls.length > 0

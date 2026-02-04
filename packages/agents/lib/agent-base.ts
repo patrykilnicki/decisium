@@ -65,10 +65,18 @@ export function createBaseAgent(config: BaseAgentConfig): unknown {
   });
 }
 
+/** Minimal type so callers can use .invoke() on simple agents (welcome, classifier, response) */
+export interface SimpleAgentInvokable {
+  invoke(
+    input: { messages: Array<{ role: string; content: string }> },
+    config?: { recursionLimit?: number }
+  ): Promise<{ messages: Array<{ content?: string }> }>;
+}
+
 /**
  * Create a simple agent without tools (for system messages, classifiers, etc.)
  *
- * @returns An agent instance (typed as unknown to avoid deep type inference issues with LangChain types)
+ * @returns An agent instance with invoke() for use in daily graph nodes
  */
 export function createSimpleAgent(config: {
   systemPrompt: string;
@@ -76,12 +84,12 @@ export function createSimpleAgent(config: {
   llmProvider?: "openai" | "anthropic" | "openrouter";
   model?: string;
   currentDate?: string;
-}): unknown {
+}): SimpleAgentInvokable {
   return createBaseAgent({
     ...config,
     agentType: "system",
     tools: [], // No tools for simple agents (explicitly set to override agentType defaults)
-  });
+  }) as SimpleAgentInvokable;
 }
 
 /**
