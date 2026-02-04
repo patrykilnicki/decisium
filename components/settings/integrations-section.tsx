@@ -107,12 +107,53 @@ export function IntegrationsSection() {
     if (connected) {
       setNotification({
         type: "success",
-        message: `Successfully connected to ${connected.replace("_", " ")}!`,
+        message: `Successfully connected to ${connected.replace("_", " ")}! Syncing events...`,
       });
-      // Refresh integrations list
+      // Refresh integrations list immediately
       fetchIntegrations();
+      
+      // Poll for sync completion (check every 2 seconds for up to 30 seconds)
+      let pollCount = 0;
+      const maxPolls = 15; // 30 seconds total
+      const pollInterval = setInterval(async () => {
+        pollCount++;
+        
+        // Fetch fresh data
+        try {
+          const response = await fetch("/api/integrations");
+          if (response.ok) {
+            const data = await response.json();
+            const integration = data.integrations.find((i: Integration) => i.provider === connected);
+            
+            // Check if sync completed
+            if (integration?.last_sync_at || pollCount >= maxPolls) {
+              clearInterval(pollInterval);
+              if (integration?.last_sync_at) {
+                setNotification({
+                  type: "success",
+                  message: `Successfully synced events from ${connected.replace("_", " ")}!`,
+                });
+                // Refresh one more time to update UI
+                fetchIntegrations();
+              } else if (pollCount >= maxPolls) {
+                // Timeout - sync might still be running
+                setNotification({
+                  type: "success",
+                  message: `Connected to ${connected.replace("_", " ")}! Sync in progress...`,
+                });
+              }
+            }
+          }
+        } catch (err) {
+          console.error("Error polling sync status:", err);
+        }
+      }, 2000);
+      
       // Clear URL params
       router.replace("/settings");
+      
+      // Cleanup interval on unmount
+      return () => clearInterval(pollInterval);
     } else if (error) {
       setNotification({
         type: "error",

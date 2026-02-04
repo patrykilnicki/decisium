@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { createClient as createServiceClient } from '@supabase/supabase-js';
 import {
   createOAuthManager,
   createCalendarWatchService,
@@ -79,7 +80,11 @@ export async function GET(
 
     // Run initial sync for ALL providers immediately after connection (fire-and-forget)
     // This ensures events are synced instantly without requiring "Sync Now" button click
+    console.log(`[OAuth] Triggering initial sync for ${provider} (integration: ${integration.id})`);
+    
     const syncPipeline = createSyncPipeline(supabase, oauthManager);
+    
+    // Start sync immediately (fire-and-forget) - don't await to avoid blocking redirect
     syncPipeline
       .sync(integration.id, {
         fullSync: true,
@@ -90,10 +95,52 @@ export async function GET(
         console.log(
           `[OAuth] Initial sync completed for ${provider}: ${progress.atomsStored} atoms stored, status: ${progress.status}`
         );
+        
+        // Update integration's last_sync_at so UI shows it synced
+        // Use service role client to ensure we can update (bypasses RLS)
+        const serviceSupabase = createServiceClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+        
+        serviceSupabase
+          .from('integrations')
+          .update({
+            last_sync_at: new Date().toISOString(),
+            last_sync_status: progress.status === 'completed' ? 'success' : progress.status,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', integration.id)
+          .then(({ error }) => {
+            if (error) {
+              console.error(`[OAuth] Failed to update sync status:`, error);
+            } else {
+              console.log(`[OAuth] Updated sync status for ${provider}`);
+            }
+          });
       })
       .catch((err) => {
         console.error(`[OAuth] Initial sync failed for ${provider}:`, err);
-        // Don't throw - sync failure shouldn't block OAuth completion
+        
+        // Update integration with error status using service role (bypasses RLS)
+        const serviceSupabase = createServiceClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+        
+        serviceSupabase
+          .from('integrations')
+          .update({
+            last_sync_status: 'error',
+            last_sync_error: err instanceof Error ? err.message : 'Sync failed',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', integration.id)
+          .then(({ error }) => {
+            if (error) {
+              console.error(`[OAuth] Failed to update error status:`, error);
+            }
+          });
       });
 
     // Redirect to settings with success
