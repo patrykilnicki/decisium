@@ -17,7 +17,7 @@ function isCronAuthorized(request: NextRequest): boolean {
   const vercelCronHeader = request.headers.get('x-vercel-cron');
   const cronSecret = process.env.CRON_SECRET;
   const isVercelCron = vercelCronHeader === '1';
-  const isValidAuth = cronSecret && authHeader === `Bearer ${cronSecret}`;
+  const isValidAuth = Boolean(cronSecret && authHeader === `Bearer ${cronSecret}`);
   return isVercelCron || isValidAuth;
 }
 
