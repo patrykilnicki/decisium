@@ -71,10 +71,16 @@ So: **use periodic full/incremental sync** (e.g. every 6 hours) as a backup, not
 
 | Requirement | Implementation |
 |-------------|----------------|
-| Respond quickly | Webhook returns 200 immediately (within ~1s), then processes sync asynchronously (fire-and-forget). |
-| Instant sync | Webhook starts sync immediately in background; if it succeeds, removes from queue. Follows industry standard (like Notion, Calendly). |
-| Fallback processing | Cron `/api/cron/process-pending-calendar-syncs` every 1 min processes any failed/timeout syncs from queue. |
+| Respond quickly | Webhook returns 200 immediately after enqueuing to `pending_calendar_syncs`. |
+| Async processing | Cron `/api/cron/process-pending-calendar-syncs` every 1 min processes the queue (Vercel invokes with GET; set `CRON_SECRET` so it runs). |
 | Incremental sync | We store `sync_token` in `calendar_watches`; sync pipeline uses it for incremental list and stores `nextSyncToken`. |
 | Backup sync | Cron `/api/cron/integration-sync` every 6 hours syncs all active integrations. |
 | Channel renewal | Cron `/api/cron/renew-calendar-watches` daily recreates expiring watches. |
 | 410 handling | Sync pipeline treats 410 from Calendar API as invalid token and retries with full sync (see code). |
+
+### Vercel Cron: make it run automatically
+
+- **Vercel invokes cron with GET** (not POST). The route handles GET when the request is authorized.
+- **Set `CRON_SECRET`** in the Vercel project (Settings → Environment Variables): a random string (e.g. 16+ chars). Vercel sends `Authorization: Bearer <CRON_SECRET>` when invoking the cron; the route uses this to authorize.
+- **Production only**: Cron runs on the **production** deployment. Preview deployments do not run cron.
+- **Plan**: The `*/1 * * * *` (every 1 min) schedule requires a plan that allows sub-daily cron (Hobby allows only once per day). Use Pro/Team for every-minute cron, or change the schedule in `vercel.json` if on Hobby.

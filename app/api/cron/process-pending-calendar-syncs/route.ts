@@ -8,42 +8,30 @@ const supabase = createClient(
 );
 
 /**
- * POST /api/cron/process-pending-calendar-syncs
- * Processes pending calendar syncs enqueued by the webhook (runs every 1 min).
- * 
- * This is a fallback for:
- * - Instant syncs that failed or timed out
- * - Missed webhooks (Google's reliability note: "not 100% reliable")
- * 
- * Primary sync happens instantly in webhook; this ensures nothing is missed.
+ * Vercel invokes cron jobs with GET requests (see vercel.com/docs/cron-jobs).
+ * When CRON_SECRET is set, Vercel sends Authorization: Bearer <CRON_SECRET>.
+ * We run the same processing for both GET (Vercel automatic) and POST (manual).
  */
-export async function POST(request: NextRequest) {
-  // Verify cron secret - support both Vercel Cron (automatic) and manual calls
+function isCronAuthorized(request: NextRequest): boolean {
   const authHeader = request.headers.get('authorization');
   const vercelCronHeader = request.headers.get('x-vercel-cron');
   const cronSecret = process.env.CRON_SECRET;
-  
-  // Allow if it's a Vercel Cron job OR if Authorization header matches
   const isVercelCron = vercelCronHeader === '1';
   const isValidAuth = cronSecret && authHeader === `Bearer ${cronSecret}`;
-  
-  if (!isVercelCron && !isValidAuth) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  return isVercelCron || isValidAuth;
+}
 
-  console.log(`[process-pending-calendar-syncs] Starting cron run (triggered by: ${isVercelCron ? 'Vercel Cron' : 'manual'})`);
-
+async function processPendingSyncs(triggeredBy: string) {
   const { data: pending, error: fetchError } = await supabase
     .from('pending_calendar_syncs')
     .select('integration_id, sync_token, created_at');
 
   if (fetchError) {
     console.error('[process-pending-calendar-syncs] Error fetching pending syncs:', fetchError);
-    return NextResponse.json({
-      success: false,
-      processed: 0,
-      error: fetchError.message,
-    });
+    return NextResponse.json(
+      { success: false, processed: 0, error: fetchError.message },
+      { status: 500 }
+    );
   }
 
   if (!pending || pending.length === 0) {
@@ -65,7 +53,7 @@ export async function POST(request: NextRequest) {
   for (const row of pending) {
     try {
       console.log(`[process-pending-calendar-syncs] Processing sync for integration ${row.integration_id} (syncToken: ${row.sync_token ? 'present' : 'none'})`);
-      
+
       const progress = await syncPipeline.sync(row.integration_id, {
         syncToken: row.sync_token ?? undefined,
         fullSync: !row.sync_token,
@@ -83,14 +71,13 @@ export async function POST(request: NextRequest) {
         .from('pending_calendar_syncs')
         .delete()
         .eq('integration_id', row.integration_id);
-      
+
       processed++;
       console.log(`[process-pending-calendar-syncs] Successfully processed and deleted pending sync for ${row.integration_id}`);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       console.error(`[process-pending-calendar-syncs] Failed for ${row.integration_id}:`, errorMessage, err);
       errors.push({ integrationId: row.integration_id, error: errorMessage });
-      // Leave row in place so next run retries
     }
   }
 
@@ -102,8 +89,17 @@ export async function POST(request: NextRequest) {
   });
 }
 
-export async function GET() {
-  // Diagnostic endpoint: show pending syncs and allow manual trigger
+/**
+ * GET - Vercel invokes cron with GET. Run processing when request is authorized.
+ * Unauthorized GET returns diagnostic info (pending count) for debugging.
+ */
+export async function GET(request: NextRequest) {
+  if (isCronAuthorized(request)) {
+    console.log('[process-pending-calendar-syncs] Starting cron run (triggered by: Vercel Cron GET)');
+    return processPendingSyncs('Vercel Cron GET');
+  }
+
+  // Diagnostic: show pending syncs when called without auth (e.g. browser)
   const { data: pending, error } = await supabase
     .from('pending_calendar_syncs')
     .select('integration_id, sync_token, created_at')
@@ -112,9 +108,21 @@ export async function GET() {
   return NextResponse.json({
     status: 'ok',
     endpoint: '/api/cron/process-pending-calendar-syncs',
-    description: 'Processes pending calendar syncs enqueued by webhook (every 2 min)',
+    description: 'Processes pending calendar syncs (runs every 1 min via Vercel Cron). Use POST with Authorization: Bearer CRON_SECRET to run manually.',
     pendingCount: pending?.length ?? 0,
     pending: pending ?? [],
     error: error?.message,
   });
+}
+
+/**
+ * POST - Manual trigger with Authorization: Bearer CRON_SECRET
+ */
+export async function POST(request: NextRequest) {
+  if (!isCronAuthorized(request)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  console.log('[process-pending-calendar-syncs] Starting cron run (triggered by: manual POST)');
+  return processPendingSyncs('manual POST');
 }
