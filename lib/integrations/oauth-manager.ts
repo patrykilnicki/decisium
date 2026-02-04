@@ -471,8 +471,19 @@ export class OAuthManager {
       throw new Error('Integration not found');
     }
 
-    if (integration.status !== 'active') {
-      throw new Error(`Integration is not active: ${integration.status}`);
+    // Allow 'active' and 'error' statuses (error integrations can be retried)
+    // Block 'revoked' and 'pending' statuses
+    if (integration.status === 'revoked') {
+      throw new Error(`Integration is revoked and cannot be used`);
+    }
+    
+    if (integration.status === 'pending') {
+      throw new Error(`Integration is pending and not yet ready`);
+    }
+
+    // If status is 'error', log a warning but allow token access (for retry)
+    if (integration.status === 'error') {
+      console.warn(`[oauth-manager] Getting access token for integration ${integrationId} with 'error' status - attempting recovery`);
     }
 
     const tokens = await this.getTokens(integrationId);

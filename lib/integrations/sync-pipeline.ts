@@ -124,13 +124,14 @@ export class SyncPipeline {
       console.log(`[sync-pipeline] Starting sync for integration ${integrationId} (fullSync: ${options.fullSync}, syncToken: ${options.syncToken ? 'present' : 'none'})`);
 
       // Get integration with timeout protection
+      // Allow up to 20s to account for retry logic in getIntegration (8s per attempt + retries)
       const integration = await Promise.race([
         this.oauthManager.getIntegration(integrationId),
         new Promise<null>((resolve) =>
           setTimeout(() => {
-            console.error(`[sync-pipeline] Timeout fetching integration ${integrationId} (5s)`);
+            console.error(`[sync-pipeline] Timeout fetching integration ${integrationId} (20s)`);
             resolve(null);
-          }, 5000)
+          }, 20000)
         ),
       ]);
 

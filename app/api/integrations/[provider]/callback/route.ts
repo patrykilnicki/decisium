@@ -62,34 +62,39 @@ export async function GET(
       redirectUri,
     });
 
-    // Google Calendar: setup watch (HTTPS only) + initial sync (fire-and-forget)
+    // Google Calendar: setup watch (HTTPS only)
     if (provider === 'google_calendar') {
       const webhookUrl = getGoogleCalendarWebhookUrl(baseUrl);
       const isHttps = webhookUrl.startsWith('https://');
 
-      const runInitialSync = async () => {
-        const syncPipeline = createSyncPipeline(supabase, oauthManager);
-        await syncPipeline.sync(integration.id, {
-          fullSync: true,
-          generateEmbeddings: true,
-          calendarId: 'primary',
-        });
-      };
-
       if (isHttps) {
+        // Setup watch in background (fire-and-forget)
         createCalendarWatchService(supabase)
           .setupWatch(integration.id, webhookUrl)
-          .then(runInitialSync)
           .catch((err) => {
             console.error('[OAuth] Google Calendar watch setup failed:', err);
           });
-      } else {
-        // Local dev: skip watch (Google requires HTTPS), run sync only
-        runInitialSync().catch((err) => {
-          console.error('[OAuth] Google Calendar initial sync failed:', err);
-        });
       }
     }
+
+    // Run initial sync for ALL providers immediately after connection (fire-and-forget)
+    // This ensures events are synced instantly without requiring "Sync Now" button click
+    const syncPipeline = createSyncPipeline(supabase, oauthManager);
+    syncPipeline
+      .sync(integration.id, {
+        fullSync: true,
+        generateEmbeddings: true,
+        calendarId: provider === 'google_calendar' ? 'primary' : undefined,
+      })
+      .then((progress) => {
+        console.log(
+          `[OAuth] Initial sync completed for ${provider}: ${progress.atomsStored} atoms stored, status: ${progress.status}`
+        );
+      })
+      .catch((err) => {
+        console.error(`[OAuth] Initial sync failed for ${provider}:`, err);
+        // Don't throw - sync failure shouldn't block OAuth completion
+      });
 
     // Redirect to settings with success
     const successUrl = new URL('/settings', baseUrl);
