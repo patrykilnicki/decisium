@@ -227,23 +227,82 @@ export class SyncPipeline {
   }
 
   /**
-   * Store activity atoms in the database
+   * Store activity atoms in the database.
+   * Only generates embeddings for new atoms or atoms where content changed.
+   * Reuses existing embedding_id for unchanged atoms to avoid duplicates.
    */
   private async storeAtoms(
     integration: Integration,
     atoms: ActivityAtom[],
     generateEmbed: boolean
   ): Promise<{ atomsStored: number; embeddingsGenerated: number }> {
+    if (atoms.length === 0) {
+      return { atomsStored: 0, embeddingsGenerated: 0 };
+    }
+
     let atomsStored = 0;
     let embeddingsGenerated = 0;
 
-    // Generate embeddings in batches
+    // Fetch existing atoms to detect changes
+    const externalIds = atoms.map((a) => a.externalId);
+    const { data: existingAtoms } = await this.supabase
+      .from('activity_atoms')
+      .select('external_id, content, title, occurred_at, duration_minutes, participants, embedding_id')
+      .eq('user_id', integration.userId)
+      .eq('provider', integration.provider)
+      .in('external_id', externalIds);
+
+    const existingMap = new Map(
+      (existingAtoms ?? []).map((a) => [
+        a.external_id,
+        {
+          content: a.content,
+          title: a.title ?? undefined,
+          occurredAt: a.occurred_at,
+          durationMinutes: a.duration_minutes ?? undefined,
+          participants: a.participants ?? undefined,
+          embeddingId: a.embedding_id ?? undefined,
+        },
+      ])
+    );
+
+    // Determine which atoms need new embeddings (new or changed)
+    const atomsNeedingEmbeddings: ActivityAtom[] = [];
     const embeddingMap = new Map<string, string>(); // externalId -> embeddingId
 
-    if (generateEmbed && atoms.length > 0) {
+    for (const atom of atoms) {
+      const existing = existingMap.get(atom.externalId);
+      if (existing) {
+        // Atom exists - check if content changed
+        const contentChanged = existing.content !== atom.content;
+        const titleChanged = existing.title !== (atom.title ?? undefined);
+        const occurredAtChanged = new Date(existing.occurredAt).getTime() !== atom.occurredAt.getTime();
+        const durationChanged = existing.durationMinutes !== (atom.durationMinutes ?? undefined);
+        const existingParticipants = existing.participants ?? [];
+        const newParticipants = atom.participants ?? [];
+        const participantsChanged =
+          JSON.stringify([...existingParticipants].sort()) !== JSON.stringify([...newParticipants].sort());
+
+        if (contentChanged || titleChanged || occurredAtChanged || durationChanged || participantsChanged) {
+          // Content changed - need new embedding
+          atomsNeedingEmbeddings.push(atom);
+        } else {
+          // Unchanged - reuse existing embedding_id
+          if (existing.embeddingId) {
+            embeddingMap.set(atom.externalId, existing.embeddingId);
+          }
+        }
+      } else {
+        // New atom - need embedding
+        atomsNeedingEmbeddings.push(atom);
+      }
+    }
+
+    // Generate embeddings only for new/changed atoms
+    if (generateEmbed && atomsNeedingEmbeddings.length > 0) {
       const BATCH_SIZE = 20;
-      for (let i = 0; i < atoms.length; i += BATCH_SIZE) {
-        const batch = atoms.slice(i, i + BATCH_SIZE);
+      for (let i = 0; i < atomsNeedingEmbeddings.length; i += BATCH_SIZE) {
+        const batch = atomsNeedingEmbeddings.slice(i, i + BATCH_SIZE);
         const contents = batch.map((atom) => atom.content);
 
         try {
@@ -283,7 +342,7 @@ export class SyncPipeline {
       }
     }
 
-    // Store atoms
+    // Store atoms (upsert - updates existing or inserts new)
     for (const atom of atoms) {
       const embeddingId = embeddingMap.get(atom.externalId);
 
