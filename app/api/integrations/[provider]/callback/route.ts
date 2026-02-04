@@ -55,9 +55,12 @@ export async function GET(
       return NextResponse.redirect(errorUrl);
     }
 
-    // Complete OAuth flow
+    // Complete OAuth flow (pass same redirectUri as auth request to avoid redirect_uri_mismatch)
+    const redirectUri = `${baseUrl}/api/integrations/${provider}/callback`;
     const oauthManager = createOAuthManager(supabase);
-    const integration = await oauthManager.completeOAuthFlow(code, state);
+    const integration = await oauthManager.completeOAuthFlow(code, state, {
+      redirectUri,
+    });
 
     // Google Calendar: setup watch (HTTPS only) + initial sync (fire-and-forget)
     if (provider === 'google_calendar') {

@@ -211,11 +211,13 @@ export class OAuthManager {
   }
 
   /**
-   * Complete OAuth flow - exchange code for tokens and activate integration
+   * Complete OAuth flow - exchange code for tokens and activate integration.
+   * redirectUri must match the URI used when starting the flow (e.g. from getAppUrl(request)).
    */
   async completeOAuthFlow(
     code: string,
-    state: string
+    state: string,
+    options?: { redirectUri?: string }
   ): Promise<Integration> {
     // Decode state
     const stateData = this.decodeState(state);
@@ -235,8 +237,10 @@ export class OAuthManager {
       throw new Error(`Integration is not in pending state: ${integration.status}`);
     }
 
-    // Get adapter
-    const config = getAdapterConfig(provider);
+    // Get adapter with same redirectUri as auth request (required by Google OAuth)
+    const config = getAdapterConfig(provider, {
+      redirectUri: options?.redirectUri,
+    });
     const adapter = createAdapter(provider, config);
 
     // Exchange code for tokens
