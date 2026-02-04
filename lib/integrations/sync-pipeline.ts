@@ -181,6 +181,17 @@ export class SyncPipeline {
 
       return progress;
     } catch (error) {
+      // Google Calendar API 410 Gone = sync token invalid; retry with full sync (official sync guide)
+      const status = (error as { response?: { status?: number }; code?: number })?.response?.status ?? (error as { code?: number })?.code;
+      const integration = progress.provider ? await this.oauthManager.getIntegration(integrationId).then((i) => i ?? undefined) : undefined;
+      if (status === 410 && integration?.provider === 'google_calendar') {
+        await this.supabase
+          .from('calendar_watches')
+          .update({ sync_token: null, updated_at: new Date().toISOString() })
+          .eq('integration_id', integrationId);
+        return this.sync(integrationId, { ...options, fullSync: true, syncToken: undefined });
+      }
+
       progress.status = 'error';
       progress.error = error instanceof Error ? error.message : 'Unknown error';
       progress.completedAt = new Date();
