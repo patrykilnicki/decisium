@@ -3,8 +3,6 @@
  * Based on LangGraph best practices for handling recursion limits
  */
 
-import type { AgentError } from "./error-handler";
-
 export interface AgentInvocationConfig {
   /**
    * Maximum recursion limit for the agent invocation
@@ -50,32 +48,40 @@ function isRecursionLimitError(error: unknown): boolean {
   );
 }
 
+interface PartialInvocationState {
+  state?: { messages?: unknown[]; agentResponse?: string };
+  result?: unknown;
+  lastState?: unknown;
+  checkpoint?: unknown;
+}
+
 /**
  * Extract partial results from agent state when recursion limit is hit
  * This attempts to get the last meaningful message from the agent
  */
-function extractPartialResult(result: any): string | null {
+function extractPartialResult(result: unknown): string | null {
   try {
     // Try to get messages from the result
-    const messages = result?.messages || result?.state?.messages || [];
-    
+    const r = result as { messages?: Array<{ content?: string | Array<{ text?: string; type?: string }> }>; state?: { messages?: Array<{ content?: string | Array<{ text?: string; type?: string }> }> } };
+    const messages = r?.messages || r?.state?.messages || [];
+
     if (Array.isArray(messages) && messages.length > 0) {
       // Find the last assistant message
       for (let i = messages.length - 1; i >= 0; i--) {
         const msg = messages[i];
         const content = msg?.content;
-        
+
         if (content) {
           if (typeof content === "string" && content.trim().length > 0) {
             return content;
           }
-          
+
           if (Array.isArray(content)) {
             const textContent = content
-              .map((block: any) => {
+              .map((block: { text?: string; type?: string } | string) => {
                 if (typeof block === "string") return block;
                 if (block?.text) return block.text;
-                if (block?.type === "text") return block.text;
+                if (block?.type === "text") return (block as { text?: string }).text;
                 return "";
               })
               .join("")
@@ -90,8 +96,9 @@ function extractPartialResult(result: any): string | null {
     }
     
     // Fallback: try to extract from state
-    if (result?.state?.agentResponse) {
-      return String(result.state.agentResponse);
+    const state = (result as { state?: { agentResponse?: string } })?.state;
+    if (state?.agentResponse) {
+      return String(state.agentResponse);
     }
     
     return null;
@@ -113,7 +120,7 @@ function extractPartialResult(result: any): string | null {
  * @param config - Configuration for the invocation
  * @returns Result with data and optional partial/warning flags
  */
-export async function safeAgentInvoke<T extends { messages?: any[]; agentResponse?: string }>(
+export async function safeAgentInvoke<T extends { messages?: unknown[]; agentResponse?: string }>(
   agentInvocation: () => Promise<T>,
   config: AgentInvocationConfig = {}
 ): Promise<AgentInvocationResult<T>> {
@@ -150,12 +157,9 @@ export async function safeAgentInvoke<T extends { messages?: any[]; agentRespons
 
         // Try to extract partial results from the error or last state
         // Note: LangGraph errors may contain state information in some cases
-        const errorAny = invocationError as any;
+        const err = invocationError as PartialInvocationState;
         const partialResult = extractPartialResult(
-          errorAny.state || 
-          errorAny.result || 
-          errorAny.lastState ||
-          errorAny.checkpoint
+          err.state ?? err.result ?? err.lastState ?? err.checkpoint
         );
 
         if (partialResult && partialResult.length > 0) {
@@ -203,7 +207,7 @@ export async function safeAgentInvoke<T extends { messages?: any[]; agentRespons
       
       const enhancedError = new Error(message);
       enhancedError.name = "AgentRecursionLimitError";
-      (enhancedError as any).originalError = error;
+      (enhancedError as Error & { originalError?: unknown }).originalError = error;
       throw enhancedError;
     }
 
@@ -215,12 +219,12 @@ export async function safeAgentInvoke<T extends { messages?: any[]; agentRespons
 /**
  * Create a wrapper for agent.invoke with safe recursion limit handling
  */
-export function createSafeAgentInvoker<T extends { messages?: any[]; agentResponse?: string }>(
-  agent: { invoke: (input: any, config?: any) => Promise<T> },
+export function createSafeAgentInvoker<T extends { messages?: unknown[]; agentResponse?: string }>(
+  agent: { invoke: (input: unknown, config?: { recursionLimit?: number }) => Promise<T> },
   defaultConfig?: AgentInvocationConfig
 ) {
   return async (
-    input: any,
+    input: unknown,
     config?: AgentInvocationConfig
   ): Promise<AgentInvocationResult<T>> => {
     const mergedConfig = { ...defaultConfig, ...config };

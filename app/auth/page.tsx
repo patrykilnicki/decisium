@@ -1,23 +1,20 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/client";
 
 export default function AuthPage() {
   const [googleLoading, setGoogleLoading] = useState(false);
-  const [authError, setAuthError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("error") === "auth") {
-      setAuthError("Authentication failed. Please try again.");
-    }
-  }, []);
+  const searchParams = useSearchParams();
+  const authError =
+    searchParams.get("error") === "auth"
+      ? "Authentication failed. Please try again."
+      : null;
 
   async function handleGoogleSignIn() {
     setGoogleLoading(true);
-    setAuthError(null);
     const supabase = createClient();
     await supabase.auth.signInWithOAuth({
       provider: "google",

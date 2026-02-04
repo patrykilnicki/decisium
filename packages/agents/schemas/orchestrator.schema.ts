@@ -86,7 +86,7 @@ export interface OrchestratorState {
   // Tool execution state
   toolCalls?: Array<{
     name: string;
-    args: Record<string, any>;
+    args: Record<string, unknown>;
     id: string;
   }>;
   toolResults?: ToolCallResult[];
@@ -230,8 +230,8 @@ export const orchestratorChannels = {
   rewrittenQuery: { reducer: (x: string | undefined, y: string | undefined) => y ?? x },
   rewriteCount: { reducer: (x: number, y: number) => y ?? x ?? 0 },
   maxRewrites: { reducer: (x: number, y: number) => y ?? x ?? 2 },
-  toolCalls: { 
-    reducer: (x: any[] | undefined, y: any[] | undefined) => y ?? x 
+  toolCalls: {
+    reducer: (x: OrchestratorState["toolCalls"], y: OrchestratorState["toolCalls"]) => y ?? x
   },
   toolResults: { 
     reducer: (x: ToolCallResult[] | undefined, y: ToolCallResult[] | undefined) => {

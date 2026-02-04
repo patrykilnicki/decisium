@@ -1,7 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import { useMemo } from "react";
+import { useId } from "react";
 
 interface AnimatedSystemAvatarProps {
   size?: "sm" | "default" | "lg";
@@ -23,9 +23,7 @@ export function AnimatedSystemAvatar({
   const radius = 18;
   const circumference = 2 * Math.PI * radius;
   const strokeWidth = 2.5;
-  
-  // Use useMemo to ensure stable gradient ID
-  const uniqueId = useMemo(() => `gradient-${Math.random().toString(36).substr(2, 9)}`, []);
+  const uniqueId = useId();
 
   return (
     <div

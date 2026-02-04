@@ -1,6 +1,5 @@
 import { StateGraph, END, START } from "@langchain/langgraph";
-import { ToolNode } from "@langchain/langgraph/prebuilt";
-import { HumanMessage, AIMessage, ToolMessage, SystemMessage } from "@langchain/core/messages";
+import { HumanMessage, ToolMessage, SystemMessage } from "@langchain/core/messages";
 import type { BaseMessage } from "@langchain/core/messages";
 
 import { createRouterAgent, hasToolCalls, extractToolCalls } from "../lib/router";
@@ -8,13 +7,11 @@ import { gradeDocumentsNode, routeAfterGrading } from "../nodes/grade-documents.
 import { rewriteQueryNode } from "../nodes/rewrite-query.node";
 import { getOrchestratorTools } from "../tools/registry";
 import { memorySearchTool, supabaseStoreTool, embeddingGeneratorTool } from "../tools";
-import { buildMemoryContext, buildAgentContext } from "../lib/context";
+import { buildMemoryContext } from "../lib/context";
 import { handleAgentError } from "../lib/error-handler";
-import { getCurrentDate } from "../lib/date-utils";
 import { createLLM } from "../lib/llm";
 import {
   type OrchestratorState,
-  type RouteDecision,
   orchestratorChannels,
   createInitialOrchestratorState,
 } from "../schemas/orchestrator.schema";
@@ -81,7 +78,7 @@ async function routerNode(
       const content = typeof response.content === "string"
         ? response.content
         : Array.isArray(response.content)
-          ? response.content.map((c: any) => c.text || c).join("")
+          ? response.content.map((c: { text?: string }) => c.text || c).join("")
           : "";
 
       console.log("[routerNode] Direct response (no tools needed)");
@@ -275,7 +272,7 @@ async function synthesizeNode(
   state: OrchestratorState
 ): Promise<Partial<OrchestratorState>> {
   const llm = createLLM({
-    provider: (process.env.LLM_PROVIDER as any) || "anthropic",
+    provider: (process.env.LLM_PROVIDER as string) || "anthropic",
     temperature: 0.7,
   });
 
@@ -312,7 +309,7 @@ async function synthesizeNode(
     const content = typeof response.content === "string"
       ? response.content
       : Array.isArray(response.content)
-        ? response.content.map((c: any) => c.text || c).join("")
+        ? response.content.map((c: { text?: string }) => c.text || c).join("")
         : "";
 
     return {
@@ -510,6 +507,7 @@ function routeOrchestrator(state: OrchestratorState): string {
  */
 export function createOrchestratorGraph() {
   const workflow = new StateGraph<OrchestratorState>({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- LangGraph channels type
     channels: orchestratorChannels as any,
   })
     // Add nodes

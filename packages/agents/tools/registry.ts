@@ -394,7 +394,7 @@ export function getOrchestratorTools(
  */
 export function createToolWithContext<T extends DynamicStructuredTool>(
   tool: T,
-  userId: string
+  _userId: string
 ): T {
   // Note: This is a conceptual wrapper
   // In practice, tools should accept userId as a parameter

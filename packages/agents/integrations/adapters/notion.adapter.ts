@@ -71,7 +71,7 @@ export class NotionAdapter extends BaseAdapter {
     };
   }
 
-  async refreshAccessToken(_refreshToken: string): Promise<OAuthTokens> {
+  async refreshAccessToken(_: string): Promise<OAuthTokens> {
     // Notion tokens are long-lived and don't require refresh
     throw new Error('Notion tokens do not require refresh');
   }

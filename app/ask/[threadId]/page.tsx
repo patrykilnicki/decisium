@@ -49,14 +49,8 @@ export default function ThreadPage() {
     messagesEndpoint: `/api/ask/threads/${threadId}/messages`,
   });
 
-  // Load initial messages
-  useEffect(() => {
-    if (threadId) {
-      loadMessages();
-    }
-  }, [threadId]);
-
-  async function loadMessages() {
+  const loadMessages = useCallback(async () => {
+    if (!threadId) return;
     try {
       setInitialLoading(true);
       const response = await fetch(`/api/ask/threads/${threadId}/messages`);
@@ -75,7 +69,14 @@ export default function ThreadPage() {
     } finally {
       setInitialLoading(false);
     }
-  }
+  }, [threadId, setMessages]);
+
+  // Load initial messages
+  useEffect(() => {
+    if (threadId) {
+      loadMessages();
+    }
+  }, [threadId, loadMessages]);
 
   const handleSend = useCallback(
     async (content: string) => {

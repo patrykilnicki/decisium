@@ -1,4 +1,3 @@
-import type { MemoryRetrievalResult } from "../schemas/memory.schema";
 import { getDateContext } from "./date-utils";
 
 export interface Message {
@@ -46,7 +45,7 @@ export function buildConversationHistory(
  */
 export function buildMemoryContext(
   memoryResults: Array<{
-    results?: Array<{ content?: string; text?: string; metadata?: any }>;
+    results?: Array<{ content?: string; text?: string; metadata?: unknown }>;
     total_found?: number;
   }>
 ): string {
@@ -212,9 +211,10 @@ export function buildIntegratedContext(options: {
   // Memory fragments
   if (options.memoryFragments && options.memoryFragments.length > 0) {
     const memoryContent = options.memoryFragments
-      .map((f, i) => {
-        const date = f.metadata?.date || "";
-        const type = f.metadata?.type || "memory";
+      .map((f) => {
+        const meta = f.metadata as { date?: string; type?: string } | undefined;
+        const date = meta?.date ?? "";
+        const type = meta?.type ?? "memory";
         return `[${type}${date ? ` - ${date}` : ""}]\n${f.content}`;
       })
       .join("\n\n");

@@ -9,11 +9,9 @@ export async function POST(request: NextRequest) {
 
     const event = await createDailyEvent(validated);
     return NextResponse.json(event, { status: 201 });
-  } catch (error: any) {
-    return NextResponse.json(
-      { error: error.message || "Failed to create daily event" },
-      { status: 400 }
-    );
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Failed to create daily event";
+    return NextResponse.json({ error: message }, { status: 400 });
   }
 }
 
@@ -31,10 +29,8 @@ export async function GET(request: NextRequest) {
 
     const events = await getDailyEvents(date);
     return NextResponse.json(events);
-  } catch (error: any) {
-    return NextResponse.json(
-      { error: error.message || "Failed to fetch daily events" },
-      { status: 400 }
-    );
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Failed to fetch daily events";
+    return NextResponse.json({ error: message }, { status: 400 });
   }
 }

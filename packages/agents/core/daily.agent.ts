@@ -61,7 +61,7 @@ function createDailyWelcomeAgent(config?: {
   model?: string;
   temperature?: number;
   currentDate?: string;
-}): any {
+}): ReturnType<typeof createSimpleAgent> {
   return createSimpleAgent({
     systemPrompt: DAILY_WELCOME_SYSTEM_PROMPT,
     temperature: config?.temperature ?? 0.7,
@@ -75,7 +75,7 @@ function createClassifierAgent(config?: {
   llmProvider?: "openai" | "anthropic" | "openrouter";
   model?: string;
   temperature?: number;
-}): any {
+}): ReturnType<typeof createSimpleAgent> {
   return createSimpleAgent({
     systemPrompt: DAILY_CLASSIFIER_SYSTEM_PROMPT,
     temperature: config?.temperature ?? 0.1,
@@ -89,7 +89,7 @@ function createDailyResponseAgent(config?: {
   model?: string;
   temperature?: number;
   currentDate?: string;
-}): any {
+}): ReturnType<typeof createSimpleAgent> {
   return createSimpleAgent({
     systemPrompt: DAILY_RESPONSE_SYSTEM_PROMPT,
     temperature: config?.temperature ?? 0.5,
@@ -378,7 +378,7 @@ async function saveEventsNode(
 }
 
 function noteAcknowledgmentNode(
-  state: DailyGraphState
+  _state: DailyGraphState
 ): Partial<DailyGraphState> {
   return {
     agentResponse: "Got it! If you have any notes or ideas, share them here.",
@@ -386,7 +386,7 @@ function noteAcknowledgmentNode(
 }
 
 function suggestAskAiNode(
-  state: DailyGraphState
+  _state: DailyGraphState
 ): Partial<DailyGraphState> {
   return {
     agentResponse:

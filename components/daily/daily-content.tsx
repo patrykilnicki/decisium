@@ -202,7 +202,7 @@ export function DailyContent() {
       }
     }
     onPageOpen();
-  }, [loadEvents]);
+  }, [loadEvents, today]);
 
   useEffect(() => {
     startPolling();

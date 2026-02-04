@@ -7,10 +7,9 @@ import {
 } from "../tools";
 import { buildMemoryContext, buildAgentContext } from "../lib/context";
 import { handleAgentError } from "../lib/error-handler";
-import { 
-  createOrchestratorGraph, 
+import {
+  createOrchestratorGraph,
   processOrchestratorMessage,
-  type OrchestratorMessageResult 
 } from "./orchestrator.agent";
 import { ROOT_AGENT_SYSTEM_PROMPT } from "../prompts";
 
@@ -161,7 +160,7 @@ async function rootResponseAgentNode(
   const prompt = context || `User: ${state.userMessage}`;
 
   // Type assertion to avoid deep type inference issues with LangChain types
-  const result = await (responseAgent.invoke as any)(
+  const result = await (responseAgent.invoke as (input: unknown, config?: { recursionLimit?: number }) => Promise<{ messages?: Array<{ content?: string | Array<{ text?: string }> }> }>)(
     {
       messages: [
         {
@@ -183,7 +182,7 @@ async function rootResponseAgentNode(
     } else if (Array.isArray(lastMessage.content)) {
       // Handle array of content blocks (extract text from each)
       agentResponse = lastMessage.content
-        .map((block: any) => (typeof block === "string" ? block : block?.text || ""))
+        .map((block: { text?: string } | string) => (typeof block === "string" ? block : block?.text || ""))
         .join("");
     }
   }
@@ -362,7 +361,7 @@ export function createRootAgent(config?: {
   model?: string;
   temperature?: number;
   currentDate?: string;
-}): any {
+}): unknown {
   return createBaseAgent({
     systemPrompt: ROOT_AGENT_SYSTEM_PROMPT,
     agentType: "root",
@@ -373,7 +372,7 @@ export function createRootAgent(config?: {
   });
 }
 
-export const rootAgent: any = createRootAgent();
+export const rootAgent: unknown = createRootAgent();
 
 // ═══════════════════════════════════════════════════════════════
 // AGENTIC MODE INTEGRATION

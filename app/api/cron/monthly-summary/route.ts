@@ -36,17 +36,16 @@ export async function POST(request: NextRequest) {
       try {
         await generateMonthlySummary(user.id, lastMonthStart);
         results.push({ userId: user.id, status: "success" });
-      } catch (error: any) {
+      } catch (error: unknown) {
         console.error(`Failed to generate monthly summary for user ${user.id}:`, error);
-        results.push({ userId: user.id, status: "error", error: error.message });
+        const message = error instanceof Error ? error.message : String(error);
+        results.push({ userId: user.id, status: "error", error: message });
       }
     }
 
     return NextResponse.json({ results });
-  } catch (error: any) {
-    return NextResponse.json(
-      { error: error.message || "Failed to generate monthly summaries" },
-      { status: 500 }
-    );
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Failed to generate monthly summaries";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { rootAgent } from "@/packages/agents/core/root.agent";
 import { DailySummaryContent, WeeklySummaryContent, MonthlySummaryContent } from "@/packages/agents/schemas/summary.schema";
 import { storeEmbedding } from "@/lib/embeddings/store";
-import { format, startOfWeek, startOfMonth, subDays, subWeeks, subMonths } from "date-fns";
+import { format } from "date-fns";
 
 export async function generateDailySummary(userId: string, date: string) {
   const supabase = await createClient();
@@ -147,7 +147,7 @@ Generate the summary for the given date and data. Return only the JSON object.
     } else {
       throw new Error("No JSON found in response");
     }
-  } catch (error) {
+  } catch {
     const notesCount = events.filter((e) => e.type === "note" || e.type === "note+question").length;
     const ideasCount = events.filter((e) => e.type === "question" || e.type === "note+question").length;
     summaryContent = {
@@ -386,7 +386,7 @@ Not:
     } else {
       throw new Error("No JSON found in response");
     }
-  } catch (error) {
+  } catch {
     summaryContent = {
       patterns: [],
       themes: [],
@@ -582,7 +582,7 @@ Not:
     } else {
       throw new Error("No JSON found in response");
     }
-  } catch (error) {
+  } catch {
     summaryContent = {
       trends: [],
       strategic_insights: [],

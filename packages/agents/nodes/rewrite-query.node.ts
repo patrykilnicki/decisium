@@ -1,5 +1,5 @@
 import { ChatPromptTemplate } from "@langchain/core/prompts";
-import { createLLM, type LLMConfig } from "../lib/llm";
+import { createLLM } from "../lib/llm";
 import { REWRITE_QUERY_PROMPT } from "../prompts";
 
 /**
@@ -52,7 +52,7 @@ export async function rewriteQuery(
   const rewrittenQuery = typeof response.content === "string"
     ? response.content.trim()
     : Array.isArray(response.content)
-      ? response.content.map((c: any) => c.text || c).join("").trim()
+      ? response.content.map((c: { text?: string }) => c.text ?? c).join("").trim()
       : originalQuery;
 
   return rewrittenQuery || originalQuery;

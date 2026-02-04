@@ -21,7 +21,8 @@ function isCronAuthorized(request: NextRequest): boolean {
   return isVercelCron || isValidAuth;
 }
 
-async function processPendingSyncs(triggeredBy: string) {
+async function processPendingSyncs(_triggeredBy: string) {
+  void _triggeredBy;
   const { data: pending, error: fetchError } = await supabase
     .from('pending_calendar_syncs')
     .select('integration_id, sync_token, created_at');
