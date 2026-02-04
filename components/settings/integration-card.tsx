@@ -27,7 +27,6 @@ interface IntegrationCardProps {
   lastSyncStatus?: "success" | "error" | "partial";
   onConnect: () => void;
   onDisconnect: () => void;
-  onSync?: () => void;
 }
 
 export function IntegrationCard({
@@ -40,10 +39,8 @@ export function IntegrationCard({
   lastSyncStatus,
   onConnect,
   onDisconnect,
-  onSync,
 }: IntegrationCardProps) {
   const [isLoading, setIsLoading] = useState(false);
-  const [isSyncing, setIsSyncing] = useState(false);
 
   async function handleConnect() {
     setIsLoading(true);
@@ -60,16 +57,6 @@ export function IntegrationCard({
       await onDisconnect();
     } finally {
       setIsLoading(false);
-    }
-  }
-
-  async function handleSync() {
-    if (!onSync) return;
-    setIsSyncing(true);
-    try {
-      await onSync();
-    } finally {
-      setIsSyncing(false);
     }
   }
 
@@ -114,16 +101,6 @@ export function IntegrationCard({
         <div className="flex gap-2">
           {isConnected ? (
             <>
-              {onSync && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleSync}
-                  disabled={isSyncing}
-                >
-                  {isSyncing ? "Syncing..." : "Sync Now"}
-                </Button>
-              )}
               <AlertDialog>
                 <AlertDialogTrigger asChild>
                   <Button variant="outline" size="sm" disabled={isLoading}>
