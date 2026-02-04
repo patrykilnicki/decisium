@@ -140,7 +140,10 @@ export class GoogleCalendarAdapter extends BaseAdapter {
       allAtoms.push(...this.normalizeToAtoms(items));
 
       pageToken = response.data.nextPageToken ?? undefined;
-      nextSyncToken = response.data.nextSyncToken ?? undefined;
+      // nextSyncToken is only available on the last page (when nextPageToken is undefined)
+      if (!pageToken && response.data.nextSyncToken) {
+        nextSyncToken = response.data.nextSyncToken;
+      }
     } while (pageToken);
 
     return {

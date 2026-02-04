@@ -13,14 +13,20 @@ const supabase = createClient(
  * Sync runs here with full timeout so events get written to DB.
  */
 export async function POST(request: NextRequest) {
+  // Verify cron secret - support both Vercel Cron (automatic) and manual calls
   const authHeader = request.headers.get('authorization');
+  const vercelCronHeader = request.headers.get('x-vercel-cron');
   const cronSecret = process.env.CRON_SECRET;
-
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+  
+  // Allow if it's a Vercel Cron job OR if Authorization header matches
+  const isVercelCron = vercelCronHeader === '1';
+  const isValidAuth = cronSecret && authHeader === `Bearer ${cronSecret}`;
+  
+  if (!isVercelCron && !isValidAuth) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  console.log('[process-pending-calendar-syncs] Starting cron run');
+  console.log(`[process-pending-calendar-syncs] Starting cron run (triggered by: ${isVercelCron ? 'Vercel Cron' : 'manual'})`);
 
   const { data: pending, error: fetchError } = await supabase
     .from('pending_calendar_syncs')

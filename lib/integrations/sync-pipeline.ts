@@ -93,6 +93,8 @@ export class SyncPipeline {
     };
 
     try {
+      console.log(`[sync-pipeline] Starting sync for integration ${integrationId} (fullSync: ${options.fullSync}, syncToken: ${options.syncToken ? 'present' : 'none'})`);
+
       // Get integration
       const integration = await this.oauthManager.getIntegration(integrationId);
       if (!integration) {
@@ -104,11 +106,13 @@ export class SyncPipeline {
       }
 
       progress.provider = integration.provider;
+      console.log(`[sync-pipeline] Integration found: ${integration.provider}, status: ${integration.status}`);
 
       // Get authenticated adapter
       const { adapter, accessToken } = await this.oauthManager.getAuthenticatedAdapter(
         integrationId
       );
+      console.log(`[sync-pipeline] Authenticated adapter obtained`);
 
       // Determine cursor / syncToken (Google Calendar incremental)
       // For Google Calendar, if syncToken is provided, use it (incremental sync)
@@ -117,6 +121,7 @@ export class SyncPipeline {
       const cursor = options.fullSync || syncToken ? undefined : await this.oauthManager.getSyncCursor(integrationId);
 
       progress.currentCursor = cursor;
+      console.log(`[sync-pipeline] Using syncToken: ${syncToken ? 'yes' : 'no'}, cursor: ${cursor ? 'yes' : 'no'}, fullSync: ${options.fullSync}`);
 
       // Build fetch options
       const fetchOptions: FetchOptions = {
@@ -129,13 +134,16 @@ export class SyncPipeline {
       };
 
       // Fetch data
+      console.log(`[sync-pipeline] Fetching data from adapter...`);
       const result: SyncResult = await adapter.fetchData(accessToken, fetchOptions);
+      console.log(`[sync-pipeline] Fetched ${result.atoms.length} atoms, hasMore: ${result.hasMore}, nextSyncToken: ${result.nextSyncToken ? 'present' : 'none'}`);
       progress.atomsProcessed = result.atoms.length;
       progress.hasMore = result.hasMore;
       progress.currentCursor = result.nextCursor;
 
       // Delete removed events (Google Calendar incremental sync)
       if (result.deletedExternalIds && result.deletedExternalIds.length > 0) {
+        console.log(`[sync-pipeline] Deleting ${result.deletedExternalIds.length} removed events`);
         await this.supabase
           .from('activity_atoms')
           .delete()
@@ -146,13 +154,17 @@ export class SyncPipeline {
 
       // Process and store atoms
       if (result.atoms.length > 0) {
+        console.log(`[sync-pipeline] Storing ${result.atoms.length} atoms...`);
         const stored = await this.storeAtoms(
           integration,
           result.atoms,
           options.generateEmbeddings ?? true
         );
+        console.log(`[sync-pipeline] Stored ${stored.atomsStored} atoms, generated ${stored.embeddingsGenerated} embeddings`);
         progress.atomsStored = stored.atomsStored;
         progress.embeddingsGenerated = stored.embeddingsGenerated;
+      } else {
+        console.log(`[sync-pipeline] No atoms to store`);
       }
 
       // Update sync status (sync_cursor for pageToken; syncToken stored in calendar_watches)
@@ -169,24 +181,41 @@ export class SyncPipeline {
         integration.provider === 'google_calendar' &&
         result.nextSyncToken
       ) {
-        await this.supabase
+        console.log(`[sync-pipeline] Saving nextSyncToken to calendar_watches`);
+        const { error: updateError } = await this.supabase
           .from('calendar_watches')
           .update({
             sync_token: result.nextSyncToken,
             updated_at: new Date().toISOString(),
           })
           .eq('integration_id', integrationId);
+        
+        if (updateError) {
+          console.error(`[sync-pipeline] Failed to save syncToken:`, updateError);
+        } else {
+          console.log(`[sync-pipeline] Successfully saved syncToken`);
+        }
+      } else {
+        console.log(`[sync-pipeline] No nextSyncToken to save (provider: ${integration.provider}, nextSyncToken: ${result.nextSyncToken ? 'present' : 'none'})`);
       }
 
       progress.status = 'completed';
       progress.completedAt = new Date();
+      console.log(`[sync-pipeline] Sync completed successfully for integration ${integrationId}`);
 
       return progress;
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      console.error(`[sync-pipeline] Error during sync for integration ${integrationId}:`, errorMessage, errorStack);
+
       // Google Calendar API 410 Gone = sync token invalid; retry with full sync (official sync guide)
       const status = (error as { response?: { status?: number }; code?: number })?.response?.status ?? (error as { code?: number })?.code;
+      console.log(`[sync-pipeline] Error status: ${status}`);
+      
       const integration = progress.provider ? await this.oauthManager.getIntegration(integrationId).then((i) => i ?? undefined) : undefined;
       if (status === 410 && integration?.provider === 'google_calendar') {
+        console.log(`[sync-pipeline] 410 Gone error - clearing syncToken and retrying with full sync`);
         await this.supabase
           .from('calendar_watches')
           .update({ sync_token: null, updated_at: new Date().toISOString() })
@@ -195,7 +224,7 @@ export class SyncPipeline {
       }
 
       progress.status = 'error';
-      progress.error = error instanceof Error ? error.message : 'Unknown error';
+      progress.error = errorMessage;
       progress.completedAt = new Date();
 
       // Update sync status with error
@@ -206,6 +235,7 @@ export class SyncPipeline {
         progress.error
       );
 
+      console.error(`[sync-pipeline] Sync failed for integration ${integrationId}: ${errorMessage}`);
       return progress;
     }
   }
