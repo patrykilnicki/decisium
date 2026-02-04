@@ -5,7 +5,7 @@ import {
   createCalendarWatchService,
   createSyncPipeline,
 } from '@/lib/integrations';
-import { getAppUrl } from '@/lib/utils/app-url';
+import { getAppUrl, getGoogleCalendarWebhookUrl } from '@/lib/utils/app-url';
 
 /**
  * GET /api/integrations/[provider]/callback
@@ -64,7 +64,7 @@ export async function GET(
 
     // Google Calendar: setup watch (HTTPS only) + initial sync (fire-and-forget)
     if (provider === 'google_calendar') {
-      const webhookUrl = `${baseUrl}/api/webhooks/google-calendar`;
+      const webhookUrl = getGoogleCalendarWebhookUrl(baseUrl);
       const isHttps = webhookUrl.startsWith('https://');
 
       const runInitialSync = async () => {

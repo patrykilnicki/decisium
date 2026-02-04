@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createCalendarWatchService } from '@/lib/integrations';
-import { getAppUrl } from '@/lib/utils/app-url';
+import { getAppUrl, getGoogleCalendarWebhookUrl } from '@/lib/utils/app-url';
 
 // Use service role for cron jobs
 const supabase = createClient(
@@ -58,7 +58,7 @@ export async function POST(request: NextRequest) {
 
     const watchService = createCalendarWatchService(supabase);
     const baseUrl = getAppUrl(request);
-    const webhookUrl = `${baseUrl}/api/webhooks/google-calendar`;
+    const webhookUrl = getGoogleCalendarWebhookUrl(baseUrl);
 
     // Only renew if HTTPS (Google requirement)
     if (!webhookUrl.startsWith('https://')) {

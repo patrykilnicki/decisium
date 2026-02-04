@@ -2,6 +2,18 @@
 
 To fix **redirect_uri_mismatch**, add the exact redirect URI(s) below in [Google Cloud Console](https://console.cloud.google.com/) → APIs & Services → Credentials → your OAuth 2.0 Client ID → **Authorized redirect URIs**.
 
+---
+
+## Webhook 401 (real-time sync)
+
+If **Google Calendar webhook** returns **401 Unauthorized** (e.g. in Vercel logs), Vercel Deployment Protection is blocking Google’s POST. Fix it:
+
+1. **Vercel** → Project → **Settings** → **Deployment Protection**.
+2. Enable **Protection Bypass for Automation** and copy the secret (or use the auto-generated one).
+3. Ensure the secret is available as **`VERCEL_AUTOMATION_BYPASS_SECRET`** (Vercel sets this when the bypass is enabled).
+4. Redeploy. The app registers the webhook URL with the bypass query param so Google’s requests are allowed.
+5. Existing watches will use the new URL on the next **renew** (cron runs daily) or when you **disconnect and reconnect** Google Calendar in Settings.
+
 ## Which OAuth client?
 
 - **Google Calendar (or other integrations)**  

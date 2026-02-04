@@ -59,3 +59,19 @@ export function getAppUrl(request?: NextRequest | Request): string {
   // 5. Local development
   return 'http://localhost:3000';
 }
+
+/**
+ * Build the Google Calendar webhook URL for push notifications.
+ * When Vercel Deployment Protection is enabled, appends the bypass secret so
+ * Google's POST requests (which have no auth) are allowed (avoids 401).
+ * @see https://vercel.com/docs/deployment-protection/methods-to-bypass-deployment-protection/protection-bypass-automation
+ */
+export function getGoogleCalendarWebhookUrl(baseUrl: string): string {
+  const path = '/api/webhooks/google-calendar';
+  const bypassSecret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
+  const url = `${baseUrl.replace(/\/$/, '')}${path}`;
+  if (bypassSecret) {
+    return `${url}?x-vercel-protection-bypass=${encodeURIComponent(bypassSecret)}`;
+  }
+  return url;
+}
