@@ -34,11 +34,14 @@ export async function POST(request: NextRequest) {
   }
 
   if (resourceState !== 'exists') {
+    console.log(`[webhook] Ignoring resourceState: ${resourceState}`);
     return new NextResponse(null, { status: 200 });
   }
 
+  console.log(`[webhook] Enqueueing sync for integration ${watch.integrationId} (syncToken: ${watch.syncToken ? 'present' : 'null'})`);
+
   // Enqueue pending sync so cron can run it with full timeout (avoids webhook 30s limit)
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('pending_calendar_syncs')
     .upsert(
       {
@@ -47,10 +50,13 @@ export async function POST(request: NextRequest) {
         created_at: new Date().toISOString(),
       },
       { onConflict: 'integration_id' }
-    );
+    )
+    .select();
 
   if (error) {
     console.error('[webhook] Failed to enqueue pending sync:', error);
+  } else {
+    console.log(`[webhook] Successfully enqueued pending sync for integration ${watch.integrationId}`);
   }
 
   return new NextResponse(null, { status: 200 });

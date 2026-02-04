@@ -111,8 +111,10 @@ export class SyncPipeline {
       );
 
       // Determine cursor / syncToken (Google Calendar incremental)
-      const cursor = options.fullSync ? undefined : await this.oauthManager.getSyncCursor(integrationId);
-      const syncToken = options.fullSync ? undefined : options.syncToken;
+      // For Google Calendar, if syncToken is provided, use it (incremental sync)
+      // Otherwise, use cursor for pagination or fullSync
+      const syncToken = options.syncToken;
+      const cursor = options.fullSync || syncToken ? undefined : await this.oauthManager.getSyncCursor(integrationId);
 
       progress.currentCursor = cursor;
 
@@ -299,45 +301,74 @@ export class SyncPipeline {
     }
 
     // Generate embeddings only for new/changed atoms
+    // First, check for existing embeddings by content to avoid duplicates
     if (generateEmbed && atomsNeedingEmbeddings.length > 0) {
-      const BATCH_SIZE = 20;
-      for (let i = 0; i < atomsNeedingEmbeddings.length; i += BATCH_SIZE) {
-        const batch = atomsNeedingEmbeddings.slice(i, i + BATCH_SIZE);
-        const contents = batch.map((atom) => atom.content);
+      // Fetch existing embeddings by content for this user
+      const contentsToCheck = [...new Set(atomsNeedingEmbeddings.map((a) => a.content))];
+      const { data: existingEmbeddings } = await this.supabase
+        .from('embeddings')
+        .select('id, content')
+        .eq('user_id', integration.userId)
+        .in('content', contentsToCheck);
 
-        try {
-          const embeddings = await generateEmbeddings(contents);
+      const contentToEmbeddingId = new Map(
+        (existingEmbeddings ?? []).map((e) => [e.content, e.id])
+      );
 
-          // Store embeddings and map to atoms
-          for (let j = 0; j < batch.length; j++) {
-            const atom = batch[j];
-            const embedding = embeddings[j];
+      // Separate atoms into: reuse existing embedding vs generate new
+      const atomsToGenerateEmbeddings: ActivityAtom[] = [];
+      for (const atom of atomsNeedingEmbeddings) {
+        const existingEmbeddingId = contentToEmbeddingId.get(atom.content);
+        if (existingEmbeddingId) {
+          // Reuse existing embedding for this content
+          embeddingMap.set(atom.externalId, existingEmbeddingId);
+        } else {
+          // Need to generate new embedding
+          atomsToGenerateEmbeddings.push(atom);
+        }
+      }
 
-            const { data: embeddingData, error: embeddingError } = await this.supabase
-              .from('embeddings')
-              .insert({
-                user_id: integration.userId,
-                content: atom.content,
-                embedding: embedding.embedding,
-                metadata: {
-                  type: 'activity_atom',
-                  provider: integration.provider,
-                  external_id: atom.externalId,
-                  atom_type: atom.atomType,
-                  date: atom.occurredAt.toISOString().split('T')[0],
-                },
-              })
-              .select('id')
-              .single();
+      // Generate embeddings only for content that doesn't exist yet
+      if (atomsToGenerateEmbeddings.length > 0) {
+        const BATCH_SIZE = 20;
+        for (let i = 0; i < atomsToGenerateEmbeddings.length; i += BATCH_SIZE) {
+          const batch = atomsToGenerateEmbeddings.slice(i, i + BATCH_SIZE);
+          const contents = batch.map((atom) => atom.content);
 
-            if (!embeddingError && embeddingData) {
-              embeddingMap.set(atom.externalId, embeddingData.id);
-              embeddingsGenerated++;
+          try {
+            const embeddings = await generateEmbeddings(contents);
+
+            // Store embeddings and map to atoms
+            for (let j = 0; j < batch.length; j++) {
+              const atom = batch[j];
+              const embedding = embeddings[j];
+
+              const { data: embeddingData, error: embeddingError } = await this.supabase
+                .from('embeddings')
+                .insert({
+                  user_id: integration.userId,
+                  content: atom.content,
+                  embedding: embedding.embedding,
+                  metadata: {
+                    type: 'activity_atom',
+                    provider: integration.provider,
+                    external_id: atom.externalId,
+                    atom_type: atom.atomType,
+                    date: atom.occurredAt.toISOString().split('T')[0],
+                  },
+                })
+                .select('id')
+                .single();
+
+              if (!embeddingError && embeddingData) {
+                embeddingMap.set(atom.externalId, embeddingData.id);
+                embeddingsGenerated++;
+              }
             }
+          } catch (error) {
+            console.error('Error generating embeddings:', error);
+            // Continue without embeddings
           }
-        } catch (error) {
-          console.error('Error generating embeddings:', error);
-          // Continue without embeddings
         }
       }
     }
