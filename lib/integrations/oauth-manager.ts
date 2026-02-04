@@ -66,13 +66,15 @@ export class OAuthManager {
    * Get an integration by ID
    * Uses maybeSingle() to avoid errors when no row found.
    * Service role client bypasses RLS automatically.
+   * 
+   * Optimized: Uses explicit column selection instead of '*' for better performance.
    */
   async getIntegration(integrationId: string): Promise<Integration | null> {
     try {
       const startTime = Date.now();
       const { data, error } = await this.supabase
         .from('integrations')
-        .select('*')
+        .select('id, user_id, provider, status, scopes, external_user_id, external_email, metadata, connected_at, last_sync_at, last_sync_status, last_sync_error, sync_cursor, created_at, updated_at')
         .eq('id', integrationId)
         .maybeSingle(); // Use maybeSingle() to avoid errors when no row found
 
@@ -547,9 +549,14 @@ export class OAuthManager {
       updateData.last_sync_error = null;
     }
 
-    // If sync failed, mark integration as error
+    // If sync failed, mark integration as error (but don't override if already revoked)
+    // This allows retry attempts for error integrations
     if (status === 'error') {
-      updateData.status = 'error';
+      // Only set to error if not already revoked (revoked should stay revoked)
+      const currentIntegration = await this.getIntegration(integrationId);
+      if (currentIntegration && currentIntegration.status !== 'revoked') {
+        updateData.status = 'error';
+      }
     }
 
     await this.supabase

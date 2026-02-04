@@ -110,8 +110,20 @@ export class SyncPipeline {
         throw new Error(`Integration ${integrationId} not found or timeout fetching`);
       }
 
-      if (integration.status !== 'active') {
-        throw new Error(`Integration is not active: ${integration.status}`);
+      // Allow sync for 'active' and 'error' statuses
+      // 'error' integrations can be retried (e.g., after fixing auth issues)
+      // 'revoked' and 'pending' should not sync
+      if (integration.status === 'revoked') {
+        throw new Error(`Integration is revoked and cannot sync`);
+      }
+      
+      if (integration.status === 'pending') {
+        throw new Error(`Integration is pending and not yet ready to sync`);
+      }
+
+      // If status is 'error', log a warning but allow sync attempt (auto-recovery)
+      if (integration.status === 'error') {
+        console.warn(`[sync-pipeline] Attempting sync for integration ${integrationId} with 'error' status - will reactivate on success`);
       }
 
       progress.provider = integration.provider;
@@ -177,6 +189,8 @@ export class SyncPipeline {
       }
 
       // Update sync status (sync_cursor for pageToken; syncToken stored in calendar_watches)
+      // If integration was in 'error' status, reactivate it on successful sync
+      const wasError = integration.status === 'error';
       await this.oauthManager.updateSyncStatus(
         integrationId,
         'success',
@@ -184,6 +198,15 @@ export class SyncPipeline {
           ? undefined
           : result.nextCursor
       );
+
+      // Reactivate integration if it was in error status and sync succeeded
+      if (wasError) {
+        await this.supabase
+          .from('integrations')
+          .update({ status: 'active', updated_at: new Date().toISOString() })
+          .eq('id', integrationId);
+        console.log(`[sync-pipeline] Reactivated integration ${integrationId} after successful sync`);
+      }
 
       // Google Calendar: persist nextSyncToken to calendar_watches
       if (
