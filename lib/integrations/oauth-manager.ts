@@ -69,17 +69,26 @@ export class OAuthManager {
    * 
    * Optimized: Uses explicit column selection instead of '*' for better performance.
    * Includes retry logic for transient network errors.
+   * Uses Promise.race with timeout to prevent hanging queries.
    */
-  async getIntegration(integrationId: string, retries = 2): Promise<Integration | null> {
+  async getIntegration(integrationId: string, retries = 1): Promise<Integration | null> {
     const startTime = Date.now();
+    const QUERY_TIMEOUT_MS = 8000; // 8 second timeout per query attempt
     
     for (let attempt = 0; attempt <= retries; attempt++) {
       try {
-        const { data, error } = await this.supabase
+        // Wrap query in Promise.race with timeout
+        const queryPromise = this.supabase
           .from('integrations')
           .select('id, user_id, provider, status, scopes, external_user_id, external_email, metadata, connected_at, last_sync_at, last_sync_status, last_sync_error, sync_cursor, created_at, updated_at')
           .eq('id', integrationId)
-          .maybeSingle(); // Use maybeSingle() to avoid errors when no row found
+          .maybeSingle();
+
+        const timeoutPromise = new Promise<{ data: null; error: { message: string } }>((resolve) =>
+          setTimeout(() => resolve({ data: null, error: { message: 'Query timeout (8s)' } }), QUERY_TIMEOUT_MS)
+        );
+
+        const { data, error } = await Promise.race([queryPromise, timeoutPromise]);
 
         const duration = Date.now() - startTime;
         if (duration > 1000) {
@@ -89,10 +98,11 @@ export class OAuthManager {
         if (error) {
           const isNetworkError = error.message?.includes('ECONNRESET') || 
                                  error.message?.includes('fetch failed') ||
-                                 error.message?.includes('timeout');
+                                 error.message?.includes('timeout') ||
+                                 error.message?.includes('aborted');
           
           if (isNetworkError && attempt < retries) {
-            const delay = Math.min(1000 * Math.pow(2, attempt), 5000); // Exponential backoff, max 5s
+            const delay = Math.min(1000 * Math.pow(2, attempt), 3000); // Exponential backoff, max 3s
             console.warn(`[oauth-manager] Network error fetching integration ${integrationId}, retrying in ${delay}ms (attempt ${attempt + 1}/${retries + 1})`);
             await new Promise(resolve => setTimeout(resolve, delay));
             continue;
@@ -112,10 +122,11 @@ export class OAuthManager {
         const errorMessage = error instanceof Error ? error.message : String(error);
         const isNetworkError = errorMessage.includes('ECONNRESET') || 
                                errorMessage.includes('fetch failed') ||
-                               errorMessage.includes('timeout');
+                               errorMessage.includes('timeout') ||
+                               errorMessage.includes('aborted');
         
         if (isNetworkError && attempt < retries) {
-          const delay = Math.min(1000 * Math.pow(2, attempt), 5000); // Exponential backoff, max 5s
+          const delay = Math.min(1000 * Math.pow(2, attempt), 3000); // Exponential backoff, max 3s
           console.warn(`[oauth-manager] Network exception fetching integration ${integrationId}, retrying in ${delay}ms (attempt ${attempt + 1}/${retries + 1})`);
           await new Promise(resolve => setTimeout(resolve, delay));
           continue;

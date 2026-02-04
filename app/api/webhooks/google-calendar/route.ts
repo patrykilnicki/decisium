@@ -3,9 +3,19 @@ import { createClient } from '@supabase/supabase-js';
 import { createCalendarWatchService, createOAuthManager, createSyncPipeline } from '@/lib/integrations';
 
 // Service role for webhook (no user session)
+// Configure with timeout and connection settings to handle network issues
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+    db: {
+      schema: 'public',
+    },
+  }
 );
 
 /**
