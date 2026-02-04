@@ -187,6 +187,8 @@ export function IntegrationsSection() {
     try {
       const response = await fetch(`/api/integrations/${provider}/sync`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fullSync: true }),
       });
 
       if (!response.ok) {
@@ -195,12 +197,12 @@ export function IntegrationsSection() {
       }
 
       const data = await response.json();
+      const count = data.atomsStored ?? data.atomsProcessed ?? 0;
       setNotification({
         type: "success",
-        message: `Synced ${data.atomsCount} items from ${provider.replace("_", " ")}`,
+        message: `Synced ${count} items from ${provider.replace("_", " ")}`,
       });
-      
-      // Refresh integrations list
+
       fetchIntegrations();
     } catch (error) {
       console.error("Error syncing:", error);

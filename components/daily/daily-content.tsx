@@ -39,8 +39,18 @@ export function DailyContent() {
   const [error, setError] = useState<string | null>(null);
   const [tasks, setTasks] = useState<TaskRecord[]>([]);
   const pollerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const meetingsPollerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const today = format(new Date(), "yyyy-MM-dd");
   const sessionId = `daily:${today}`;
+
+  const refreshMeetingsCount = useCallback(async () => {
+    try {
+      const count = await getTodayMeetingsCount(today);
+      setMeetingsCount(count);
+    } catch {
+      // ignore
+    }
+  }, [today]);
 
   const loadEvents = useCallback(async () => {
     try {
@@ -198,6 +208,18 @@ export function DailyContent() {
     startPolling();
     return () => stopPolling();
   }, [startPolling, stopPolling]);
+
+  // Poll today's meetings count so new/updated calendar events appear without full page refresh
+  useEffect(() => {
+    const intervalMs = 90 * 1000;
+    meetingsPollerRef.current = setInterval(refreshMeetingsCount, intervalMs);
+    return () => {
+      if (meetingsPollerRef.current) {
+        clearInterval(meetingsPollerRef.current);
+        meetingsPollerRef.current = null;
+      }
+    };
+  }, [refreshMeetingsCount]);
 
   const handleSend = useCallback(
     async (content: string) => {

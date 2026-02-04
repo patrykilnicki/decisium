@@ -188,14 +188,22 @@ export interface TodayMeeting {
 /**
  * Get today's calendar events (meetings) from activity_atoms.
  * Uses a 3-day window then filters by date string to avoid timezone edge cases.
+ * Returns [] when not authenticated (e.g. session not yet available on first load).
  * @param date - Optional date in YYYY-MM-DD (client's local "today").
  */
 export async function getTodayMeetings(date?: string): Promise<TodayMeeting[]> {
   try {
-    const { userId } = await getUserContext();
-    const targetDate = date ?? getCurrentDate();
     const supabase = await createClient();
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
 
+    if (authError || !user) {
+      return [];
+    }
+
+    const targetDate = date ?? getCurrentDate();
     const [y, m, d] = targetDate.split("-").map(Number);
     const windowStart = new Date(Date.UTC(y, m - 1, d - 1, 0, 0, 0, 0));
     const windowEnd = new Date(Date.UTC(y, m - 1, d + 2, 0, 0, 0, 0));
@@ -203,7 +211,7 @@ export async function getTodayMeetings(date?: string): Promise<TodayMeeting[]> {
     const { data, error } = await supabase
       .from("activity_atoms")
       .select("id, title, occurred_at, duration_minutes, participants, source_url")
-      .eq("user_id", userId)
+      .eq("user_id", user.id)
       .eq("atom_type", "event")
       .eq("provider", "google_calendar")
       .gte("occurred_at", windowStart.toISOString())
