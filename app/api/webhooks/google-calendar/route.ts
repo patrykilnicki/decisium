@@ -4,10 +4,13 @@ import { createOAuthManager, createSyncPipeline, createCalendarWatchService } fr
 
 const WEBHOOK_FETCH_TIMEOUT_MS = 30_000;
 
-function fetchWithTimeout(url: string, init?: RequestInit): Promise<Response> {
+function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init?: RequestInit
+): Promise<Response> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), WEBHOOK_FETCH_TIMEOUT_MS);
-  return fetch(url, { ...init, signal: controller.signal }).finally(() =>
+  return fetch(input, { ...init, signal: controller.signal }).finally(() =>
     clearTimeout(timeout)
   );
 }
