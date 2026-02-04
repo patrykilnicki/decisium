@@ -22,7 +22,7 @@
     },
     {
       "path": "/api/cron/process-pending-calendar-syncs",
-      "schedule": "*/2 * * * *"
+      "schedule": "*/1 * * * *"
     }
   ]
 }

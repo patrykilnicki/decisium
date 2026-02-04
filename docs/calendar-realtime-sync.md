@@ -71,8 +71,9 @@ So: **use periodic full/incremental sync** (e.g. every 6 hours) as a backup, not
 
 | Requirement | Implementation |
 |-------------|----------------|
-| Respond quickly | Webhook returns 200 after enqueueing to `pending_calendar_syncs`; no sync in request path. |
-| Async sync | Cron `/api/cron/process-pending-calendar-syncs` every 2 min processes the queue with full timeout. |
+| Respond quickly | Webhook returns 200 immediately (within ~1s), then processes sync asynchronously (fire-and-forget). |
+| Instant sync | Webhook starts sync immediately in background; if it succeeds, removes from queue. Follows industry standard (like Notion, Calendly). |
+| Fallback processing | Cron `/api/cron/process-pending-calendar-syncs` every 1 min processes any failed/timeout syncs from queue. |
 | Incremental sync | We store `sync_token` in `calendar_watches`; sync pipeline uses it for incremental list and stores `nextSyncToken`. |
 | Backup sync | Cron `/api/cron/integration-sync` every 6 hours syncs all active integrations. |
 | Channel renewal | Cron `/api/cron/renew-calendar-watches` daily recreates expiring watches. |

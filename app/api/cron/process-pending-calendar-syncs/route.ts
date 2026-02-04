@@ -9,8 +9,13 @@ const supabase = createClient(
 
 /**
  * POST /api/cron/process-pending-calendar-syncs
- * Processes pending calendar syncs enqueued by the webhook (runs every 2 min).
- * Sync runs here with full timeout so events get written to DB.
+ * Processes pending calendar syncs enqueued by the webhook (runs every 1 min).
+ * 
+ * This is a fallback for:
+ * - Instant syncs that failed or timed out
+ * - Missed webhooks (Google's reliability note: "not 100% reliable")
+ * 
+ * Primary sync happens instantly in webhook; this ensures nothing is missed.
  */
 export async function POST(request: NextRequest) {
   // Verify cron secret - support both Vercel Cron (automatic) and manual calls
