@@ -160,4 +160,21 @@ export async function fetchTasksBySession(
   return (data ?? []).map((row) => toTaskRecord(row as TaskRow));
 }
 
+export async function fetchTaskById(
+  client: SupabaseClient<Database>,
+  taskId: string,
+): Promise<TaskRow | null> {
+  const { data, error } = await client
+    .from("tasks")
+    .select("*")
+    .eq("id", taskId)
+    .single();
+
+  if (error || !data) {
+    return null;
+  }
+
+  return data as TaskRow;
+}
+
 export { toTaskRecord };

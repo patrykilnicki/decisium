@@ -1,13 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import {
-  claimTasks,
-  enqueueTasks,
-  updateTaskFailure,
-  updateTaskSuccess,
-} from "@/lib/tasks/task-repository";
-import type { TaskRow } from "@/lib/tasks/task-types";
-import { handleTask } from "@/packages/workers/langgraph-handlers";
+import { claimTasks } from "@/lib/tasks/task-repository";
+import { processTaskById } from "@/lib/tasks/task-processor";
 
 /**
  * Vercel Cron invokes this route every minute to process pending tasks
@@ -30,39 +24,12 @@ function getNumberEnv(name: string, fallback: number): number {
   return Number.isFinite(value) ? value : fallback;
 }
 
-async function processOneTask(
-  task: TaskRow,
-  maxRetries: number,
-): Promise<{ ok: boolean }> {
-  const client = createAdminClient();
-  try {
-    const result = await handleTask(task);
-    if (result.nextTasks?.length) {
-      await enqueueTasks(client, result.nextTasks);
-    }
-    await updateTaskSuccess(client, task.id, result.output);
-    return { ok: true };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    const nextRetryCount = task.retry_count + 1;
-    const shouldRetry = nextRetryCount <= maxRetries;
-    const status = shouldRetry ? "pending" : "failed";
-    await updateTaskFailure(client, task.id, {
-      status,
-      retryCount: nextRetryCount,
-      lastError: message,
-    });
-    return { ok: false };
-  }
-}
-
 async function runProcessTasks(triggeredBy: string) {
   process.env.TASK_WORKER = "true";
 
   const client = createAdminClient();
   const maxTasks = getNumberEnv("TASK_MAX_CLAIM", 5);
   const staleAfterSeconds = getNumberEnv("TASK_STALE_AFTER_SECONDS", 300);
-  const maxRetries = getNumberEnv("TASK_MAX_RETRIES", 3);
 
   const tasks = await claimTasks(client, {
     maxTasks,
@@ -81,7 +48,7 @@ async function runProcessTasks(triggeredBy: string) {
   let completed = 0;
   let failed = 0;
   for (const task of tasks) {
-    const { ok } = await processOneTask(task, maxRetries);
+    const { ok } = await processTaskById(task.id);
     if (ok) completed++;
     else failed++;
   }

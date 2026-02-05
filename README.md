@@ -94,7 +94,7 @@ Open [http://localhost:3000](http://localhost:3000) in your browser. If Ask AI s
 
    **Option B – two terminals:** run `pnpm dev` in one terminal and `pnpm task-worker` in another. The worker needs the same env (e.g. `SUPABASE_SERVICE_ROLE_KEY`, `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`) to process tasks.
 
-   **Production (Vercel):** The worker runs automatically—no extra process. Vercel Cron invokes `/api/cron/process-tasks` every minute to claim and process pending tasks (see [Cron Jobs](#cron-jobs)).
+   **Production (Vercel):** Tasks are processed **immediately** after enqueueing (fire-and-forget), so users get responses right away. Vercel Cron also runs `/api/cron/process-tasks` every minute as a backup to catch any failures or missed tasks (see [Cron Jobs](#cron-jobs)).
 
 ## Project Structure
 
@@ -162,7 +162,7 @@ So we use a **worker** (local: `pnpm task-worker` or `pnpm dev:all`) or **cron-i
 
 ## Cron Jobs
 
-**Production (Vercel):** The task worker runs automatically via cron. `POST /api/cron/process-tasks` is invoked every minute to process pending Daily and Ask AI tasks—no separate worker process needed.
+**Production (Vercel):** Tasks are processed **immediately** after enqueueing (no waiting). The cron job `/api/cron/process-tasks` runs every minute as a backup to catch failures or missed tasks—no separate worker process needed.
 
 Other cron jobs:
 
