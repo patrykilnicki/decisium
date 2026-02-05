@@ -1,26 +1,4 @@
-// Suppress url.parse() deprecation warnings from dependencies (e.g., @supabase/supabase-js)
-// This is a known issue in dependencies and will be fixed upstream
-if (typeof process !== "undefined" && process.emitWarning) {
-  const originalEmitWarning = process.emitWarning.bind(process);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (process.emitWarning as any) = function (
-    warning: string | Error,
-    type?: string,
-    code?: string,
-    ctor?: new () => Error,
-  ) {
-    if (
-      typeof warning === "object" &&
-      warning?.name === "DeprecationWarning" &&
-      typeof warning?.message === "string" &&
-      warning.message.includes("url.parse()")
-    ) {
-      // Suppress this specific deprecation warning
-      return;
-    }
-    return originalEmitWarning(warning, type, code, ctor);
-  };
-}
+import "@/lib/suppress-url-parse-deprecation";
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
@@ -67,7 +45,11 @@ export async function processTaskById(
   try {
     const result = await handleTask(task);
     if (result.nextTasks?.length) {
-      await enqueueTasks(client, result.nextTasks);
+      const inserted = await enqueueTasks(client, result.nextTasks);
+      // Trigger next tasks immediately so the chain continues without waiting for cron
+      for (const nextTask of inserted) {
+        processTaskImmediately(nextTask.id);
+      }
     }
     await updateTaskSuccess(client, task.id, result.output);
     return { ok: true };
