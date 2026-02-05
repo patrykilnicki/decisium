@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { toTaskRecord } from "@/lib/tasks/task-repository";
-import type { TaskRow } from "@/lib/tasks/task-types";
+import type { Task } from "@/types/database";
 
 export async function GET(request: NextRequest) {
   try {
@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
-    const tasks = (data ?? []).map((row) => toTaskRecord(row as TaskRow));
+    const tasks = (data ?? []).map((row) => toTaskRecord(row as Task));
     return NextResponse.json(tasks);
   } catch (error) {
     const message =

@@ -10,7 +10,8 @@
     "migrate": "supabase db push",
     "backfill-embeddings": "tsx scripts/backfill-embeddings.ts",
     "run-daily-summary": "tsx scripts/run-daily-summary.ts",
-    "task-worker": "tsx packages/workers/task-runner.ts"
+    "task-worker": "tsx packages/workers/task-runner.ts",
+    "db:types": "npx supabase gen types typescript --project-id ffgsdhsjuntcruomtygk --schema public > types/supabase.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.1.0",
@@ -22,7 +23,7 @@
     "@langchain/langgraph": "^0.2.40",
     "@langchain/openai": "^1.2.3",
     "@supabase/ssr": "^0.5.2",
-    "@supabase/supabase-js": "^2.47.10",
+    "@supabase/supabase-js": "^2.91.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^3.6.0",

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { Database } from '@/types/supabase';
 import {
   createOAuthManager,
   createCalendarWatchService,
@@ -56,7 +58,9 @@ export async function GET(
 
     // Complete OAuth flow (pass same redirectUri as auth request to avoid redirect_uri_mismatch)
     const redirectUri = `${baseUrl}/api/integrations/${provider}/callback`;
-    const oauthManager = createOAuthManager(supabase);
+    // Type assertion to match expected SupabaseClient signature
+    const typedSupabase = supabase as SupabaseClient<Database>;
+    const oauthManager = createOAuthManager(typedSupabase);
     const integration = await oauthManager.completeOAuthFlow(code, state, {
       redirectUri,
     });
@@ -68,7 +72,7 @@ export async function GET(
 
       if (isHttps) {
         // Setup watch in background (fire-and-forget)
-        createCalendarWatchService(supabase)
+        createCalendarWatchService(typedSupabase)
           .setupWatch(integration.id, webhookUrl)
           .catch((err) => {
             console.error('[OAuth] Google Calendar watch setup failed:', err);

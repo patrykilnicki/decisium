@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { generateWeeklySummary } from "@/app/actions/summaries";
 import { format, startOfWeek, subWeeks } from "date-fns";
+import type { User } from "@/types/database";
 
 const CRON_SECRET = process.env.CRON_SECRET;
 
@@ -29,10 +30,13 @@ export async function POST(request: NextRequest) {
       throw new Error("Failed to fetch users");
     }
 
-    const results = [];
+    const results: Array<{ userId: string; status: string; error?: string }> = [];
     const lastWeekStart = format(startOfWeek(subWeeks(new Date(), 1)), "yyyy-MM-dd");
 
-    for (const user of users) {
+    // Type assertion needed because select with specific columns returns a narrowed type
+    const typedUsers = users as Array<Pick<User, "id">>;
+
+    for (const user of typedUsers) {
       try {
         await generateWeeklySummary(user.id, lastWeekStart);
         results.push({ userId: user.id, status: "success" });

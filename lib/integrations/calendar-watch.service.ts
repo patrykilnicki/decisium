@@ -1,4 +1,5 @@
-import { SupabaseClient } from '@supabase/supabase-js';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { Database } from '@/types/supabase';
 import {
   createAdapter,
   getAdapterConfig,
@@ -27,9 +28,9 @@ export interface CalendarWatch {
 // ============================================
 
 export class CalendarWatchService {
-  private supabase: SupabaseClient;
+  private supabase: SupabaseClient<Database>;
 
-  constructor(supabase: SupabaseClient) {
+  constructor(supabase: SupabaseClient<Database>) {
     this.supabase = supabase;
   }
 
@@ -183,6 +184,6 @@ export class CalendarWatchService {
   }
 }
 
-export function createCalendarWatchService(supabase: SupabaseClient): CalendarWatchService {
+export function createCalendarWatchService(supabase: SupabaseClient<Database>): CalendarWatchService {
   return new CalendarWatchService(supabase);
 }

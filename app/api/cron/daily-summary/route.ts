@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { generateDailySummary } from "@/app/actions/summaries";
 import { format, subDays } from "date-fns";
+import type { User } from "@/types/database";
 
 // Verify cron secret (set in environment)
 const CRON_SECRET = process.env.CRON_SECRET;
@@ -28,7 +29,10 @@ async function runDailySummary(): Promise<NextResponse> {
 
     const results: Array<{ userId: string; status: string; error?: string }> = [];
 
-    for (const user of users) {
+    // Type assertion needed because select with specific columns returns a narrowed type
+    const typedUsers = users as Array<Pick<User, "id" | "timezone">>;
+
+    for (const user of typedUsers) {
       try {
         const yesterday = format(subDays(new Date(), 1), "yyyy-MM-dd");
         await generateDailySummary(user.id, yesterday);

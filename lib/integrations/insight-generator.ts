@@ -1,4 +1,6 @@
-import { SupabaseClient } from '@supabase/supabase-js';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { Database, Json } from '@/types/supabase';
+import type { InsightSourceInsert } from '@/types/database';
 import { generateEmbedding } from '@/lib/embeddings/generate';
 import { StoredActivityAtom } from './sync-pipeline';
 
@@ -48,9 +50,9 @@ export interface CalendarInsight {
 // ============================================
 
 export class InsightGenerator {
-  private supabase: SupabaseClient;
+  private supabase: SupabaseClient<Database>;
 
-  constructor(supabase: SupabaseClient) {
+  constructor(supabase: SupabaseClient<Database>) {
     this.supabase = supabase;
   }
 
@@ -490,18 +492,20 @@ export class InsightGenerator {
     let embeddingId: string | undefined;
     try {
       const { embedding } = await generateEmbedding(data.summary);
+      // Convert number array to PostgreSQL array string format for pgvector
+      const embeddingString = `[${embedding.join(",")}]`;
       const { data: embeddingData, error: embeddingError } = await this.supabase
         .from('embeddings')
         .insert({
           user_id: userId,
           content: data.summary,
-          embedding,
+          embedding: embeddingString,
           metadata: {
             type: 'insight_source',
             source_type: data.sourceType,
             granularity: data.granularity,
             period_start: data.periodStart.toISOString().split('T')[0],
-          },
+          } as Json,
         })
         .select('id')
         .single();
@@ -514,27 +518,28 @@ export class InsightGenerator {
     }
 
     // Insert insight source
+    // Convert Record<string, unknown> to Json type for proper typing
+    const metadataJson: Json = (data.metadata || {}) as Json;
+    const insertData: InsightSourceInsert = {
+      user_id: userId,
+      source_type: data.sourceType,
+      granularity: data.granularity,
+      period_start: data.periodStart.toISOString().split('T')[0],
+      period_end: data.periodEnd.toISOString().split('T')[0],
+      summary: data.summary,
+      key_facts: data.keyFacts as Json,
+      actionable_insights: data.actionableInsights as Json,
+      related_atom_ids: data.relatedAtomIds,
+      related_signal_ids: data.relatedSignalIds || [],
+      embedding_id: embeddingId,
+      metadata: metadataJson,
+    };
+
     const { data: insightData, error: insertError } = await this.supabase
       .from('insight_sources')
-      .upsert(
-        {
-          user_id: userId,
-          source_type: data.sourceType,
-          granularity: data.granularity,
-          period_start: data.periodStart.toISOString().split('T')[0],
-          period_end: data.periodEnd.toISOString().split('T')[0],
-          summary: data.summary,
-          key_facts: data.keyFacts,
-          actionable_insights: data.actionableInsights,
-          related_atom_ids: data.relatedAtomIds,
-          related_signal_ids: data.relatedSignalIds || [],
-          embedding_id: embeddingId,
-          metadata: data.metadata || {},
-        },
-        {
-          onConflict: 'user_id,source_type,granularity,period_start',
-        }
-      )
+      .upsert(insertData, {
+        onConflict: 'user_id,source_type,granularity,period_start',
+      })
       .select()
       .single();
 
@@ -626,6 +631,6 @@ export class InsightGenerator {
 /**
  * Create an InsightGenerator instance
  */
-export function createInsightGenerator(supabase: SupabaseClient): InsightGenerator {
+export function createInsightGenerator(supabase: SupabaseClient<Database>): InsightGenerator {
   return new InsightGenerator(supabase);
 }

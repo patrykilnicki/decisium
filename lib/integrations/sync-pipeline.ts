@@ -1,4 +1,6 @@
-import { SupabaseClient } from '@supabase/supabase-js';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { Database, Json } from '@/types/supabase';
+import type { ActivityAtomInsert, EmbeddingInsert } from '@/types/database';
 import { generateEmbedding, generateEmbeddings } from '@/lib/embeddings/generate';
 import { OAuthManager, Integration } from './oauth-manager';
 import {
@@ -66,11 +68,11 @@ export interface StoredActivityAtom {
 // ============================================
 
 export class SyncPipeline {
-  private supabase: SupabaseClient;
+  private supabase: SupabaseClient<Database>;
   private oauthManager: OAuthManager;
   private activeSyncs: Map<string, Promise<SyncProgress>> = new Map();
 
-  constructor(supabase: SupabaseClient, oauthManager: OAuthManager) {
+  constructor(supabase: SupabaseClient<Database>, oauthManager: OAuthManager) {
     this.supabase = supabase;
     this.oauthManager = oauthManager;
   }
@@ -470,20 +472,25 @@ export class SyncPipeline {
               const atom = batch[j];
               const embedding = embeddings[j];
 
+              // Convert number array to PostgreSQL array string format for pgvector
+              const embeddingString = `[${embedding.embedding.join(",")}]`;
+              
+              const insertData: EmbeddingInsert = {
+                user_id: integration.userId,
+                content: atom.content,
+                embedding: embeddingString,
+                metadata: {
+                  type: 'activity_atom',
+                  provider: integration.provider,
+                  external_id: atom.externalId,
+                  atom_type: atom.atomType,
+                  date: atom.occurredAt.toISOString().split('T')[0],
+                } as Json,
+              };
+
               const { data: embeddingData, error: embeddingError } = await this.supabase
                 .from('embeddings')
-                .insert({
-                  user_id: integration.userId,
-                  content: atom.content,
-                  embedding: embedding.embedding,
-                  metadata: {
-                    type: 'activity_atom',
-                    provider: integration.provider,
-                    external_id: atom.externalId,
-                    atom_type: atom.atomType,
-                    date: atom.occurredAt.toISOString().split('T')[0],
-                  },
-                })
+                .insert(insertData)
                 .select('id')
                 .single();
 
@@ -504,20 +511,20 @@ export class SyncPipeline {
     for (const atom of atoms) {
       const embeddingId = embeddingMap.get(atom.externalId);
 
-      const atomData = {
+      const atomData: ActivityAtomInsert = {
         user_id: integration.userId,
         integration_id: integration.id,
         provider: integration.provider,
         external_id: atom.externalId,
-        source_url: atom.sourceUrl,
+        source_url: atom.sourceUrl ?? null,
         atom_type: atom.atomType,
-        title: atom.title,
+        title: atom.title ?? null,
         content: atom.content,
         occurred_at: atom.occurredAt.toISOString(),
-        duration_minutes: atom.durationMinutes,
-        participants: atom.participants,
-        embedding_id: embeddingId,
-        metadata: atom.metadata ?? {},
+        duration_minutes: atom.durationMinutes ?? null,
+        participants: atom.participants ?? null,
+        embedding_id: embeddingId ?? null,
+        metadata: (atom.metadata ?? {}) as Json,
         synced_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
@@ -692,15 +699,17 @@ export class SyncPipeline {
   ): Promise<Array<StoredActivityAtom & { similarity: number }>> {
     // Generate query embedding
     const { embedding } = await generateEmbedding(query);
+    // Convert number array to PostgreSQL array string format for pgvector
+    const queryEmbeddingString = `[${embedding.join(",")}]`;
 
     // Search using the match_activity_atoms function
     const { data, error } = await this.supabase.rpc('match_activity_atoms', {
-      query_embedding: embedding,
+      query_embedding: queryEmbeddingString,
       match_user_id: userId,
       match_threshold: options?.threshold ?? 0.5,
       match_count: options?.limit ?? 10,
-      filter_provider: options?.provider ?? null,
-      filter_atom_type: options?.atomType ?? null,
+      filter_provider: options?.provider ?? undefined,
+      filter_atom_type: options?.atomType ?? undefined,
     });
 
     if (error) {
@@ -752,7 +761,7 @@ export class SyncPipeline {
     if (atoms && atoms.length > 0) {
       const embeddingIds = atoms
         .map((a) => a.embedding_id)
-        .filter(Boolean);
+        .filter((id): id is string => id !== null && id !== undefined);
 
       if (embeddingIds.length > 0) {
         await this.supabase
@@ -801,7 +810,7 @@ export class SyncPipeline {
  * Create a SyncPipeline instance
  */
 export function createSyncPipeline(
-  supabase: SupabaseClient,
+  supabase: SupabaseClient<Database>,
   oauthManager: OAuthManager
 ): SyncPipeline {
   return new SyncPipeline(supabase, oauthManager);

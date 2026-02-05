@@ -1,4 +1,6 @@
-import { SupabaseClient } from '@supabase/supabase-js';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { Database, Json } from '@/types/supabase';
+import type { IntegrationAuditLogInsert } from '@/types/database';
 import { encryptToken, decryptToken } from './crypto';
 import {
   Provider,
@@ -52,9 +54,9 @@ export interface AuditLogEntry {
 // ============================================
 
 export class OAuthManager {
-  private supabase: SupabaseClient;
+  private supabase: SupabaseClient<Database>;
 
-  constructor(supabase: SupabaseClient) {
+  constructor(supabase: SupabaseClient<Database>) {
     this.supabase = supabase;
   }
 
@@ -447,17 +449,21 @@ export class OAuthManager {
       .eq('integration_id', integrationId)
       .single();
 
-    if (error || !data) {
+    if (error || !data || !data.expires_at) {
       return null;
     }
+
+    // TypeScript now knows expires_at is not null after the check above
+    const expiresAt = data.expires_at;
+    const tokenType = data.token_type || 'Bearer';
 
     return {
       accessToken: decryptToken(data.access_token_encrypted),
       refreshToken: data.refresh_token_encrypted
         ? decryptToken(data.refresh_token_encrypted)
         : undefined,
-      expiresAt: new Date(data.expires_at),
-      tokenType: data.token_type,
+      expiresAt: new Date(expiresAt),
+      tokenType,
       scope: '',
     };
   }
@@ -644,13 +650,14 @@ export class OAuthManager {
    * Log an audit event
    */
   private async logAuditEvent(entry: AuditLogEntry): Promise<void> {
-    await this.supabase.from('integration_audit_logs').insert({
+    const insertData: IntegrationAuditLogInsert = {
       user_id: entry.userId,
-      integration_id: entry.integrationId,
+      integration_id: entry.integrationId ?? null,
       event: entry.event,
       provider: entry.provider,
-      metadata: entry.metadata ?? {},
-    });
+      metadata: (entry.metadata ?? {}) as Json,
+    };
+    await this.supabase.from('integration_audit_logs').insert(insertData);
   }
 
   /**
@@ -681,10 +688,10 @@ export class OAuthManager {
 
     return (data ?? []).map((log) => ({
       userId: log.user_id,
-      integrationId: log.integration_id,
-      event: log.event,
-      provider: log.provider,
-      metadata: log.metadata,
+      integrationId: log.integration_id ?? undefined,
+      event: log.event as AuditLogEntry['event'],
+      provider: log.provider as Provider,
+      metadata: log.metadata as Record<string, unknown> | undefined,
     }));
   }
 
@@ -741,6 +748,6 @@ export class OAuthManager {
 /**
  * Create an OAuthManager instance with the provided Supabase client
  */
-export function createOAuthManager(supabase: SupabaseClient): OAuthManager {
+export function createOAuthManager(supabase: SupabaseClient<Database>): OAuthManager {
   return new OAuthManager(supabase);
 }
