@@ -2,6 +2,10 @@ import { DynamicStructuredTool } from "@langchain/core/tools";
 import { z } from "zod";
 import { retrieveHierarchicalMemory } from "@/lib/memory/retriever";
 
+/**
+ * Single embedding-based memory search used by all agents (daily, root/Ask AI, orchestrator).
+ * Uses pgvector similarity over the embeddings table (monthly → weekly → daily → raw).
+ */
 export const memorySearchTool = new DynamicStructuredTool({
   name: "memory_search",
   description:

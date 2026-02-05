@@ -15,6 +15,42 @@ function getNumberEnv(name: string, fallback: number): number {
 }
 
 /**
+ * Base URL for self-calls (e.g. Vercel: https://app.vercel.app). When set with CRON_SECRET,
+ * we trigger next tasks via HTTP so a new serverless invocation runs them (avoids work
+ * being killed when the current invocation ends).
+ */
+function getProcessTaskBaseUrl(): string | null {
+  const url = process.env.VERCEL_URL
+    ? `https://${process.env.VERCEL_URL}`
+    : process.env.APP_URL ?? null;
+  return url && process.env.CRON_SECRET ? url : null;
+}
+
+/**
+ * Trigger processing of a task. On serverless (base URL + CRON_SECRET), calls our
+ * process API so a new invocation runs the task. Otherwise runs in-process (e.g. local dev).
+ */
+function triggerNextTask(taskId: string): void {
+  const baseUrl = getProcessTaskBaseUrl();
+  if (baseUrl) {
+    const cronSecret = process.env.CRON_SECRET;
+    fetch(`${baseUrl}/api/tasks/${taskId}/process`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${cronSecret}`,
+      },
+    }).catch((err) => {
+      console.error(
+        `[triggerNextTask] Failed to trigger task ${taskId}:`,
+        err,
+      );
+    });
+    return;
+  }
+  processTaskImmediately(taskId);
+}
+
+/**
  * Process a single task by ID. Used for immediate processing after enqueueing.
  * Returns true if successful, false if failed (and will be retried by cron).
  */
@@ -46,9 +82,9 @@ export async function processTaskById(
     const result = await handleTask(task);
     if (result.nextTasks?.length) {
       const inserted = await enqueueTasks(client, result.nextTasks);
-      // Trigger next tasks immediately so the chain continues without waiting for cron
+      // Trigger next tasks: via HTTP on serverless (new invocation) or in-process locally
       for (const nextTask of inserted) {
-        processTaskImmediately(nextTask.id);
+        triggerNextTask(nextTask.id);
       }
     }
     await updateTaskSuccess(client, task.id, result.output);

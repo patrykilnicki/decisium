@@ -114,6 +114,11 @@ export async function retrieveMemory(
   };
 }
 
+/**
+ * Embedding-based memory search for agents. Queries the embeddings table via pgvector
+ * (match_embeddings) in order: monthly → weekly → daily → raw; fallback searches all types.
+ * Used by memory_search tool for daily, root, and orchestrator agents.
+ */
 export async function retrieveHierarchicalMemory(
   query: string,
   userId: string,

@@ -8,6 +8,11 @@ import {
 import { getCurrentDate } from "../lib/date-utils";
 import { buildMemoryContext } from "../lib/context";
 import { handleAgentError } from "../lib/error-handler";
+import {
+  getTodayMeetingsForUser,
+  formatTodayMeetingsForContext,
+} from "@/lib/calendar/today-meetings";
+import { createAdminClient } from "@/lib/supabase/admin";
 import type { DailyEvent as SchemaDailyEvent } from "../schemas/daily.schema";
 import {
   DAILY_WELCOME_SYSTEM_PROMPT,
@@ -263,9 +268,29 @@ async function dailyResponseAgentNode(
     currentDate: state.currentDate,
   });
 
-  const contextPrompt = state.memoryContext
-    ? `Memory context:\n${state.memoryContext}\n\nUser question: ${state.userMessage}`
-    : `User question: ${state.userMessage}`;
+  // Fetch today's calendar (same source as daily page) so the agent sees meetings
+  let todayCalendarContext = "";
+  try {
+    const client = createAdminClient();
+    const meetings = await getTodayMeetingsForUser(
+      state.userId,
+      state.currentDate,
+      client,
+    );
+    todayCalendarContext = formatTodayMeetingsForContext(meetings);
+  } catch (err) {
+    console.error("[daily] Failed to fetch today's meetings for context:", err);
+  }
+
+  const contextParts: string[] = [];
+  if (todayCalendarContext) {
+    contextParts.push(todayCalendarContext);
+  }
+  if (state.memoryContext) {
+    contextParts.push(`Memory context:\n${state.memoryContext}`);
+  }
+  contextParts.push(`User question: ${state.userMessage}`);
+  const contextPrompt = contextParts.join("\n\n");
 
   const result = await responseAgent.invoke(
     {
