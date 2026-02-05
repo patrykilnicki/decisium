@@ -184,14 +184,12 @@ export async function getDailyEvents(
   }
 }
 
-export interface TodayMeeting {
-  id: string;
-  title: string | null;
-  occurred_at: string;
-  duration_minutes: number | null;
-  participants: string[] | null;
-  source_url: string | null;
-}
+import {
+  getTodayMeetingsForUser,
+  type TodayMeetingRow,
+} from "@/lib/calendar/today-meetings";
+
+export type TodayMeeting = TodayMeetingRow;
 
 /**
  * Get today's calendar events (meetings) from activity_atoms.
@@ -212,29 +210,7 @@ export async function getTodayMeetings(date?: string): Promise<TodayMeeting[]> {
     }
 
     const targetDate = date ?? getCurrentDate();
-    const [y, m, d] = targetDate.split("-").map(Number);
-    const windowStart = new Date(Date.UTC(y, m - 1, d - 1, 0, 0, 0, 0));
-    const windowEnd = new Date(Date.UTC(y, m - 1, d + 2, 0, 0, 0, 0));
-
-    const { data, error } = await supabase
-      .from("activity_atoms")
-      .select(
-        "id, title, occurred_at, duration_minutes, participants, source_url",
-      )
-      .eq("user_id", user.id)
-      .eq("atom_type", "event")
-      .eq("provider", "google_calendar")
-      .gte("occurred_at", windowStart.toISOString())
-      .lt("occurred_at", windowEnd.toISOString())
-      .order("occurred_at", { ascending: true });
-
-    if (error) {
-      console.error("Failed to fetch today's meetings:", error);
-      return [];
-    }
-
-    const rows = (data ?? []) as TodayMeeting[];
-    return rows.filter((row) => row.occurred_at.slice(0, 10) === targetDate);
+    return getTodayMeetingsForUser(user.id, targetDate, supabase);
   } catch (error) {
     console.error("Error getting today's meetings:", error);
     return [];
