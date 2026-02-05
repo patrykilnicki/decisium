@@ -27,6 +27,17 @@ export interface ThinkingState {
   streamedContent?: string;
 }
 
+export interface TaskEventSummary {
+  id: string;
+  taskId: string;
+  sessionId: string;
+  userId: string;
+  eventType: string;
+  nodeKey: string | null;
+  payload: Record<string, unknown>;
+  createdAt: string;
+}
+
 // Chat input props
 export interface ChatInputProps {
   onSend: (message: string) => Promise<void>;
@@ -112,14 +123,9 @@ export interface UseChatReturn {
   error: string | null;
   reset: () => void;
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
-  tasks?: Array<{
-    id: string;
-    taskType: string;
-    status: string;
-    lastError?: string | null;
-    parentTaskId?: string | null;
-    createdAt: string;
-  }>;
+  taskEvents?: TaskEventSummary[];
+  failedTaskIds?: string[];
   retryTask?: (taskId: string) => Promise<void>;
   cancelTask?: (taskId: string) => Promise<void>;
+  resumeTask?: (taskId: string) => Promise<void>;
 }

@@ -13,10 +13,9 @@ import { Button } from "@/components/ui/button";
 import { format } from "date-fns";
 import { initializeDaily, getTodayMeetingsCount } from "@/app/actions/daily";
 import { Calendar, Loader2 } from "lucide-react";
-import type { TaskRecord } from "@/lib/tasks/task-types";
 import type { TaskType } from "@/lib/tasks/task-definitions";
-import { getTaskNodeId } from "@/lib/tasks/task-definitions";
 import { getTaskStepLabel } from "@/packages/agents/lib/step-mappings";
+import type { TaskEventRecord } from "@/lib/tasks/task-events";
 
 // Transform DailyEvent to ChatMessage
 function transformEvent(event: DailyEvent): ChatMessageType {
@@ -37,7 +36,8 @@ export function DailyContent() {
     steps: [],
   });
   const [error, setError] = useState<string | null>(null);
-  const [tasks, setTasks] = useState<TaskRecord[]>([]);
+  const [taskEvents, setTaskEvents] = useState<TaskEventRecord[]>([]);
+  const [failedTaskIds, setFailedTaskIds] = useState<string[]>([]);
   const pollerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const meetingsPollerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const today = format(new Date(), "yyyy-MM-dd");
@@ -57,16 +57,30 @@ export function DailyContent() {
       const response = await fetch(`/api/daily/events?date=${today}`);
       if (response.ok) {
         const data: DailyEvent[] = await response.json();
-        const transformedMessages = data
-          .filter(
-            (event) =>
-              event != null &&
-              event.role != null &&
-              // Exclude legacy welcome message (agent system message)
-              !(event.role === "agent" && event.type === "system"),
-          )
-          .map(transformEvent);
-        setMessages(transformedMessages);
+        const filtered = data.filter(
+          (event) =>
+            event != null &&
+            event.role != null &&
+            // Exclude legacy welcome message (agent system message)
+            !(event.role === "agent" && event.type === "system"),
+        );
+        const transformed = filtered.map(transformEvent);
+        // Deduplicate consecutive agent messages with same content (avoids double response from race)
+        const deduped: ChatMessageType[] = [];
+        for (let i = 0; i < transformed.length; i++) {
+          const msg = transformed[i];
+          const prev = deduped[deduped.length - 1];
+          if (
+            prev &&
+            prev.role === "assistant" &&
+            msg.role === "assistant" &&
+            prev.content === msg.content
+          ) {
+            continue;
+          }
+          deduped.push(msg);
+        }
+        setMessages(deduped);
       }
     } catch (error) {
       console.error("Failed to load events:", error);
@@ -74,81 +88,114 @@ export function DailyContent() {
     }
   }, [today]);
 
-  const getLatestTaskGroup = useCallback((allTasks: TaskRecord[]) => {
-    const roots = allTasks.filter((task) => !task.parentTaskId);
-    const sortedRoots = [...roots].sort(
-      (a, b) =>
-        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-    );
-    const latestRoot = sortedRoots[0];
-    if (!latestRoot) return allTasks;
-
-    const byParent = new Map<string, TaskRecord[]>();
-    allTasks.forEach((task) => {
-      if (!task.parentTaskId) return;
-      const existing = byParent.get(task.parentTaskId) ?? [];
-      existing.push(task);
-      byParent.set(task.parentTaskId, existing);
-    });
-
-    const collected = new Map<string, TaskRecord>();
-    const stack = [latestRoot];
-    while (stack.length > 0) {
-      const current = stack.pop();
-      if (!current || collected.has(current.id)) continue;
-      collected.set(current.id, current);
-      const children = byParent.get(current.id) ?? [];
-      children.forEach((child) => stack.push(child));
-    }
-
-    return Array.from(collected.values()).sort(
-      (a, b) =>
-        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-    );
-  }, []);
-
-  function mapTaskStatus(
-    status: string,
-  ): ThinkingState["steps"][number]["status"] {
-    if (status === "in_progress") return "running";
-    if (status === "completed") return "completed";
-    if (status === "failed") return "error";
-    return "pending";
+  function getPayloadValue<T>(
+    payload: Record<string, unknown>,
+    key: string,
+  ): T | null {
+    if (!Object.prototype.hasOwnProperty.call(payload, key)) return null;
+    return payload[key] as T;
   }
 
+  function getJobIdFromEvent(event: TaskEventRecord): string | null {
+    const payloadJobId = getPayloadValue<string>(event.payload, "jobId");
+    if (typeof payloadJobId === "string" && payloadJobId.length > 0) {
+      return payloadJobId;
+    }
+    return null;
+  }
+
+  const getLatestJobId = useCallback(
+    (events: TaskEventRecord[]): string | null => {
+      for (let i = events.length - 1; i >= 0; i -= 1) {
+        const event = events[i];
+        if (event.eventType === "job_started") {
+          const jobId = getJobIdFromEvent(event);
+          return jobId ?? event.taskId;
+        }
+      }
+
+      for (let i = events.length - 1; i >= 0; i -= 1) {
+        const event = events[i];
+        const jobId = getJobIdFromEvent(event);
+        if (jobId) return jobId;
+      }
+
+      return null;
+    },
+    [],
+  );
+
+  const getLatestJobEvents = useCallback(
+    (events: TaskEventRecord[]): TaskEventRecord[] => {
+      const jobId = getLatestJobId(events);
+      if (!jobId) return events;
+      return events.filter((event) => getJobIdFromEvent(event) === jobId);
+    },
+    [getLatestJobId],
+  );
+
   const buildThinkingState = useCallback(
-    (allTasks: TaskRecord[]): ThinkingState => {
-      const tasksForRun = getLatestTaskGroup(allTasks);
-      const steps = tasksForRun.map((task) => {
-        const taskType = task.taskType as TaskType;
-        const stepId = getTaskNodeId(taskType);
-        const label = getTaskStepLabel(taskType);
-        return {
-          stepId,
-          label,
-          status: mapTaskStatus(task.status),
-        };
+    (events: TaskEventRecord[]): ThinkingState => {
+      const latestEvents = getLatestJobEvents(events);
+      const stepsById = new Map<string, ThinkingState["steps"][number]>();
+
+      latestEvents.forEach((event) => {
+        if (!event.eventType.startsWith("node_")) return;
+        const payloadTaskType = getPayloadValue<string>(
+          event.payload,
+          "taskType",
+        );
+        const nodeKey =
+          event.nodeKey ??
+          (typeof payloadTaskType === "string" ? payloadTaskType : "");
+        if (!nodeKey) return;
+
+        const label = getTaskStepLabel(nodeKey as TaskType);
+        const status =
+          event.eventType === "node_started"
+            ? "running"
+            : event.eventType === "node_completed"
+              ? "completed"
+              : "error";
+
+        stepsById.set(nodeKey, { stepId: nodeKey, label, status });
       });
 
-      const hasActive = tasksForRun.some(
-        (task) => task.status === "pending" || task.status === "in_progress",
-      );
+      const steps = Array.from(stepsById.values());
+      const latestJobEvent = [...latestEvents]
+        .reverse()
+        .find((event) => event.eventType.startsWith("job_"));
+      const isJobFinished =
+        latestJobEvent?.eventType === "job_completed" ||
+        latestJobEvent?.eventType === "job_failed";
+      const hasJobActivity = latestEvents.length > 0 || steps.length > 0;
+      const isThinking = !isJobFinished && hasJobActivity;
 
       return {
-        isThinking: hasActive,
+        isThinking,
         steps,
         streamedContent: undefined,
       };
     },
-    [getLatestTaskGroup],
+    [getLatestJobEvents],
   );
 
-  const fetchTasks = useCallback(async () => {
+  function isJobFinished(events: TaskEventRecord[]): boolean {
+    const latestJobEvent = [...events]
+      .reverse()
+      .find((event) => event.eventType.startsWith("job_"));
+    return (
+      latestJobEvent?.eventType === "job_completed" ||
+      latestJobEvent?.eventType === "job_failed"
+    );
+  }
+
+  const fetchTaskEvents = useCallback(async () => {
     const response = await fetch(
-      `/api/tasks?sessionId=${encodeURIComponent(sessionId)}`,
+      `/api/tasks/events?sessionId=${encodeURIComponent(sessionId)}`,
     );
     if (!response.ok) return [];
-    const data = (await response.json()) as TaskRecord[];
+    const data = (await response.json()) as TaskEventRecord[];
     return Array.isArray(data) ? data : [];
   }, [sessionId]);
 
@@ -159,42 +206,63 @@ export function DailyContent() {
     }
   }, []);
 
-  const pollTasks = useCallback(async () => {
+  const pollTaskEvents = useCallback(async () => {
     try {
-      const latestTasks = await fetchTasks();
-      setTasks(latestTasks);
-      const thinking = buildThinkingState(latestTasks);
+      const latestEvents = await fetchTaskEvents();
+      setTaskEvents(latestEvents);
+      const thinking = buildThinkingState(latestEvents);
       setThinkingState(thinking);
 
-      const latestFailed = getLatestTaskGroup(latestTasks).find(
-        (task) => task.status === "failed" && task.lastError,
+      const latestJobEvents = getLatestJobEvents(latestEvents);
+      const failedEvents = latestJobEvents.filter(
+        (event) => event.eventType === "node_failed",
       );
-      if (latestFailed?.lastError) {
-        setError(latestFailed.lastError);
+      const failedIds = Array.from(
+        new Set(failedEvents.map((event) => event.taskId)),
+      );
+      setFailedTaskIds(failedIds);
+
+      const latestFailedEvent = [...latestJobEvents]
+        .reverse()
+        .find(
+          (event) =>
+            event.eventType === "node_failed" ||
+            event.eventType === "job_failed",
+        );
+      if (latestFailedEvent) {
+        const errorMessage = getPayloadValue<string>(
+          latestFailedEvent.payload,
+          "error",
+        );
+        if (errorMessage) setError(errorMessage);
+      } else {
+        setError(null);
       }
 
-      if (!thinking.isThinking) {
+      if (isJobFinished(latestJobEvents)) {
         await loadEvents();
         stopPolling();
       }
     } catch (pollError) {
       const message =
-        pollError instanceof Error ? pollError.message : "Failed to poll tasks";
+        pollError instanceof Error
+          ? pollError.message
+          : "Failed to poll events";
       setError(message);
     }
   }, [
     buildThinkingState,
-    fetchTasks,
-    getLatestTaskGroup,
+    fetchTaskEvents,
+    getLatestJobEvents,
     loadEvents,
     stopPolling,
   ]);
 
   const startPolling = useCallback(() => {
     if (pollerRef.current) return;
-    pollTasks();
-    pollerRef.current = setInterval(pollTasks, 1500);
-  }, [pollTasks]);
+    pollTaskEvents();
+    pollerRef.current = setInterval(pollTaskEvents, 1500);
+  }, [pollTaskEvents]);
 
   useEffect(() => {
     async function onPageOpen() {
@@ -286,7 +354,7 @@ export function DailyContent() {
     [startPolling],
   );
 
-  const failedTasks = tasks.filter((task) => task.status === "failed");
+  const failedTasks = failedTaskIds;
 
   const retryTask = useCallback(
     async (taskId: string) => {
@@ -299,6 +367,14 @@ export function DailyContent() {
   const cancelTask = useCallback(
     async (taskId: string) => {
       await fetch(`/api/tasks/${taskId}/cancel`, { method: "POST" });
+      startPolling();
+    },
+    [startPolling],
+  );
+
+  const resumeTask = useCallback(
+    async (taskId: string) => {
+      await fetch(`/api/tasks/${taskId}/resume`, { method: "POST" });
       startPolling();
     },
     [startPolling],
@@ -332,19 +408,28 @@ export function DailyContent() {
             {failedTasks.length > 0 && (
               <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <span>Some steps failed. You can retry or cancel.</span>
+                  <span>
+                    Some steps failed. You can retry, resume, or cancel.
+                  </span>
                   <div className="flex gap-2">
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => retryTask(failedTasks[0].id)}
+                      onClick={() => retryTask(failedTasks[0])}
                     >
                       Retry
                     </Button>
                     <Button
                       size="sm"
+                      variant="secondary"
+                      onClick={() => resumeTask(failedTasks[0])}
+                    >
+                      Resume
+                    </Button>
+                    <Button
+                      size="sm"
                       variant="ghost"
-                      onClick={() => cancelTask(failedTasks[0].id)}
+                      onClick={() => cancelTask(failedTasks[0])}
                     >
                       Cancel
                     </Button>
@@ -373,19 +458,28 @@ export function DailyContent() {
             <div className="px-6 pt-4">
               <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <span>Some steps failed. You can retry or cancel.</span>
+                  <span>
+                    Some steps failed. You can retry, resume, or cancel.
+                  </span>
                   <div className="flex gap-2">
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => retryTask(failedTasks[0].id)}
+                      onClick={() => retryTask(failedTasks[0])}
                     >
                       Retry
                     </Button>
                     <Button
                       size="sm"
+                      variant="secondary"
+                      onClick={() => resumeTask(failedTasks[0])}
+                    >
+                      Resume
+                    </Button>
+                    <Button
+                      size="sm"
                       variant="ghost"
-                      onClick={() => cancelTask(failedTasks[0].id)}
+                      onClick={() => cancelTask(failedTasks[0])}
                     >
                       Cancel
                     </Button>

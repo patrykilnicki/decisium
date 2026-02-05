@@ -26,6 +26,7 @@ export type MonthlySummary =
 export type PendingCalendarSync =
   Database["public"]["Tables"]["pending_calendar_syncs"]["Row"];
 export type Task = Database["public"]["Tables"]["tasks"]["Row"];
+export type TaskEvent = Database["public"]["Tables"]["task_events"]["Row"];
 export type UserSignal = Database["public"]["Tables"]["user_signals"]["Row"];
 export type User = Database["public"]["Tables"]["users"]["Row"];
 export type WeeklySummary =
@@ -62,6 +63,8 @@ export type MonthlySummaryInsert =
 export type PendingCalendarSyncInsert =
   Database["public"]["Tables"]["pending_calendar_syncs"]["Insert"];
 export type TaskInsert = Database["public"]["Tables"]["tasks"]["Insert"];
+export type TaskEventInsert =
+  Database["public"]["Tables"]["task_events"]["Insert"];
 export type UserSignalInsert =
   Database["public"]["Tables"]["user_signals"]["Insert"];
 export type UserInsert = Database["public"]["Tables"]["users"]["Insert"];
@@ -99,6 +102,8 @@ export type MonthlySummaryUpdate =
 export type PendingCalendarSyncUpdate =
   Database["public"]["Tables"]["pending_calendar_syncs"]["Update"];
 export type TaskUpdate = Database["public"]["Tables"]["tasks"]["Update"];
+export type TaskEventUpdate =
+  Database["public"]["Tables"]["task_events"]["Update"];
 export type UserSignalUpdate =
   Database["public"]["Tables"]["user_signals"]["Update"];
 export type UserUpdate = Database["public"]["Tables"]["users"]["Update"];
@@ -137,6 +142,7 @@ export type IntegrationAuditLogProvider = IntegrationAuditLog["provider"];
 // Task Types
 export type TaskStatus = Task["status"];
 export type TaskType = Task["task_type"];
+export type TaskEventType = TaskEvent["event_type"];
 
 // User Signal Types
 export type UserSignalType = UserSignal["signal_type"];

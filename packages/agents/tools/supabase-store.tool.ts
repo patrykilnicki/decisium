@@ -1,6 +1,19 @@
 import { DynamicStructuredTool } from "@langchain/core/tools";
 import { z } from "zod";
 
+function formatEmbeddingValue(value: unknown): string | null | undefined {
+  if (value == null) return value as null | undefined;
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) {
+    const numbers = value.filter(
+      (item): item is number =>
+        typeof item === "number" && Number.isFinite(item),
+    );
+    return `[${numbers.join(",")}]`;
+  }
+  return undefined;
+}
+
 export const supabaseStoreTool = new DynamicStructuredTool({
   name: "supabase_store",
   description: `Store data in Supabase. Available tables:
@@ -77,6 +90,13 @@ export const supabaseStoreTool = new DynamicStructuredTool({
         throw new Error(
           `Invalid role for ask_messages: "${data.role}". Must be one of: ${validRoles.join(", ")}`,
         );
+      }
+    }
+
+    if (table === "embeddings") {
+      const formattedEmbedding = formatEmbeddingValue(data.embedding);
+      if (formattedEmbedding) {
+        data.embedding = formattedEmbedding;
       }
     }
 

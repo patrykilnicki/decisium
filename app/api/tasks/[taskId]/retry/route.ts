@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { createTaskEvent } from "@/lib/tasks/task-events";
+import { resolveRootTaskId } from "@/lib/tasks/task-repository";
 import type { Task } from "@/types/database";
 
 type RouteParams = { params: Promise<{ taskId: string }> };
@@ -48,6 +50,21 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         { status: 400 },
       );
     }
+
+    const jobId = await resolveRootTaskId(adminClient, taskId);
+    await createTaskEvent(adminClient, {
+      taskId,
+      sessionId: updated.session_id,
+      userId: updated.user_id,
+      eventType: "job_retry_requested",
+      nodeKey: "job",
+      payload: {
+        jobId,
+        taskId,
+        sessionId: updated.session_id,
+        taskType: updated.task_type,
+      },
+    });
 
     return NextResponse.json(updated as Task);
   } catch (error) {

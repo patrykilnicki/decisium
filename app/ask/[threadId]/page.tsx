@@ -36,14 +36,15 @@ export default function ThreadPage() {
     isLoading,
     error,
     setMessages,
-    tasks,
+    failedTaskIds,
     retryTask,
     cancelTask,
+    resumeTask,
   } = useChat({
     apiEndpoint: `/api/ask/threads/${threadId}/messages`,
     mode: "task",
     sessionId: threadId,
-    tasksEndpoint: "/api/tasks",
+    tasksEndpoint: "/api/tasks/events",
     messagesEndpoint: `/api/ask/threads/${threadId}/messages`,
   });
 
@@ -83,7 +84,7 @@ export default function ThreadPage() {
     [sendMessage],
   );
 
-  const failedTasks = tasks?.filter((task) => task.status === "failed") ?? [];
+  const failedTasks = failedTaskIds ?? [];
 
   return (
     <ProtectedRoute>
@@ -123,19 +124,28 @@ export default function ThreadPage() {
             <div className="px-4 pb-4">
               <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <span>Some steps failed. You can retry or cancel.</span>
+                  <span>
+                    Some steps failed. You can retry, resume, or cancel.
+                  </span>
                   <div className="flex gap-2">
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => retryTask?.(failedTasks[0].id)}
+                      onClick={() => retryTask?.(failedTasks[0])}
                     >
                       Retry
                     </Button>
                     <Button
                       size="sm"
+                      variant="secondary"
+                      onClick={() => resumeTask?.(failedTasks[0])}
+                    >
+                      Resume
+                    </Button>
+                    <Button
+                      size="sm"
                       variant="ghost"
-                      onClick={() => cancelTask?.(failedTasks[0].id)}
+                      onClick={() => cancelTask?.(failedTasks[0])}
                     >
                       Cancel
                     </Button>

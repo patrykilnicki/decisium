@@ -2,11 +2,14 @@ import "@/lib/suppress-url-parse-deprecation";
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
-  fetchTaskById,
+  claimTaskById,
   enqueueTasks,
+  fetchTaskById,
+  resolveRootTaskId,
   updateTaskFailure,
   updateTaskSuccess,
 } from "@/lib/tasks/task-repository";
+import { createTaskEvent } from "@/lib/tasks/task-events";
 import { handleTask } from "@/packages/workers/langgraph-handlers";
 
 function getNumberEnv(name: string, fallback: number): number {
@@ -24,6 +27,25 @@ function getProcessTaskBaseUrl(): string | null {
     ? `https://${process.env.VERCEL_URL}`
     : (process.env.APP_URL ?? null);
   return url && process.env.CRON_SECRET ? url : null;
+}
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error);
+}
+
+function buildJobPayload(params: {
+  jobId: string;
+  taskId: string;
+  sessionId: string;
+  taskType: string;
+}): Record<string, unknown> {
+  return {
+    jobId: params.jobId,
+    taskId: params.taskId,
+    sessionId: params.sessionId,
+    taskType: params.taskType,
+  };
 }
 
 /**
@@ -59,35 +81,74 @@ export async function processTaskById(
   const client = createAdminClient();
   const maxRetries = getNumberEnv("TASK_MAX_RETRIES", 3);
 
-  // Fetch the task
-  const task = await fetchTaskById(client, taskId);
+  // Atomically claim the task (pending -> in_progress). Prevents double execution
+  // when both processTaskImmediately and the worker could pick the same task.
+  const task = await claimTaskById(client, taskId);
   if (!task) {
-    return { ok: false, error: "Task not found" };
-  }
-
-  // If already claimed/processing, skip (another process is handling it)
-  if (task.status === "in_progress") {
-    return { ok: true }; // Already being processed
-  }
-
-  // If not pending, skip
-  if (task.status !== "pending") {
-    return { ok: true }; // Already completed or failed
+    return { ok: true }; // Already claimed, completed, failed, or not found
   }
 
   try {
-    const result = await handleTask(task);
+    const jobId = await resolveRootTaskId(client, task.id);
+    if (!task.parent_task_id) {
+      await createTaskEvent(client, {
+        taskId: task.id,
+        sessionId: task.session_id,
+        userId: task.user_id,
+        eventType: "job_started",
+        nodeKey: "job",
+        payload: buildJobPayload({
+          jobId,
+          taskId: task.id,
+          sessionId: task.session_id,
+          taskType: task.task_type,
+        }),
+      });
+    }
+
+    const result = await handleTask(task, { jobId });
     if (result.nextTasks?.length) {
       const inserted = await enqueueTasks(client, result.nextTasks);
       // Trigger next tasks: via HTTP on serverless (new invocation) or in-process locally
       for (const nextTask of inserted) {
         triggerNextTask(nextTask.id);
       }
+    } else {
+      await createTaskEvent(client, {
+        taskId: task.id,
+        sessionId: task.session_id,
+        userId: task.user_id,
+        eventType: "job_completed",
+        nodeKey: "job",
+        payload: buildJobPayload({
+          jobId,
+          taskId: task.id,
+          sessionId: task.session_id,
+          taskType: task.task_type,
+        }),
+      });
     }
     await updateTaskSuccess(client, task.id, result.output);
     return { ok: true };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = getErrorMessage(error);
+    const jobId = await resolveRootTaskId(client, task.id);
+    await createTaskEvent(client, {
+      taskId: task.id,
+      sessionId: task.session_id,
+      userId: task.user_id,
+      eventType: "job_failed",
+      nodeKey: "job",
+      payload: {
+        ...buildJobPayload({
+          jobId,
+          taskId: task.id,
+          sessionId: task.session_id,
+          taskType: task.task_type,
+        }),
+        error: message,
+      },
+    });
     const nextRetryCount = task.retry_count + 1;
     const shouldRetry = nextRetryCount <= maxRetries;
     const status = shouldRetry ? "pending" : "failed";
