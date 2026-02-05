@@ -23,17 +23,17 @@ export async function proxy(request: NextRequest) {
         },
         setAll(cookiesToSet: CookieToSet[]) {
           cookiesToSet.forEach(({ name, value }) =>
-            request.cookies.set(name, value)
+            request.cookies.set(name, value),
           );
           supabaseResponse = NextResponse.next({
             request,
           });
           cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options)
+            supabaseResponse.cookies.set(name, value, options),
           );
         },
       },
-    }
+    },
   );
 
   const {
@@ -63,7 +63,11 @@ export async function proxy(request: NextRequest) {
   }
 
   // Check onboarding status for authenticated users
-  if (user && !pathname.startsWith("/onboarding") && !pathname.startsWith("/api")) {
+  if (
+    user &&
+    !pathname.startsWith("/onboarding") &&
+    !pathname.startsWith("/api")
+  ) {
     const { data: profile } = await supabase
       .from("users")
       .select("onboarding_completed")
@@ -71,7 +75,9 @@ export async function proxy(request: NextRequest) {
       .single();
 
     // Redirect to onboarding if not completed
-    const onboardingCompleted = (profile as { onboarding_completed?: boolean } | null)?.onboarding_completed;
+    const onboardingCompleted = (
+      profile as { onboarding_completed?: boolean } | null
+    )?.onboarding_completed;
     if (!onboardingCompleted) {
       const url = request.nextUrl.clone();
       url.pathname = "/onboarding";

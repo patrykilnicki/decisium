@@ -2,7 +2,11 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
-import { OnboardingLayout, StepProgress, StepConnectApps } from "@/components/onboarding";
+import {
+  OnboardingLayout,
+  StepProgress,
+  StepConnectApps,
+} from "@/components/onboarding";
 import { completeOnboarding } from "@/app/actions/onboarding";
 
 const TOTAL_STEPS = 1;
@@ -38,7 +42,9 @@ function OnboardingContent() {
     <OnboardingLayout>
       <div className="mb-4 text-center">
         <h1 className="text-3xl font-bold text-foreground">Decisium</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Let&apos;s get you set up</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Let&apos;s get you set up
+        </p>
       </div>
       <StepProgress currentStep={currentStep} totalSteps={TOTAL_STEPS} />
       {renderStep()}
@@ -48,13 +54,15 @@ function OnboardingContent() {
 
 export default function OnboardingPage() {
   return (
-    <Suspense fallback={
-      <OnboardingLayout>
-        <div className="flex items-center justify-center">
-          <div className="text-muted-foreground">Loading...</div>
-        </div>
-      </OnboardingLayout>
-    }>
+    <Suspense
+      fallback={
+        <OnboardingLayout>
+          <div className="flex items-center justify-center">
+            <div className="text-muted-foreground">Loading...</div>
+          </div>
+        </OnboardingLayout>
+      }
+    >
       <OnboardingContent />
     </Suspense>
   );

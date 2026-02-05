@@ -1,4 +1,4 @@
-import { NextRequest } from 'next/server';
+import { NextRequest } from "next/server";
 
 /**
  * Get the canonical app URL for the current environment.
@@ -13,7 +13,7 @@ import { NextRequest } from 'next/server';
  */
 function isLocalhostUrl(url: string): boolean {
   return (
-    url.startsWith('http://localhost') || url.startsWith('https://localhost')
+    url.startsWith("http://localhost") || url.startsWith("https://localhost")
   );
 }
 
@@ -23,7 +23,8 @@ export function getAppUrl(request?: NextRequest | Request): string {
   if (request) {
     // 1. From request URL - actual URL the user requested
     try {
-      const url = request instanceof NextRequest ? request.nextUrl : new URL(request.url);
+      const url =
+        request instanceof NextRequest ? request.nextUrl : new URL(request.url);
       const origin = url.origin;
       if (origin) {
         fromRequest = origin;
@@ -34,20 +35,20 @@ export function getAppUrl(request?: NextRequest | Request): string {
 
     if (!fromRequest) {
       // 2. From Host header (always sent by client)
-      const host = request.headers.get('host');
+      const host = request.headers.get("host");
       if (host) {
-        const proto = request.headers.get('x-forwarded-proto') ?? 'https';
-        fromRequest = `${proto === 'https' ? 'https' : 'http'}://${host.split(',')[0].trim()}`;
+        const proto = request.headers.get("x-forwarded-proto") ?? "https";
+        fromRequest = `${proto === "https" ? "https" : "http"}://${host.split(",")[0].trim()}`;
       }
     }
 
     if (!fromRequest) {
       // 3. From forwarded headers (when behind proxy)
-      const forwardedHost = request.headers.get('x-forwarded-host');
-      const forwardedProto = request.headers.get('x-forwarded-proto');
+      const forwardedHost = request.headers.get("x-forwarded-host");
+      const forwardedProto = request.headers.get("x-forwarded-proto");
       if (forwardedHost) {
-        const protocol = forwardedProto === 'https' ? 'https' : 'http';
-        fromRequest = `${protocol}://${forwardedHost.split(',')[0].trim()}`;
+        const protocol = forwardedProto === "https" ? "https" : "http";
+        fromRequest = `${protocol}://${forwardedHost.split(",")[0].trim()}`;
       }
     }
 
@@ -69,7 +70,7 @@ export function getAppUrl(request?: NextRequest | Request): string {
   // 3. Explicit env (set per deployment)
   const appUrl = process.env.NEXT_PUBLIC_APP_URL;
   if (appUrl) {
-    const normalized = appUrl.replace(/\/$/, ''); // strip trailing slash
+    const normalized = appUrl.replace(/\/$/, ""); // strip trailing slash
     // Never use localhost when we're on Vercel (avoids auth callback redirecting to localhost in production)
     const onVercel = process.env.VERCEL_URL ?? process.env.VERCEL_BRANCH_URL;
     if (!isLocalhostUrl(normalized) || !onVercel) {
@@ -88,7 +89,7 @@ export function getAppUrl(request?: NextRequest | Request): string {
   }
 
   // 5. Local development
-  return 'http://localhost:3000';
+  return "http://localhost:3000";
 }
 
 /**
@@ -98,9 +99,9 @@ export function getAppUrl(request?: NextRequest | Request): string {
  * @see https://vercel.com/docs/deployment-protection/methods-to-bypass-deployment-protection/protection-bypass-automation
  */
 export function getGoogleCalendarWebhookUrl(baseUrl: string): string {
-  const path = '/api/webhooks/google-calendar';
+  const path = "/api/webhooks/google-calendar";
   const bypassSecret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
-  const url = `${baseUrl.replace(/\/$/, '')}${path}`;
+  const url = `${baseUrl.replace(/\/$/, "")}${path}`;
   if (bypassSecret) {
     return `${url}?x-vercel-protection-bypass=${encodeURIComponent(bypassSecret)}`;
   }

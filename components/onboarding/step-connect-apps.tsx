@@ -2,7 +2,12 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardTitle,
+} from "@/components/ui/card";
 
 interface AppConnection {
   id: string;
@@ -24,9 +29,27 @@ function GoogleCalendarIcon() {
         strokeLinecap="round"
         strokeLinejoin="round"
       />
-      <path d="M3 9H21" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M16.5 1.5V6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M7.5 1.5V6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="M3 9H21"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M16.5 1.5V6"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M7.5 1.5V6"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }
@@ -82,8 +105,8 @@ export function StepConnectApps({ onComplete }: StepConnectAppsProps) {
     await new Promise((resolve) => setTimeout(resolve, 1000));
     setApps((prev) =>
       prev.map((app) =>
-        app.id === appId ? { ...app, connected: !app.connected } : app
-      )
+        app.id === appId ? { ...app, connected: !app.connected } : app,
+      ),
     );
     setIsLoading(null);
   }
@@ -101,7 +124,9 @@ export function StepConnectApps({ onComplete }: StepConnectAppsProps) {
   return (
     <div className="w-full space-y-6">
       <div className="text-center">
-        <h1 className="text-2xl font-bold text-foreground">Connect Your Apps</h1>
+        <h1 className="text-2xl font-bold text-foreground">
+          Connect Your Apps
+        </h1>
         <p className="mt-2 text-sm text-muted-foreground">
           Connect your daily apps to get personalized insights
         </p>

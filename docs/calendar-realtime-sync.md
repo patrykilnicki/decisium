@@ -14,10 +14,10 @@ Reference: [Google Calendar API – Push notifications](https://developers.googl
 
 ### Resource states
 
-| `X-Goog-Resource-State` | Meaning |
-|-------------------------|--------|
-| `sync` | Channel was just created. Safe to ignore, or use to prepare for later events. |
-| `exists` | Resource changed (create/update/delete). Perform incremental sync. |
+| `X-Goog-Resource-State` | Meaning                                                                       |
+| ----------------------- | ----------------------------------------------------------------------------- |
+| `sync`                  | Channel was just created. Safe to ignore, or use to prepare for later events. |
+| `exists`                | Resource changed (create/update/delete). Perform incremental sync.            |
 
 ### How to respond (official)
 
@@ -69,14 +69,14 @@ So: **use periodic full/incremental sync** (e.g. every 6 hours) as a backup, not
 
 ## 4. How we implement it
 
-| Requirement | Implementation |
-|-------------|----------------|
-| Respond quickly | Webhook returns 200 immediately after enqueuing to `pending_calendar_syncs`. |
+| Requirement      | Implementation                                                                                                                           |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Respond quickly  | Webhook returns 200 immediately after enqueuing to `pending_calendar_syncs`.                                                             |
 | Async processing | Cron `/api/cron/process-pending-calendar-syncs` every 1 min processes the queue (Vercel invokes with GET; set `CRON_SECRET` so it runs). |
-| Incremental sync | We store `sync_token` in `calendar_watches`; sync pipeline uses it for incremental list and stores `nextSyncToken`. |
-| Backup sync | Cron `/api/cron/integration-sync` every 6 hours syncs all active integrations. |
-| Channel renewal | Cron `/api/cron/renew-calendar-watches` daily recreates expiring watches. |
-| 410 handling | Sync pipeline treats 410 from Calendar API as invalid token and retries with full sync (see code). |
+| Incremental sync | We store `sync_token` in `calendar_watches`; sync pipeline uses it for incremental list and stores `nextSyncToken`.                      |
+| Backup sync      | Cron `/api/cron/integration-sync` every 6 hours syncs all active integrations.                                                           |
+| Channel renewal  | Cron `/api/cron/renew-calendar-watches` daily recreates expiring watches.                                                                |
+| 410 handling     | Sync pipeline treats 410 from Calendar API as invalid token and retries with full sync (see code).                                       |
 
 ### Vercel Cron: make it run automatically
 

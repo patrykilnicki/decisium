@@ -30,7 +30,7 @@ export async function initializeDaily(): Promise<DailyWelcomeResult> {
 }
 
 export async function processDailyMessage(
-  userMessage: string
+  userMessage: string,
 ): Promise<{ taskId: string; userEventId?: string }> {
   try {
     // Get authenticated user context
@@ -84,7 +84,7 @@ export async function processDailyMessage(
 }
 
 export async function processDailyEvent(
-  eventId: string
+  eventId: string,
 ): Promise<{ taskId: string } | null> {
   try {
     // Get authenticated user context
@@ -115,7 +115,7 @@ export async function processDailyEvent(
 }
 
 export async function createDailyEvent(
-  input: DailyEventInput
+  input: DailyEventInput,
 ): Promise<SchemaDailyEvent> {
   try {
     // Get authenticated user context
@@ -149,7 +149,7 @@ export async function createDailyEvent(
 }
 
 export async function getDailyEvents(
-  date?: string
+  date?: string,
 ): Promise<SchemaDailyEvent[]> {
   try {
     // Get authenticated user context
@@ -212,7 +212,9 @@ export async function getTodayMeetings(date?: string): Promise<TodayMeeting[]> {
 
     const { data, error } = await supabase
       .from("activity_atoms")
-      .select("id, title, occurred_at, duration_minutes, participants, source_url")
+      .select(
+        "id, title, occurred_at, duration_minutes, participants, source_url",
+      )
       .eq("user_id", user.id)
       .eq("atom_type", "event")
       .eq("provider", "google_calendar")

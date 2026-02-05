@@ -6,7 +6,7 @@ function toTaskRecord(row: TaskRow): TaskRecord {
   // Cast Json types to Record<string, unknown> for domain model
   const input = (row.input ?? {}) as Record<string, unknown>;
   const output = row.output ? (row.output as Record<string, unknown>) : null;
-  
+
   return {
     id: row.id,
     parentTaskId: row.parent_task_id,
@@ -18,14 +18,14 @@ function toTaskRecord(row: TaskRow): TaskRecord {
     status: row.status,
     retryCount: row.retry_count,
     lastError: row.last_error,
-    createdAt: row.created_at ?? '',
-    updatedAt: row.updated_at ?? '',
+    createdAt: row.created_at ?? "",
+    updatedAt: row.updated_at ?? "",
   };
 }
 
 export async function enqueueTask(
   client: SupabaseClient<Database>,
-  task: TaskInsert
+  task: TaskInsert,
 ): Promise<TaskRow> {
   const { data, error } = await client
     .from("tasks")
@@ -38,7 +38,9 @@ export async function enqueueTask(
     .single();
 
   if (error || !data) {
-    throw new Error(`Failed to enqueue task: ${error?.message ?? "Unknown error"}`);
+    throw new Error(
+      `Failed to enqueue task: ${error?.message ?? "Unknown error"}`,
+    );
   }
 
   return data as TaskRow;
@@ -46,21 +48,25 @@ export async function enqueueTask(
 
 export async function enqueueTasks(
   client: SupabaseClient<Database>,
-  tasks: TaskInsert[]
+  tasks: TaskInsert[],
 ): Promise<TaskRow[]> {
   if (tasks.length === 0) return [];
 
   const { data, error } = await client
     .from("tasks")
-    .insert(tasks.map((task) => ({
-      ...task,
-      status: task.status ?? "pending",
-      retry_count: task.retry_count ?? 0,
-    })))
+    .insert(
+      tasks.map((task) => ({
+        ...task,
+        status: task.status ?? "pending",
+        retry_count: task.retry_count ?? 0,
+      })),
+    )
     .select();
 
   if (error || !data) {
-    throw new Error(`Failed to enqueue tasks: ${error?.message ?? "Unknown error"}`);
+    throw new Error(
+      `Failed to enqueue tasks: ${error?.message ?? "Unknown error"}`,
+    );
   }
 
   return data as TaskRow[];
@@ -68,7 +74,7 @@ export async function enqueueTasks(
 
 export async function claimTasks(
   client: SupabaseClient<Database>,
-  options: { maxTasks: number; staleAfterSeconds: number }
+  options: { maxTasks: number; staleAfterSeconds: number },
 ): Promise<TaskRow[]> {
   const { data, error } = await client.rpc("claim_tasks", {
     max_tasks: options.maxTasks,
@@ -85,11 +91,11 @@ export async function claimTasks(
 export async function updateTaskSuccess(
   client: SupabaseClient<Database>,
   taskId: string,
-  output: Record<string, unknown>
+  output: Record<string, unknown>,
 ): Promise<TaskRow> {
   // Cast Record<string, unknown> to Json for database insert
   const outputJson: Json = output as Json;
-  
+
   const { data, error } = await client
     .from("tasks")
     .update({
@@ -102,7 +108,9 @@ export async function updateTaskSuccess(
     .single();
 
   if (error || !data) {
-    throw new Error(`Failed to mark task complete: ${error?.message ?? "Unknown error"}`);
+    throw new Error(
+      `Failed to mark task complete: ${error?.message ?? "Unknown error"}`,
+    );
   }
 
   return data as TaskRow;
@@ -111,7 +119,7 @@ export async function updateTaskSuccess(
 export async function updateTaskFailure(
   client: SupabaseClient<Database>,
   taskId: string,
-  params: { status: TaskStatus; retryCount: number; lastError: string }
+  params: { status: TaskStatus; retryCount: number; lastError: string },
 ): Promise<TaskRow> {
   const { data, error } = await client
     .from("tasks")
@@ -125,7 +133,9 @@ export async function updateTaskFailure(
     .single();
 
   if (error || !data) {
-    throw new Error(`Failed to mark task failed: ${error?.message ?? "Unknown error"}`);
+    throw new Error(
+      `Failed to mark task failed: ${error?.message ?? "Unknown error"}`,
+    );
   }
 
   return data as TaskRow;
@@ -134,7 +144,7 @@ export async function updateTaskFailure(
 export async function fetchTasksBySession(
   client: SupabaseClient<Database>,
   sessionId: string,
-  userId: string
+  userId: string,
 ): Promise<TaskRecord[]> {
   const { data, error } = await client
     .from("tasks")

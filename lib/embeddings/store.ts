@@ -5,20 +5,26 @@ import { generateEmbedding } from "./generate";
 
 const supabase = createClient<Database>(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
 );
 
 export interface StoreEmbeddingParams {
   userId: string;
   content: string;
   metadata: {
-    type: "daily_event" | "daily_summary" | "weekly_summary" | "monthly_summary";
+    type:
+      | "daily_event"
+      | "daily_summary"
+      | "weekly_summary"
+      | "monthly_summary";
     source_id: string;
     date: string;
   };
 }
 
-export async function storeEmbedding(params: StoreEmbeddingParams): Promise<string> {
+export async function storeEmbedding(
+  params: StoreEmbeddingParams,
+): Promise<string> {
   const { userId, content, metadata } = params;
 
   // Generate embedding
@@ -35,7 +41,7 @@ export async function storeEmbedding(params: StoreEmbeddingParams): Promise<stri
     embedding: embeddingString,
     metadata,
   };
-  
+
   const { data, error } = await supabase
     .from("embeddings")
     .insert(insertData)

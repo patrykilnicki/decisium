@@ -1,7 +1,10 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
-import { createOAuthManager, createCalendarWatchService } from '@/lib/integrations';
-import { Provider } from '@agents/integrations';
+import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
+import {
+  createOAuthManager,
+  createCalendarWatchService,
+} from "@/lib/integrations";
+import { Provider } from "@agents/integrations";
 
 /**
  * GET /api/integrations/[provider]
@@ -9,7 +12,7 @@ import { Provider } from '@agents/integrations';
  */
 export async function GET(
   _request: NextRequest,
-  { params }: { params: Promise<{ provider: string }> }
+  { params }: { params: Promise<{ provider: string }> },
 ) {
   const { provider } = await params;
 
@@ -23,18 +26,15 @@ export async function GET(
     } = await supabase.auth.getUser();
 
     if (authError || !user) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     // Validate provider
-    const validProviders = ['google_calendar', 'gmail', 'notion', 'linear'];
+    const validProviders = ["google_calendar", "gmail", "notion", "linear"];
     if (!validProviders.includes(provider)) {
       return NextResponse.json(
         { error: `Invalid provider: ${provider}` },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -42,7 +42,7 @@ export async function GET(
     const oauthManager = createOAuthManager(supabase);
     const integration = await oauthManager.getIntegrationByProvider(
       user.id,
-      provider as Provider
+      provider as Provider,
     );
 
     if (!integration) {
@@ -53,7 +53,7 @@ export async function GET(
     }
 
     return NextResponse.json({
-      connected: integration.status === 'active',
+      connected: integration.status === "active",
       provider,
       integration: {
         id: integration.id,
@@ -68,8 +68,8 @@ export async function GET(
   } catch (error) {
     console.error(`Error getting integration for ${provider}:`, error);
     return NextResponse.json(
-      { error: 'Failed to get integration status' },
-      { status: 500 }
+      { error: "Failed to get integration status" },
+      { status: 500 },
     );
   }
 }
@@ -80,7 +80,7 @@ export async function GET(
  */
 export async function DELETE(
   _request: NextRequest,
-  { params }: { params: Promise<{ provider: string }> }
+  { params }: { params: Promise<{ provider: string }> },
 ) {
   const { provider } = await params;
 
@@ -94,18 +94,15 @@ export async function DELETE(
     } = await supabase.auth.getUser();
 
     if (authError || !user) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     // Validate provider
-    const validProviders = ['google_calendar', 'gmail', 'notion', 'linear'];
+    const validProviders = ["google_calendar", "gmail", "notion", "linear"];
     if (!validProviders.includes(provider)) {
       return NextResponse.json(
         { error: `Invalid provider: ${provider}` },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -113,18 +110,18 @@ export async function DELETE(
     const oauthManager = createOAuthManager(supabase);
     const integration = await oauthManager.getIntegrationByProvider(
       user.id,
-      provider as Provider
+      provider as Provider,
     );
 
     if (!integration) {
       return NextResponse.json(
-        { error: 'Integration not found' },
-        { status: 404 }
+        { error: "Integration not found" },
+        { status: 404 },
       );
     }
 
     // Stop calendar watch before disconnect (Google Calendar)
-    if (provider === 'google_calendar') {
+    if (provider === "google_calendar") {
       const watchService = createCalendarWatchService(supabase);
       await watchService.stopWatch(integration.id);
     }
@@ -139,8 +136,8 @@ export async function DELETE(
   } catch (error) {
     console.error(`Error disconnecting ${provider}:`, error);
     return NextResponse.json(
-      { error: 'Failed to disconnect integration' },
-      { status: 500 }
+      { error: "Failed to disconnect integration" },
+      { status: 500 },
     );
   }
 }

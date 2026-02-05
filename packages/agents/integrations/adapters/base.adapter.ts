@@ -1,14 +1,14 @@
-import { z } from 'zod';
+import { z } from "zod";
 
 // ============================================
 // Provider Types
 // ============================================
 
 export const PROVIDERS = [
-  'google_calendar',
-  'gmail',
-  'notion',
-  'linear',
+  "google_calendar",
+  "gmail",
+  "notion",
+  "linear",
 ] as const;
 
 export type Provider = (typeof PROVIDERS)[number];
@@ -34,11 +34,11 @@ export type AdapterConfig = z.infer<typeof AdapterConfigSchema>;
 // ============================================
 
 export const ATOM_TYPES = [
-  'event',
-  'message',
-  'task',
-  'note',
-  'comment',
+  "event",
+  "message",
+  "task",
+  "note",
+  "comment",
 ] as const;
 
 export type AtomType = (typeof ATOM_TYPES)[number];
@@ -236,7 +236,10 @@ export abstract class BaseAdapter implements IntegrationAdapter {
   abstract getAuthorizationUrl(state: string): string;
   abstract exchangeCodeForTokens(code: string): Promise<OAuthTokens>;
   abstract refreshAccessToken(refreshToken: string): Promise<OAuthTokens>;
-  abstract fetchData(accessToken: string, options?: FetchOptions): Promise<SyncResult>;
+  abstract fetchData(
+    accessToken: string,
+    options?: FetchOptions,
+  ): Promise<SyncResult>;
   abstract normalizeToAtoms(rawData: unknown[]): ActivityAtom[];
   abstract extractEvidence(atom: ActivityAtom): Evidence;
 
@@ -255,14 +258,14 @@ export abstract class BaseAdapter implements IntegrationAdapter {
     if (content.length <= maxLength) {
       return content;
     }
-    return content.substring(0, maxLength - 3) + '...';
+    return content.substring(0, maxLength - 3) + "...";
   }
 
   /**
    * Build semantic content string from parts
    */
   protected buildSemanticContent(parts: (string | undefined | null)[]): string {
-    return parts.filter(Boolean).join('\n');
+    return parts.filter(Boolean).join("\n");
   }
 
   /**
@@ -298,12 +301,12 @@ export interface AdapterRegistryEntry {
 
 export const ADAPTER_REGISTRY: Record<Provider, AdapterRegistryEntry> = {
   google_calendar: {
-    provider: 'google_calendar',
-    displayName: 'Google Calendar',
-    description: 'Sync calendar events and meeting schedules',
+    provider: "google_calendar",
+    displayName: "Google Calendar",
+    description: "Sync calendar events and meeting schedules",
     scopes: {
-      minimal: ['https://www.googleapis.com/auth/calendar.readonly'],
-      extended: ['https://www.googleapis.com/auth/calendar.events'],
+      minimal: ["https://www.googleapis.com/auth/calendar.readonly"],
+      extended: ["https://www.googleapis.com/auth/calendar.events"],
     },
     capabilities: {
       read: true,
@@ -313,12 +316,12 @@ export const ADAPTER_REGISTRY: Record<Provider, AdapterRegistryEntry> = {
     },
   },
   gmail: {
-    provider: 'gmail',
-    displayName: 'Gmail',
-    description: 'Sync emails and communication history',
+    provider: "gmail",
+    displayName: "Gmail",
+    description: "Sync emails and communication history",
     scopes: {
-      minimal: ['https://www.googleapis.com/auth/gmail.readonly'],
-      extended: ['https://www.googleapis.com/auth/gmail.compose'],
+      minimal: ["https://www.googleapis.com/auth/gmail.readonly"],
+      extended: ["https://www.googleapis.com/auth/gmail.compose"],
     },
     capabilities: {
       read: true,
@@ -328,9 +331,9 @@ export const ADAPTER_REGISTRY: Record<Provider, AdapterRegistryEntry> = {
     },
   },
   notion: {
-    provider: 'notion',
-    displayName: 'Notion',
-    description: 'Sync pages, databases, and notes',
+    provider: "notion",
+    displayName: "Notion",
+    description: "Sync pages, databases, and notes",
     scopes: {
       minimal: [],
       extended: [],
@@ -343,12 +346,12 @@ export const ADAPTER_REGISTRY: Record<Provider, AdapterRegistryEntry> = {
     },
   },
   linear: {
-    provider: 'linear',
-    displayName: 'Linear',
-    description: 'Sync issues, projects, and tasks',
+    provider: "linear",
+    displayName: "Linear",
+    description: "Sync issues, projects, and tasks",
     scopes: {
-      minimal: ['read'],
-      extended: ['read', 'write'],
+      minimal: ["read"],
+      extended: ["read", "write"],
     },
     capabilities: {
       read: true,

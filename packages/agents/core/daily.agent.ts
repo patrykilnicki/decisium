@@ -102,7 +102,7 @@ function createDailyResponseAgent(config?: {
 // Node Implementations
 
 async function checkDailyStartedNode(
-  state: DailyGraphState
+  state: DailyGraphState,
 ): Promise<Partial<DailyGraphState>> {
   const { createClient } = await import("@/lib/supabase/server");
   const supabase = await createClient();
@@ -131,7 +131,7 @@ async function checkDailyStartedNode(
 }
 
 async function dailyWelcomeAgentNode(
-  state: DailyGraphState
+  state: DailyGraphState,
 ): Promise<Partial<DailyGraphState>> {
   const welcomeAgent = createDailyWelcomeAgent({
     currentDate: state.currentDate,
@@ -146,7 +146,7 @@ async function dailyWelcomeAgentNode(
         },
       ],
     },
-    { recursionLimit: 10 }
+    { recursionLimit: 10 },
   );
 
   const welcomeMessage =
@@ -156,7 +156,7 @@ async function dailyWelcomeAgentNode(
 }
 
 async function saveAgentMessageNode(
-  state: DailyGraphState
+  state: DailyGraphState,
 ): Promise<Partial<DailyGraphState>> {
   if (!state.welcomeMessage) {
     return {};
@@ -184,7 +184,7 @@ async function saveAgentMessageNode(
 }
 
 async function classifierAgentNode(
-  state: DailyGraphState
+  state: DailyGraphState,
 ): Promise<Partial<DailyGraphState>> {
   if (!state.userMessage) {
     return { classification: "NOTE" };
@@ -201,15 +201,19 @@ async function classifierAgentNode(
         },
       ],
     },
-    { recursionLimit: 10 }
+    { recursionLimit: 10 },
   );
 
   const classificationText =
-    result.messages[result.messages.length - 1]?.content?.trim().toUpperCase() ||
-    "NOTE";
+    result.messages[result.messages.length - 1]?.content
+      ?.trim()
+      .toUpperCase() || "NOTE";
 
   let classification: ClassificationResult = "NOTE";
-  if (classificationText.includes("QUESTION") && classificationText.includes("NOTE")) {
+  if (
+    classificationText.includes("QUESTION") &&
+    classificationText.includes("NOTE")
+  ) {
     classification = "NOTE_PLUS_QUESTION";
   } else if (classificationText.includes("ESCALATE")) {
     classification = "ESCALATE_TO_ASK";
@@ -221,7 +225,7 @@ async function classifierAgentNode(
 }
 
 async function memoryRetrieverNode(
-  state: DailyGraphState
+  state: DailyGraphState,
 ): Promise<Partial<DailyGraphState>> {
   if (!state.userMessage) {
     return {};
@@ -233,7 +237,8 @@ async function memoryRetrieverNode(
       query: state.userMessage,
     });
 
-    const result = typeof resultStr === "string" ? JSON.parse(resultStr) : resultStr;
+    const result =
+      typeof resultStr === "string" ? JSON.parse(resultStr) : resultStr;
     const memoryContext = buildMemoryContext([result]);
 
     return { memoryContext };
@@ -248,7 +253,7 @@ async function memoryRetrieverNode(
 }
 
 async function dailyResponseAgentNode(
-  state: DailyGraphState
+  state: DailyGraphState,
 ): Promise<Partial<DailyGraphState>> {
   if (!state.userMessage) {
     return {};
@@ -271,7 +276,7 @@ async function dailyResponseAgentNode(
         },
       ],
     },
-    { recursionLimit: 15 }
+    { recursionLimit: 15 },
   );
 
   const agentResponse =
@@ -281,7 +286,7 @@ async function dailyResponseAgentNode(
 }
 
 async function saveEventsNode(
-  state: DailyGraphState
+  state: DailyGraphState,
 ): Promise<Partial<DailyGraphState>> {
   const events: DailyEvent[] = [];
   let userEventId = state.userEventId;
@@ -303,9 +308,10 @@ async function saveEventsNode(
           table: "daily_events",
           data: userEvent,
         });
-        const savedEvent = typeof savedEventStr === "string"
-          ? JSON.parse(savedEventStr)
-          : savedEventStr;
+        const savedEvent =
+          typeof savedEventStr === "string"
+            ? JSON.parse(savedEventStr)
+            : savedEventStr;
         userEventId = savedEvent?.id ?? userEventId;
         events.push(userEvent);
       }
@@ -315,9 +321,10 @@ async function saveEventsNode(
           const embeddingResultStr = await embeddingGeneratorTool.invoke({
             content: state.userMessage,
           });
-          const embeddingResult = typeof embeddingResultStr === "string"
-            ? JSON.parse(embeddingResultStr)
-            : embeddingResultStr;
+          const embeddingResult =
+            typeof embeddingResultStr === "string"
+              ? JSON.parse(embeddingResultStr)
+              : embeddingResultStr;
 
           if (
             embeddingResult?.embedding &&
@@ -363,9 +370,10 @@ async function saveEventsNode(
           table: "daily_events",
           data: agentEvent,
         });
-        const savedEvent = typeof savedEventStr === "string"
-          ? JSON.parse(savedEventStr)
-          : savedEventStr;
+        const savedEvent =
+          typeof savedEventStr === "string"
+            ? JSON.parse(savedEventStr)
+            : savedEventStr;
         agentEventId = savedEvent?.id ?? agentEventId;
         events.push(agentEvent);
       }
@@ -378,16 +386,14 @@ async function saveEventsNode(
 }
 
 function noteAcknowledgmentNode(
-  _state: DailyGraphState
+  _state: DailyGraphState,
 ): Partial<DailyGraphState> {
   return {
     agentResponse: "Got it! If you have any notes or ideas, share them here.",
   };
 }
 
-function suggestAskAiNode(
-  _state: DailyGraphState
-): Partial<DailyGraphState> {
+function suggestAskAiNode(_state: DailyGraphState): Partial<DailyGraphState> {
   return {
     agentResponse:
       "This looks like something that may require deeper analysis. Would you like to switch to Ask AI mode?",
@@ -397,7 +403,7 @@ function suggestAskAiNode(
 // Routing Functions
 
 function routeAfterCheckDailyStarted(
-  state: DailyGraphState
+  state: DailyGraphState,
 ): "END" | "dailyWelcomeAgent" {
   if (state.dailyStarted) {
     return "END";
@@ -405,9 +411,7 @@ function routeAfterCheckDailyStarted(
   return "dailyWelcomeAgent";
 }
 
-function routeAfterClassifier(
-  state: DailyGraphState
-): string {
+function routeAfterClassifier(state: DailyGraphState): string {
   if (state.classification === "NOTE") {
     return "noteAcknowledgment";
   } else if (
@@ -420,8 +424,6 @@ function routeAfterClassifier(
   }
   return "noteAcknowledgment";
 }
-
-
 
 // Graph Construction
 
@@ -442,14 +444,10 @@ export function createDailyInitGraph() {
     .addNode("dailyWelcomeAgent", dailyWelcomeAgentNode)
     .addNode("saveAgentMessage", saveAgentMessageNode)
     .addEdge(START, "checkDailyStarted")
-    .addConditionalEdges(
-      "checkDailyStarted",
-      routeAfterCheckDailyStarted,
-      {
-        END: END,
-        dailyWelcomeAgent: "dailyWelcomeAgent",
-      }
-    )
+    .addConditionalEdges("checkDailyStarted", routeAfterCheckDailyStarted, {
+      END: END,
+      dailyWelcomeAgent: "dailyWelcomeAgent",
+    })
     .addEdge("dailyWelcomeAgent", "saveAgentMessage")
     .addEdge("saveAgentMessage", END);
 
@@ -461,11 +459,13 @@ export function createDailyMessageGraph() {
     channels: {
       userId: { reducer: (x: string, y: string) => y ?? x },
       currentDate: { reducer: (x: string, y: string) => y ?? x },
-      userMessage: { reducer: (x: string | undefined, y: string | undefined) => y ?? x },
+      userMessage: {
+        reducer: (x: string | undefined, y: string | undefined) => y ?? x,
+      },
       classification: {
         reducer: (
           x: ClassificationResult | undefined,
-          y: ClassificationResult | undefined
+          y: ClassificationResult | undefined,
         ) => y ?? x,
       },
       memoryContext: {
@@ -475,10 +475,8 @@ export function createDailyMessageGraph() {
         reducer: (x: string | undefined, y: string | undefined) => y ?? x,
       },
       eventsToSave: {
-        reducer: (
-          x: DailyEvent[] | undefined,
-          y: DailyEvent[] | undefined
-        ) => y ?? x,
+        reducer: (x: DailyEvent[] | undefined, y: DailyEvent[] | undefined) =>
+          y ?? x,
       },
     },
   })
@@ -489,15 +487,11 @@ export function createDailyMessageGraph() {
     .addNode("noteAcknowledgment", noteAcknowledgmentNode)
     .addNode("suggestAskAi", suggestAskAiNode)
     .addEdge(START, "classifierAgent")
-    .addConditionalEdges(
-      "classifierAgent",
-      routeAfterClassifier,
-      {
-        noteAcknowledgment: "noteAcknowledgment",
-        memoryRetriever: "memoryRetriever",
-        suggestAskAi: "suggestAskAi",
-      }
-    )
+    .addConditionalEdges("classifierAgent", routeAfterClassifier, {
+      noteAcknowledgment: "noteAcknowledgment",
+      memoryRetriever: "memoryRetriever",
+      suggestAskAi: "suggestAskAi",
+    })
     .addEdge("memoryRetriever", "dailyResponseAgent")
     .addEdge("dailyResponseAgent", "saveEvents")
     .addEdge("saveEvents", END)

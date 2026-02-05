@@ -22,15 +22,19 @@ export interface RouterAgent {
  */
 export function createRouterAgent(
   tools: DynamicStructuredTool[],
-  config?: RouterConfig
+  config?: RouterConfig,
 ): RouterAgent {
-  const provider = config?.llmProvider || 
-    (process.env.LLM_PROVIDER as "openai" | "anthropic" | "openrouter") || 
+  const provider =
+    config?.llmProvider ||
+    (process.env.LLM_PROVIDER as "openai" | "anthropic" | "openrouter") ||
     "anthropic";
-  
+
   const currentDate = config?.currentDate || getCurrentDate();
-  const systemPrompt = ROUTER_SYSTEM_PROMPT.replace(/{{currentDate}}/g, currentDate);
-  
+  const systemPrompt = ROUTER_SYSTEM_PROMPT.replace(
+    /{{currentDate}}/g,
+    currentDate,
+  );
+
   const llm = createLLM({
     provider,
     model: config?.model,
@@ -48,7 +52,11 @@ export function createRouterAgent(
 }
 
 interface ToolCallResponse {
-  tool_calls?: Array<{ name?: string; args?: Record<string, unknown>; id?: string }>;
+  tool_calls?: Array<{
+    name?: string;
+    args?: Record<string, unknown>;
+    id?: string;
+  }>;
 }
 
 /**
@@ -57,9 +65,7 @@ interface ToolCallResponse {
 export function hasToolCalls(response: unknown): boolean {
   const r = response as ToolCallResponse;
   return Boolean(
-    r?.tool_calls &&
-    Array.isArray(r.tool_calls) &&
-    r.tool_calls.length > 0
+    r?.tool_calls && Array.isArray(r.tool_calls) && r.tool_calls.length > 0,
   );
 }
 
@@ -76,11 +82,13 @@ export function extractToolCalls(response: unknown): Array<{
   }
 
   const r = response as ToolCallResponse;
-  return (r.tool_calls ?? []).map((call: { name?: string; args?: Record<string, unknown>; id?: string }) => ({
-    name: call.name ?? "",
-    args: call.args ?? {},
-    id: call.id ?? `call_${Date.now()}`,
-  }));
+  return (r.tool_calls ?? []).map(
+    (call: { name?: string; args?: Record<string, unknown>; id?: string }) => ({
+      name: call.name ?? "",
+      args: call.args ?? {},
+      id: call.id ?? `call_${Date.now()}`,
+    }),
+  );
 }
 
 /**

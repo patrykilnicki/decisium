@@ -11,7 +11,7 @@ export async function GET(request: NextRequest) {
     if (!sessionId) {
       return NextResponse.json(
         { error: "sessionId is required" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 

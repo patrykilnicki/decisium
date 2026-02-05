@@ -1,14 +1,17 @@
-import type { SupabaseClient } from '@supabase/supabase-js';
-import type { Database, Json } from '@/types/supabase';
-import type { ActivityAtomInsert, EmbeddingInsert } from '@/types/database';
-import { generateEmbedding, generateEmbeddings } from '@/lib/embeddings/generate';
-import { OAuthManager, Integration } from './oauth-manager';
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Database, Json } from "@/types/supabase";
+import type { ActivityAtomInsert, EmbeddingInsert } from "@/types/database";
+import {
+  generateEmbedding,
+  generateEmbeddings,
+} from "@/lib/embeddings/generate";
+import { OAuthManager, Integration } from "./oauth-manager";
 import {
   ActivityAtom,
   Provider,
   SyncResult,
   FetchOptions,
-} from '@agents/integrations';
+} from "@agents/integrations";
 
 // ============================================
 // Types
@@ -34,7 +37,7 @@ export interface SyncOptions {
 export interface SyncProgress {
   integrationId: string;
   provider: Provider;
-  status: 'running' | 'completed' | 'error';
+  status: "running" | "completed" | "error";
   atomsProcessed: number;
   atomsStored: number;
   embeddingsGenerated: number;
@@ -83,12 +86,14 @@ export class SyncPipeline {
    */
   async sync(
     integrationId: string,
-    options: SyncOptions = {}
+    options: SyncOptions = {},
   ): Promise<SyncProgress> {
     // Check if there's already an active sync for this integration
     const existingSync = this.activeSyncs.get(integrationId);
     if (existingSync) {
-      console.log(`[sync-pipeline] Sync already in progress for integration ${integrationId}, returning existing promise`);
+      console.log(
+        `[sync-pipeline] Sync already in progress for integration ${integrationId}, returning existing promise`,
+      );
       return existingSync;
     }
 
@@ -109,12 +114,12 @@ export class SyncPipeline {
    */
   private async performSync(
     integrationId: string,
-    options: SyncOptions = {}
+    options: SyncOptions = {},
   ): Promise<SyncProgress> {
     const progress: SyncProgress = {
       integrationId,
-      provider: 'google_calendar', // Will be updated
-      status: 'running',
+      provider: "google_calendar", // Will be updated
+      status: "running",
       atomsProcessed: 0,
       atomsStored: 0,
       embeddingsGenerated: 0,
@@ -123,7 +128,9 @@ export class SyncPipeline {
     };
 
     try {
-      console.log(`[sync-pipeline] Starting sync for integration ${integrationId} (fullSync: ${options.fullSync}, syncToken: ${options.syncToken ? 'present' : 'none'})`);
+      console.log(
+        `[sync-pipeline] Starting sync for integration ${integrationId} (fullSync: ${options.fullSync}, syncToken: ${options.syncToken ? "present" : "none"})`,
+      );
 
       // Get integration with timeout protection
       // Allow up to 20s to account for retry logic in getIntegration (8s per attempt + retries)
@@ -131,52 +138,66 @@ export class SyncPipeline {
         this.oauthManager.getIntegration(integrationId),
         new Promise<null>((resolve) =>
           setTimeout(() => {
-            console.error(`[sync-pipeline] Timeout fetching integration ${integrationId} (20s)`);
+            console.error(
+              `[sync-pipeline] Timeout fetching integration ${integrationId} (20s)`,
+            );
             resolve(null);
-          }, 20000)
+          }, 20000),
         ),
       ]);
 
       if (!integration) {
-        throw new Error(`Integration ${integrationId} not found or timeout fetching`);
+        throw new Error(
+          `Integration ${integrationId} not found or timeout fetching`,
+        );
       }
 
       // Allow sync for 'active' and 'error' statuses
       // 'error' integrations can be retried (e.g., after fixing auth issues)
       // 'revoked' and 'pending' should not sync
-      if (integration.status === 'revoked') {
+      if (integration.status === "revoked") {
         throw new Error(`Integration is revoked and cannot sync`);
       }
-      
-      if (integration.status === 'pending') {
+
+      if (integration.status === "pending") {
         throw new Error(`Integration is pending and not yet ready to sync`);
       }
 
       // If status is 'error', log a warning but allow sync attempt (auto-recovery)
-      if (integration.status === 'error') {
-        console.warn(`[sync-pipeline] Attempting sync for integration ${integrationId} with 'error' status - will reactivate on success`);
+      if (integration.status === "error") {
+        console.warn(
+          `[sync-pipeline] Attempting sync for integration ${integrationId} with 'error' status - will reactivate on success`,
+        );
       }
 
       progress.provider = integration.provider;
-      console.log(`[sync-pipeline] Integration found: ${integration.provider}, status: ${integration.status}`);
+      console.log(
+        `[sync-pipeline] Integration found: ${integration.provider}, status: ${integration.status}`,
+      );
 
       // Get authenticated adapter
       const adapterStart = Date.now();
       console.log(`[sync-pipeline] Getting authenticated adapter...`);
-      const { adapter, accessToken } = await this.oauthManager.getAuthenticatedAdapter(
-        integrationId
-      );
+      const { adapter, accessToken } =
+        await this.oauthManager.getAuthenticatedAdapter(integrationId);
       const adapterDuration = Date.now() - adapterStart;
-      console.log(`[sync-pipeline] Authenticated adapter obtained in ${adapterDuration}ms`);
+      console.log(
+        `[sync-pipeline] Authenticated adapter obtained in ${adapterDuration}ms`,
+      );
 
       // Determine cursor / syncToken (Google Calendar incremental)
       // For Google Calendar, if syncToken is provided, use it (incremental sync)
       // Otherwise, use cursor for pagination or fullSync
       const syncToken = options.syncToken;
-      const cursor = options.fullSync || syncToken ? undefined : await this.oauthManager.getSyncCursor(integrationId);
+      const cursor =
+        options.fullSync || syncToken
+          ? undefined
+          : await this.oauthManager.getSyncCursor(integrationId);
 
       progress.currentCursor = cursor;
-      console.log(`[sync-pipeline] Using syncToken: ${syncToken ? 'yes' : 'no'}, cursor: ${cursor ? 'yes' : 'no'}, fullSync: ${options.fullSync}`);
+      console.log(
+        `[sync-pipeline] Using syncToken: ${syncToken ? "yes" : "no"}, cursor: ${cursor ? "yes" : "no"}, fullSync: ${options.fullSync}`,
+      );
 
       // Build fetch options
       const fetchOptions: FetchOptions = {
@@ -190,10 +211,17 @@ export class SyncPipeline {
 
       // Fetch data
       const fetchStart = Date.now();
-      console.log(`[sync-pipeline] Fetching data from adapter (syncToken: ${syncToken ? 'present' : 'none'}, fullSync: ${options.fullSync})...`);
-      const result: SyncResult = await adapter.fetchData(accessToken, fetchOptions);
+      console.log(
+        `[sync-pipeline] Fetching data from adapter (syncToken: ${syncToken ? "present" : "none"}, fullSync: ${options.fullSync})...`,
+      );
+      const result: SyncResult = await adapter.fetchData(
+        accessToken,
+        fetchOptions,
+      );
       const fetchDuration = Date.now() - fetchStart;
-      console.log(`[sync-pipeline] Fetched ${result.atoms.length} atoms in ${fetchDuration}ms, hasMore: ${result.hasMore}, nextSyncToken: ${result.nextSyncToken ? 'present' : 'none'}`);
+      console.log(
+        `[sync-pipeline] Fetched ${result.atoms.length} atoms in ${fetchDuration}ms, hasMore: ${result.hasMore}, nextSyncToken: ${result.nextSyncToken ? "present" : "none"}`,
+      );
       progress.atomsProcessed = result.atoms.length;
       progress.hasMore = result.hasMore;
       progress.currentCursor = result.nextCursor;
@@ -202,32 +230,46 @@ export class SyncPipeline {
       // 1. From incremental sync: events with status 'cancelled'
       // 2. From full sync: events that no longer exist in the calendar
       let deletedIds = result.deletedExternalIds ?? [];
-      
+
       // For full sync, detect deletions by comparing existing atoms with fetched atoms
       if (options.fullSync && result.atoms.length > 0) {
-        const fetchedExternalIds = new Set(result.atoms.map((a) => a.externalId));
-        
+        const fetchedExternalIds = new Set(
+          result.atoms.map((a) => a.externalId),
+        );
+
         // Get existing atoms for this integration
         const { data: existingAtoms } = await this.supabase
-          .from('activity_atoms')
-          .select('external_id')
-          .eq('integration_id', integrationId)
-          .eq('provider', integration.provider);
-        
+          .from("activity_atoms")
+          .select("external_id")
+          .eq("integration_id", integrationId)
+          .eq("provider", integration.provider);
+
         // Find atoms that exist in DB but not in fetched data (deleted from calendar)
-        const existingExternalIds = (existingAtoms ?? []).map((a) => a.external_id);
-        const deletedFromCalendar = existingExternalIds.filter((id) => !fetchedExternalIds.has(id));
-        
+        const existingExternalIds = (existingAtoms ?? []).map(
+          (a) => a.external_id,
+        );
+        const deletedFromCalendar = existingExternalIds.filter(
+          (id) => !fetchedExternalIds.has(id),
+        );
+
         if (deletedFromCalendar.length > 0) {
-          console.log(`[sync-pipeline] Full sync detected ${deletedFromCalendar.length} deleted events`);
+          console.log(
+            `[sync-pipeline] Full sync detected ${deletedFromCalendar.length} deleted events`,
+          );
           deletedIds = [...deletedIds, ...deletedFromCalendar];
         }
       }
-      
+
       // Process deletions (including embedding cleanup)
       if (deletedIds.length > 0) {
-        console.log(`[sync-pipeline] Deleting ${deletedIds.length} removed events`);
-        await this.deleteAtomsWithEmbeddings(integrationId, integration.provider, deletedIds);
+        console.log(
+          `[sync-pipeline] Deleting ${deletedIds.length} removed events`,
+        );
+        await this.deleteAtomsWithEmbeddings(
+          integrationId,
+          integration.provider,
+          deletedIds,
+        );
       }
 
       // Process and store atoms
@@ -237,10 +279,12 @@ export class SyncPipeline {
         const stored = await this.storeAtoms(
           integration,
           result.atoms,
-          options.generateEmbeddings ?? true
+          options.generateEmbeddings ?? true,
         );
         const storeDuration = Date.now() - storeStart;
-        console.log(`[sync-pipeline] Stored ${stored.atomsStored} atoms, generated ${stored.embeddingsGenerated} embeddings in ${storeDuration}ms`);
+        console.log(
+          `[sync-pipeline] Stored ${stored.atomsStored} atoms, generated ${stored.embeddingsGenerated} embeddings in ${storeDuration}ms`,
+        );
         progress.atomsStored = stored.atomsStored;
         progress.embeddingsGenerated = stored.embeddingsGenerated;
       } else {
@@ -249,84 +293,109 @@ export class SyncPipeline {
 
       // Update sync status (sync_cursor for pageToken; syncToken stored in calendar_watches)
       // If integration was in 'error' status, reactivate it on successful sync
-      const wasError = integration.status === 'error';
+      const wasError = integration.status === "error";
       await this.oauthManager.updateSyncStatus(
         integrationId,
-        'success',
-        integration.provider === 'google_calendar' && result.nextSyncToken
+        "success",
+        integration.provider === "google_calendar" && result.nextSyncToken
           ? undefined
-          : result.nextCursor
+          : result.nextCursor,
       );
 
       // Reactivate integration if it was in error status and sync succeeded
       if (wasError) {
         await this.supabase
-          .from('integrations')
-          .update({ status: 'active', updated_at: new Date().toISOString() })
-          .eq('id', integrationId);
-        console.log(`[sync-pipeline] Reactivated integration ${integrationId} after successful sync`);
+          .from("integrations")
+          .update({ status: "active", updated_at: new Date().toISOString() })
+          .eq("id", integrationId);
+        console.log(
+          `[sync-pipeline] Reactivated integration ${integrationId} after successful sync`,
+        );
       }
 
       // Google Calendar: persist nextSyncToken to calendar_watches
-      if (
-        integration.provider === 'google_calendar' &&
-        result.nextSyncToken
-      ) {
+      if (integration.provider === "google_calendar" && result.nextSyncToken) {
         console.log(`[sync-pipeline] Saving nextSyncToken to calendar_watches`);
         const { error: updateError } = await this.supabase
-          .from('calendar_watches')
+          .from("calendar_watches")
           .update({
             sync_token: result.nextSyncToken,
             updated_at: new Date().toISOString(),
           })
-          .eq('integration_id', integrationId);
-        
+          .eq("integration_id", integrationId);
+
         if (updateError) {
-          console.error(`[sync-pipeline] Failed to save syncToken:`, updateError);
+          console.error(
+            `[sync-pipeline] Failed to save syncToken:`,
+            updateError,
+          );
         } else {
           console.log(`[sync-pipeline] Successfully saved syncToken`);
         }
       } else {
-        console.log(`[sync-pipeline] No nextSyncToken to save (provider: ${integration.provider}, nextSyncToken: ${result.nextSyncToken ? 'present' : 'none'})`);
+        console.log(
+          `[sync-pipeline] No nextSyncToken to save (provider: ${integration.provider}, nextSyncToken: ${result.nextSyncToken ? "present" : "none"})`,
+        );
       }
 
-      progress.status = 'completed';
+      progress.status = "completed";
       progress.completedAt = new Date();
-      console.log(`[sync-pipeline] Sync completed successfully for integration ${integrationId}`);
+      console.log(
+        `[sync-pipeline] Sync completed successfully for integration ${integrationId}`,
+      );
 
       return progress;
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
       const errorStack = error instanceof Error ? error.stack : undefined;
-      console.error(`[sync-pipeline] Error during sync for integration ${integrationId}:`, errorMessage, errorStack);
+      console.error(
+        `[sync-pipeline] Error during sync for integration ${integrationId}:`,
+        errorMessage,
+        errorStack,
+      );
 
       // Google Calendar API 410 Gone = sync token invalid; retry with full sync (official sync guide)
-      const status = (error as { response?: { status?: number }; code?: number })?.response?.status ?? (error as { code?: number })?.code;
+      const status =
+        (error as { response?: { status?: number }; code?: number })?.response
+          ?.status ?? (error as { code?: number })?.code;
       console.log(`[sync-pipeline] Error status: ${status}`);
-      
-      const integration = progress.provider ? await this.oauthManager.getIntegration(integrationId).then((i) => i ?? undefined) : undefined;
-      if (status === 410 && integration?.provider === 'google_calendar') {
-        console.log(`[sync-pipeline] 410 Gone error - clearing syncToken and retrying with full sync`);
+
+      const integration = progress.provider
+        ? await this.oauthManager
+            .getIntegration(integrationId)
+            .then((i) => i ?? undefined)
+        : undefined;
+      if (status === 410 && integration?.provider === "google_calendar") {
+        console.log(
+          `[sync-pipeline] 410 Gone error - clearing syncToken and retrying with full sync`,
+        );
         await this.supabase
-          .from('calendar_watches')
+          .from("calendar_watches")
           .update({ sync_token: null, updated_at: new Date().toISOString() })
-          .eq('integration_id', integrationId);
-        return this.sync(integrationId, { ...options, fullSync: true, syncToken: undefined });
+          .eq("integration_id", integrationId);
+        return this.sync(integrationId, {
+          ...options,
+          fullSync: true,
+          syncToken: undefined,
+        });
       }
 
-      progress.status = 'error';
+      progress.status = "error";
       progress.error = errorMessage;
       progress.completedAt = new Date();
 
       // Update sync status with error
       await this.oauthManager.updateSyncStatus(
         integrationId,
-        'error',
+        "error",
         progress.currentCursor,
-        progress.error
+        progress.error,
       );
 
-      console.error(`[sync-pipeline] Sync failed for integration ${integrationId}: ${errorMessage}`);
+      console.error(
+        `[sync-pipeline] Sync failed for integration ${integrationId}: ${errorMessage}`,
+      );
       return progress;
     }
   }
@@ -336,7 +405,7 @@ export class SyncPipeline {
    */
   async syncAllForUser(
     userId: string,
-    options: SyncOptions = {}
+    options: SyncOptions = {},
   ): Promise<SyncProgress[]> {
     const integrations = await this.oauthManager.getActiveIntegrations(userId);
     const results: SyncProgress[] = [];
@@ -357,7 +426,7 @@ export class SyncPipeline {
   private async storeAtoms(
     integration: Integration,
     atoms: ActivityAtom[],
-    generateEmbed: boolean
+    generateEmbed: boolean,
   ): Promise<{ atomsStored: number; embeddingsGenerated: number }> {
     if (atoms.length === 0) {
       return { atomsStored: 0, embeddingsGenerated: 0 };
@@ -369,11 +438,13 @@ export class SyncPipeline {
     // Fetch existing atoms to detect changes
     const externalIds = atoms.map((a) => a.externalId);
     const { data: existingAtoms } = await this.supabase
-      .from('activity_atoms')
-      .select('external_id, content, title, occurred_at, duration_minutes, participants, metadata, embedding_id')
-      .eq('user_id', integration.userId)
-      .eq('provider', integration.provider)
-      .in('external_id', externalIds);
+      .from("activity_atoms")
+      .select(
+        "external_id, content, title, occurred_at, duration_minutes, participants, metadata, embedding_id",
+      )
+      .eq("user_id", integration.userId)
+      .eq("provider", integration.provider)
+      .in("external_id", externalIds);
 
     const existingMap = new Map(
       (existingAtoms ?? []).map((a) => [
@@ -387,7 +458,7 @@ export class SyncPipeline {
           metadata: a.metadata ?? undefined,
           embeddingId: a.embedding_id ?? undefined,
         },
-      ])
+      ]),
     );
 
     // Determine which atoms need new embeddings (new or changed)
@@ -400,21 +471,33 @@ export class SyncPipeline {
         // Atom exists - check if any relevant field changed
         const contentChanged = existing.content !== atom.content;
         const titleChanged = existing.title !== (atom.title ?? undefined);
-        const occurredAtChanged = new Date(existing.occurredAt).getTime() !== atom.occurredAt.getTime();
-        const durationChanged = existing.durationMinutes !== (atom.durationMinutes ?? undefined);
-        
+        const occurredAtChanged =
+          new Date(existing.occurredAt).getTime() !== atom.occurredAt.getTime();
+        const durationChanged =
+          existing.durationMinutes !== (atom.durationMinutes ?? undefined);
+
         // Participants comparison (sorted to handle order differences)
         const existingParticipants = existing.participants ?? [];
         const newParticipants = atom.participants ?? [];
         const participantsChanged =
-          JSON.stringify([...existingParticipants].sort()) !== JSON.stringify([...newParticipants].sort());
-        
+          JSON.stringify([...existingParticipants].sort()) !==
+          JSON.stringify([...newParticipants].sort());
+
         // Metadata comparison for key fields (location, conferenceUri, status)
-        const existingMeta = existing.metadata as Record<string, unknown> | undefined;
+        const existingMeta = existing.metadata as
+          | Record<string, unknown>
+          | undefined;
         const newMeta = atom.metadata as Record<string, unknown> | undefined;
         const metadataChanged = this.hasMetadataChanged(existingMeta, newMeta);
 
-        if (contentChanged || titleChanged || occurredAtChanged || durationChanged || participantsChanged || metadataChanged) {
+        if (
+          contentChanged ||
+          titleChanged ||
+          occurredAtChanged ||
+          durationChanged ||
+          participantsChanged ||
+          metadataChanged
+        ) {
           // Content changed - need new embedding
           atomsNeedingEmbeddings.push(atom);
         } else {
@@ -433,15 +516,17 @@ export class SyncPipeline {
     // First, check for existing embeddings by content to avoid duplicates
     if (generateEmbed && atomsNeedingEmbeddings.length > 0) {
       // Fetch existing embeddings by content for this user
-      const contentsToCheck = [...new Set(atomsNeedingEmbeddings.map((a) => a.content))];
+      const contentsToCheck = [
+        ...new Set(atomsNeedingEmbeddings.map((a) => a.content)),
+      ];
       const { data: existingEmbeddings } = await this.supabase
-        .from('embeddings')
-        .select('id, content')
-        .eq('user_id', integration.userId)
-        .in('content', contentsToCheck);
+        .from("embeddings")
+        .select("id, content")
+        .eq("user_id", integration.userId)
+        .in("content", contentsToCheck);
 
       const contentToEmbeddingId = new Map(
-        (existingEmbeddings ?? []).map((e) => [e.content, e.id])
+        (existingEmbeddings ?? []).map((e) => [e.content, e.id]),
       );
 
       // Separate atoms into: reuse existing embedding vs generate new
@@ -474,25 +559,26 @@ export class SyncPipeline {
 
               // Convert number array to PostgreSQL array string format for pgvector
               const embeddingString = `[${embedding.embedding.join(",")}]`;
-              
+
               const insertData: EmbeddingInsert = {
                 user_id: integration.userId,
                 content: atom.content,
                 embedding: embeddingString,
                 metadata: {
-                  type: 'activity_atom',
+                  type: "activity_atom",
                   provider: integration.provider,
                   external_id: atom.externalId,
                   atom_type: atom.atomType,
-                  date: atom.occurredAt.toISOString().split('T')[0],
+                  date: atom.occurredAt.toISOString().split("T")[0],
                 } as Json,
               };
 
-              const { data: embeddingData, error: embeddingError } = await this.supabase
-                .from('embeddings')
-                .insert(insertData)
-                .select('id')
-                .single();
+              const { data: embeddingData, error: embeddingError } =
+                await this.supabase
+                  .from("embeddings")
+                  .insert(insertData)
+                  .select("id")
+                  .single();
 
               if (!embeddingError && embeddingData) {
                 embeddingMap.set(atom.externalId, embeddingData.id);
@@ -500,7 +586,7 @@ export class SyncPipeline {
               }
             }
           } catch (error) {
-            console.error('Error generating embeddings:', error);
+            console.error("Error generating embeddings:", error);
             // Continue without embeddings
           }
         }
@@ -530,15 +616,15 @@ export class SyncPipeline {
       };
 
       const { error } = await this.supabase
-        .from('activity_atoms')
+        .from("activity_atoms")
         .upsert(atomData, {
-          onConflict: 'user_id,provider,external_id',
+          onConflict: "user_id,provider,external_id",
         });
 
       if (!error) {
         atomsStored++;
       } else {
-        console.error('Error storing atom:', error);
+        console.error("Error storing atom:", error);
       }
     }
 
@@ -550,15 +636,21 @@ export class SyncPipeline {
    */
   private hasMetadataChanged(
     existing: Record<string, unknown> | undefined,
-    updated: Record<string, unknown> | undefined
+    updated: Record<string, unknown> | undefined,
   ): boolean {
     // Key metadata fields to compare
-    const keysToCompare = ['location', 'conferenceUri', 'status', 'organizer', 'isAllDay'];
-    
+    const keysToCompare = [
+      "location",
+      "conferenceUri",
+      "status",
+      "organizer",
+      "isAllDay",
+    ];
+
     for (const key of keysToCompare) {
       const existingValue = existing?.[key];
       const updatedValue = updated?.[key];
-      
+
       // Handle undefined vs null vs missing
       if (existingValue !== updatedValue) {
         // Both falsy but different types (null vs undefined) are considered equal
@@ -568,7 +660,7 @@ export class SyncPipeline {
         return true;
       }
     }
-    
+
     return false;
   }
 
@@ -578,35 +670,37 @@ export class SyncPipeline {
   private async deleteAtomsWithEmbeddings(
     integrationId: string,
     provider: string,
-    externalIds: string[]
+    externalIds: string[],
   ): Promise<void> {
     if (externalIds.length === 0) return;
 
     // First, get the embedding IDs for atoms being deleted
     const { data: atomsToDelete } = await this.supabase
-      .from('activity_atoms')
-      .select('embedding_id')
-      .eq('integration_id', integrationId)
-      .eq('provider', provider)
-      .in('external_id', externalIds);
+      .from("activity_atoms")
+      .select("embedding_id")
+      .eq("integration_id", integrationId)
+      .eq("provider", provider)
+      .in("external_id", externalIds);
 
     // Collect unique embedding IDs (filter out nulls)
-    const embeddingIds = [...new Set(
-      (atomsToDelete ?? [])
-        .map((a) => a.embedding_id)
-        .filter((id): id is string => id !== null && id !== undefined)
-    )];
+    const embeddingIds = [
+      ...new Set(
+        (atomsToDelete ?? [])
+          .map((a) => a.embedding_id)
+          .filter((id): id is string => id !== null && id !== undefined),
+      ),
+    ];
 
     // Delete the atoms
     const { error: deleteAtomsError } = await this.supabase
-      .from('activity_atoms')
+      .from("activity_atoms")
       .delete()
-      .eq('integration_id', integrationId)
-      .eq('provider', provider)
-      .in('external_id', externalIds);
+      .eq("integration_id", integrationId)
+      .eq("provider", provider)
+      .in("external_id", externalIds);
 
     if (deleteAtomsError) {
-      console.error('[sync-pipeline] Error deleting atoms:', deleteAtomsError);
+      console.error("[sync-pipeline] Error deleting atoms:", deleteAtomsError);
     } else {
       console.log(`[sync-pipeline] Deleted ${externalIds.length} atoms`);
     }
@@ -615,27 +709,34 @@ export class SyncPipeline {
     if (embeddingIds.length > 0) {
       // Check which embeddings are still referenced by other atoms
       const { data: stillReferenced } = await this.supabase
-        .from('activity_atoms')
-        .select('embedding_id')
-        .in('embedding_id', embeddingIds);
+        .from("activity_atoms")
+        .select("embedding_id")
+        .in("embedding_id", embeddingIds);
 
       const stillReferencedIds = new Set(
-        (stillReferenced ?? []).map((a) => a.embedding_id)
+        (stillReferenced ?? []).map((a) => a.embedding_id),
       );
 
       // Only delete embeddings that are no longer referenced
-      const orphanedEmbeddingIds = embeddingIds.filter((id) => !stillReferencedIds.has(id));
+      const orphanedEmbeddingIds = embeddingIds.filter(
+        (id) => !stillReferencedIds.has(id),
+      );
 
       if (orphanedEmbeddingIds.length > 0) {
         const { error: deleteEmbeddingsError } = await this.supabase
-          .from('embeddings')
+          .from("embeddings")
           .delete()
-          .in('id', orphanedEmbeddingIds);
+          .in("id", orphanedEmbeddingIds);
 
         if (deleteEmbeddingsError) {
-          console.error('[sync-pipeline] Error deleting orphaned embeddings:', deleteEmbeddingsError);
+          console.error(
+            "[sync-pipeline] Error deleting orphaned embeddings:",
+            deleteEmbeddingsError,
+          );
         } else {
-          console.log(`[sync-pipeline] Deleted ${orphanedEmbeddingIds.length} orphaned embeddings`);
+          console.log(
+            `[sync-pipeline] Deleted ${orphanedEmbeddingIds.length} orphaned embeddings`,
+          );
         }
       }
     }
@@ -651,24 +752,24 @@ export class SyncPipeline {
       atomType?: string;
       limit?: number;
       since?: Date;
-    }
+    },
   ): Promise<StoredActivityAtom[]> {
     let query = this.supabase
-      .from('activity_atoms')
-      .select('*')
-      .eq('user_id', userId)
-      .order('occurred_at', { ascending: false });
+      .from("activity_atoms")
+      .select("*")
+      .eq("user_id", userId)
+      .order("occurred_at", { ascending: false });
 
     if (options?.provider) {
-      query = query.eq('provider', options.provider);
+      query = query.eq("provider", options.provider);
     }
 
     if (options?.atomType) {
-      query = query.eq('atom_type', options.atomType);
+      query = query.eq("atom_type", options.atomType);
     }
 
     if (options?.since) {
-      query = query.gte('occurred_at', options.since.toISOString());
+      query = query.gte("occurred_at", options.since.toISOString());
     }
 
     if (options?.limit) {
@@ -695,7 +796,7 @@ export class SyncPipeline {
       atomType?: string;
       limit?: number;
       threshold?: number;
-    }
+    },
   ): Promise<Array<StoredActivityAtom & { similarity: number }>> {
     // Generate query embedding
     const { embedding } = await generateEmbedding(query);
@@ -703,7 +804,7 @@ export class SyncPipeline {
     const queryEmbeddingString = `[${embedding.join(",")}]`;
 
     // Search using the match_activity_atoms function
-    const { data, error } = await this.supabase.rpc('match_activity_atoms', {
+    const { data, error } = await this.supabase.rpc("match_activity_atoms", {
       query_embedding: queryEmbeddingString,
       match_user_id: userId,
       match_threshold: options?.threshold ?? 0.5,
@@ -725,13 +826,11 @@ export class SyncPipeline {
   /**
    * Get atom count by provider
    */
-  async getAtomCounts(
-    userId: string
-  ): Promise<Record<Provider, number>> {
+  async getAtomCounts(userId: string): Promise<Record<Provider, number>> {
     const { data, error } = await this.supabase
-      .from('activity_atoms')
-      .select('provider')
-      .eq('user_id', userId);
+      .from("activity_atoms")
+      .select("provider")
+      .eq("user_id", userId);
 
     if (error) {
       throw new Error(`Failed to get atom counts: ${error.message}`);
@@ -752,10 +851,10 @@ export class SyncPipeline {
   async deleteAtomsForIntegration(integrationId: string): Promise<number> {
     // First get the atoms to delete their embeddings
     const { data: atoms } = await this.supabase
-      .from('activity_atoms')
-      .select('embedding_id')
-      .eq('integration_id', integrationId)
-      .not('embedding_id', 'is', null);
+      .from("activity_atoms")
+      .select("embedding_id")
+      .eq("integration_id", integrationId)
+      .not("embedding_id", "is", null);
 
     // Delete embeddings
     if (atoms && atoms.length > 0) {
@@ -764,19 +863,16 @@ export class SyncPipeline {
         .filter((id): id is string => id !== null && id !== undefined);
 
       if (embeddingIds.length > 0) {
-        await this.supabase
-          .from('embeddings')
-          .delete()
-          .in('id', embeddingIds);
+        await this.supabase.from("embeddings").delete().in("id", embeddingIds);
       }
     }
 
     // Delete atoms
     const { data, error } = await this.supabase
-      .from('activity_atoms')
+      .from("activity_atoms")
       .delete()
-      .eq('integration_id', integrationId)
-      .select('id');
+      .eq("integration_id", integrationId)
+      .select("id");
 
     if (error) {
       throw new Error(`Failed to delete atoms: ${error.message}`);
@@ -811,7 +907,7 @@ export class SyncPipeline {
  */
 export function createSyncPipeline(
   supabase: SupabaseClient<Database>,
-  oauthManager: OAuthManager
+  oauthManager: OAuthManager,
 ): SyncPipeline {
   return new SyncPipeline(supabase, oauthManager);
 }

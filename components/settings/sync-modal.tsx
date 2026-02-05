@@ -21,7 +21,12 @@ interface SyncModalProps {
 
 type SyncStatus = "syncing" | "success" | "error";
 
-export function SyncModal({ open, onClose, provider, integrationId }: SyncModalProps) {
+export function SyncModal({
+  open,
+  onClose,
+  provider,
+  integrationId,
+}: SyncModalProps) {
   const [status, setStatus] = useState<SyncStatus>("syncing");
   const [eventCount, setEventCount] = useState(0);
   const [errorMessage, setErrorMessage] = useState("");
@@ -96,7 +101,8 @@ export function SyncModal({ open, onClose, provider, integrationId }: SyncModalP
           </DialogTitle>
           <DialogDescription>
             {status === "syncing" && "Downloading your events..."}
-            {status === "success" && `Successfully synced ${eventCount} events from ${displayName}.`}
+            {status === "success" &&
+              `Successfully synced ${eventCount} events from ${displayName}.`}
             {status === "error" && errorMessage}
           </DialogDescription>
         </DialogHeader>
@@ -105,19 +111,25 @@ export function SyncModal({ open, onClose, provider, integrationId }: SyncModalP
           {status === "syncing" && (
             <div className="flex flex-col items-center gap-4">
               <Loader2 className="h-12 w-12 animate-spin text-primary" />
-              <p className="text-sm text-muted-foreground">This may take a moment...</p>
+              <p className="text-sm text-muted-foreground">
+                This may take a moment...
+              </p>
             </div>
           )}
           {status === "success" && (
             <div className="flex flex-col items-center gap-4">
               <CheckCircle2 className="h-12 w-12 text-green-500" />
-              <p className="text-sm text-muted-foreground">Closing automatically...</p>
+              <p className="text-sm text-muted-foreground">
+                Closing automatically...
+              </p>
             </div>
           )}
           {status === "error" && (
             <div className="flex flex-col items-center gap-4">
               <XCircle className="h-12 w-12 text-red-500" />
-              <p className="text-sm text-muted-foreground">Please try again later.</p>
+              <p className="text-sm text-muted-foreground">
+                Please try again later.
+              </p>
             </div>
           )}
         </div>

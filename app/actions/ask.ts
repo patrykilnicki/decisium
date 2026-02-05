@@ -1,14 +1,20 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { AskThread, AskMessageInput } from "@/packages/agents/schemas/ask.schema";
+import {
+  AskThread,
+  AskMessageInput,
+} from "@/packages/agents/schemas/ask.schema";
 import { getUserContext } from "@/packages/agents/lib/auth";
 import { buildConversationHistory } from "@/packages/agents/lib/context";
 import { handleAgentError } from "@/packages/agents/lib/error-handler";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { enqueueTask } from "@/lib/tasks/task-repository";
 import type { TaskType } from "@/lib/tasks/task-definitions";
-import { getAgentMode, type RootGraphState } from "@/packages/agents/core/root.agent";
+import {
+  getAgentMode,
+  type RootGraphState,
+} from "@/packages/agents/core/root.agent";
 import { createInitialOrchestratorState } from "@/packages/agents/schemas/orchestrator.schema";
 import type { Json } from "@/types/supabase";
 
@@ -29,7 +35,10 @@ function toAskThread(row: {
   };
 }
 
-export async function createThread(userId: string, title?: string): Promise<AskThread> {
+export async function createThread(
+  userId: string,
+  title?: string,
+): Promise<AskThread> {
   const supabase = await createClient();
 
   const { data, error } = await supabase
@@ -64,7 +73,10 @@ export async function getThreads(userId: string): Promise<AskThread[]> {
   return (data || []).map(toAskThread);
 }
 
-export async function getThread(threadId: string, userId: string): Promise<AskThread | null> {
+export async function getThread(
+  threadId: string,
+  userId: string,
+): Promise<AskThread | null> {
   const supabase = await createClient();
 
   const { data, error } = await supabase
@@ -105,7 +117,7 @@ export async function getThreadMessages(threadId: string, userId: string) {
 
 export async function sendMessage(
   threadId: string,
-  messageInput: Omit<AskMessageInput, "thread_id">
+  messageInput: Omit<AskMessageInput, "thread_id">,
 ) {
   try {
     // Get authenticated user context

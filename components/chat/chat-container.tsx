@@ -67,7 +67,6 @@ export function ChatContainer({
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      
       {/* Messages Area */}
       <div
         ref={scrollAreaRef}
@@ -75,7 +74,7 @@ export function ChatContainer({
       >
         {isEmpty ? (
           // Empty State (custom or default)
-          emptyState ?? (
+          (emptyState ?? (
             <div className="flex flex-col items-center justify-center h-full p-8 text-center">
               <div className="size-16 rounded-full bg-muted flex items-center justify-center mb-4">
                 <MessageSquare className="size-8 text-muted-foreground" />
@@ -85,7 +84,7 @@ export function ChatContainer({
                 {emptyStateDescription}
               </p>
             </div>
-          )
+          ))
         ) : (
           // Messages List
           <div className="max-w-4xl mx-auto p-4 space-y-4">

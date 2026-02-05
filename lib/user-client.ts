@@ -21,8 +21,6 @@ export async function getCurrentUserClient(): Promise<CurrentUser | null> {
     name: user.user_metadata?.full_name ?? user.user_metadata?.name ?? null,
     email: user.email ?? null,
     photo:
-      user.user_metadata?.avatar_url ??
-      user.user_metadata?.picture ??
-      null,
+      user.user_metadata?.avatar_url ?? user.user_metadata?.picture ?? null,
   };
 }

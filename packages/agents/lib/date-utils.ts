@@ -73,7 +73,7 @@ export function getFormattedDateWithDay(date?: string): string {
   // Parse date components to avoid timezone issues
   const [year, month, day] = dateStr.split("-").map(Number);
   const dateObj = new Date(Date.UTC(year, month - 1, day, 12, 0, 0)); // Use UTC noon to avoid timezone issues
-  
+
   const options: Intl.DateTimeFormatOptions = {
     weekday: "long",
     year: "numeric",
@@ -81,7 +81,7 @@ export function getFormattedDateWithDay(date?: string): string {
     day: "numeric",
     timeZone: "UTC", // Use UTC to ensure consistent day of week
   };
-  
+
   return dateObj.toLocaleDateString("en-US", options);
 }
 

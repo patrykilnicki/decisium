@@ -73,15 +73,14 @@ export function IntegrationCard({
           <div className="flex items-center gap-2">
             <h3 className="font-semibold">{displayName}</h3>
             {isConnected && (
-              <Badge variant="secondary" className="bg-green-100 text-green-800">
+              <Badge
+                variant="secondary"
+                className="bg-green-100 text-green-800"
+              >
                 Connected
               </Badge>
             )}
-            {isError && (
-              <Badge variant="destructive">
-                Error
-              </Badge>
-            )}
+            {isError && <Badge variant="destructive">Error</Badge>}
           </div>
           <p className="text-sm text-muted-foreground">{description}</p>
           {isConnected && externalEmail && (
@@ -109,10 +108,12 @@ export function IntegrationCard({
                 </AlertDialogTrigger>
                 <AlertDialogContent>
                   <AlertDialogHeader>
-                    <AlertDialogTitle>Disconnect {displayName}?</AlertDialogTitle>
+                    <AlertDialogTitle>
+                      Disconnect {displayName}?
+                    </AlertDialogTitle>
                     <AlertDialogDescription>
-                      This will revoke access to your {displayName} data. You can
-                      reconnect at any time.
+                      This will revoke access to your {displayName} data. You
+                      can reconnect at any time.
                     </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>

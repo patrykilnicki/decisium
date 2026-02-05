@@ -1,11 +1,11 @@
-import type { SupabaseClient } from '@supabase/supabase-js';
-import type { Database } from '@/types/supabase';
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Database } from "@/types/supabase";
 import {
   createAdapter,
   getAdapterConfig,
   type IntegrationAdapter,
-} from '@agents/integrations';
-import { createOAuthManager } from './oauth-manager';
+} from "@agents/integrations";
+import { createOAuthManager } from "./oauth-manager";
 // ============================================
 // Types
 // ============================================
@@ -40,39 +40,51 @@ export class CalendarWatchService {
   async setupWatch(
     integrationId: string,
     webhookUrl: string,
-    options?: { calendarId?: string; ttlSeconds?: number }
+    options?: { calendarId?: string; ttlSeconds?: number },
   ): Promise<CalendarWatch> {
     const { data: integration, error: intError } = await this.supabase
-      .from('integrations')
-      .select('id, provider')
-      .eq('id', integrationId)
-      .eq('provider', 'google_calendar')
+      .from("integrations")
+      .select("id, provider")
+      .eq("id", integrationId)
+      .eq("provider", "google_calendar")
       .single();
 
     if (intError || !integration) {
-      throw new Error('Google Calendar integration not found');
+      throw new Error("Google Calendar integration not found");
     }
 
     const oauthManager = createOAuthManager(this.supabase);
     const accessToken = await oauthManager.getValidAccessToken(integrationId);
 
-    const adapter = createAdapter('google_calendar', getAdapterConfig('google_calendar')) as IntegrationAdapter & {
-      setupWatch: (accessToken: string, webhookUrl: string, opts?: object) => Promise<object>;
+    const adapter = createAdapter(
+      "google_calendar",
+      getAdapterConfig("google_calendar"),
+    ) as IntegrationAdapter & {
+      setupWatch: (
+        accessToken: string,
+        webhookUrl: string,
+        opts?: object,
+      ) => Promise<object>;
     };
     const result = await adapter.setupWatch(accessToken, webhookUrl, {
-      calendarId: options?.calendarId ?? 'primary',
+      calendarId: options?.calendarId ?? "primary",
       channelToken: `integration=${integrationId}`,
       ttlSeconds: options?.ttlSeconds ?? 604800, // 7 days
     });
 
-    const watchData = result as { channelId: string; resourceId: string; resourceUri?: string; expiration: number };
+    const watchData = result as {
+      channelId: string;
+      resourceId: string;
+      resourceUri?: string;
+      expiration: number;
+    };
 
     const { data: watch, error } = await this.supabase
-      .from('calendar_watches')
+      .from("calendar_watches")
       .upsert(
         {
           integration_id: integrationId,
-          calendar_id: options?.calendarId ?? 'primary',
+          calendar_id: options?.calendarId ?? "primary",
           channel_id: watchData.channelId,
           resource_id: watchData.resourceId,
           resource_uri: watchData.resourceUri ?? null,
@@ -80,8 +92,8 @@ export class CalendarWatchService {
           updated_at: new Date().toISOString(),
         },
         {
-          onConflict: 'integration_id,calendar_id',
-        }
+          onConflict: "integration_id,calendar_id",
+        },
       )
       .select()
       .single();
@@ -98,9 +110,9 @@ export class CalendarWatchService {
    */
   async stopWatch(integrationId: string): Promise<void> {
     const { data: watch, error: fetchError } = await this.supabase
-      .from('calendar_watches')
-      .select('channel_id, resource_id')
-      .eq('integration_id', integrationId)
+      .from("calendar_watches")
+      .select("channel_id, resource_id")
+      .eq("integration_id", integrationId)
       .single();
 
     if (fetchError || !watch) {
@@ -111,18 +123,28 @@ export class CalendarWatchService {
       const oauthManager = createOAuthManager(this.supabase);
       const accessToken = await oauthManager.getValidAccessToken(integrationId);
 
-      const adapter = createAdapter('google_calendar', getAdapterConfig('google_calendar')) as IntegrationAdapter & {
-        stopWatch: (accessToken: string, channelId: string, resourceId: string) => Promise<void>;
+      const adapter = createAdapter(
+        "google_calendar",
+        getAdapterConfig("google_calendar"),
+      ) as IntegrationAdapter & {
+        stopWatch: (
+          accessToken: string,
+          channelId: string,
+          resourceId: string,
+        ) => Promise<void>;
       };
       await adapter.stopWatch(accessToken, watch.channel_id, watch.resource_id);
     } catch (err) {
-      console.warn('Failed to stop calendar watch (channel may have expired):', err);
+      console.warn(
+        "Failed to stop calendar watch (channel may have expired):",
+        err,
+      );
     }
 
     await this.supabase
-      .from('calendar_watches')
+      .from("calendar_watches")
       .delete()
-      .eq('integration_id', integrationId);
+      .eq("integration_id", integrationId);
   }
 
   /**
@@ -131,9 +153,9 @@ export class CalendarWatchService {
    */
   async getWatchByChannelId(channelId: string): Promise<CalendarWatch | null> {
     const { data, error } = await this.supabase
-      .from('calendar_watches')
-      .select('*')
-      .eq('channel_id', channelId)
+      .from("calendar_watches")
+      .select("*")
+      .eq("channel_id", channelId)
       .maybeSingle();
 
     if (error || !data) return null;
@@ -144,11 +166,13 @@ export class CalendarWatchService {
    * Get watch by integration ID.
    * Uses maybeSingle() so 0 rows return null instead of 406 from PostgREST.
    */
-  async getWatchByIntegrationId(integrationId: string): Promise<CalendarWatch | null> {
+  async getWatchByIntegrationId(
+    integrationId: string,
+  ): Promise<CalendarWatch | null> {
     const { data, error } = await this.supabase
-      .from('calendar_watches')
-      .select('*')
-      .eq('integration_id', integrationId)
+      .from("calendar_watches")
+      .select("*")
+      .eq("integration_id", integrationId)
       .maybeSingle();
 
     if (error || !data) return null;
@@ -158,14 +182,17 @@ export class CalendarWatchService {
   /**
    * Update sync token after incremental sync.
    */
-  async updateSyncToken(integrationId: string, syncToken: string): Promise<void> {
+  async updateSyncToken(
+    integrationId: string,
+    syncToken: string,
+  ): Promise<void> {
     await this.supabase
-      .from('calendar_watches')
+      .from("calendar_watches")
       .update({
         sync_token: syncToken,
         updated_at: new Date().toISOString(),
       })
-      .eq('integration_id', integrationId);
+      .eq("integration_id", integrationId);
   }
 
   private mapWatch(data: Record<string, unknown>): CalendarWatch {
@@ -184,6 +211,8 @@ export class CalendarWatchService {
   }
 }
 
-export function createCalendarWatchService(supabase: SupabaseClient<Database>): CalendarWatchService {
+export function createCalendarWatchService(
+  supabase: SupabaseClient<Database>,
+): CalendarWatchService {
   return new CalendarWatchService(supabase);
 }

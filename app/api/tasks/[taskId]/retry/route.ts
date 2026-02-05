@@ -45,7 +45,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (updateError || !updated) {
       return NextResponse.json(
         { error: updateError?.message ?? "Failed to retry task" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 

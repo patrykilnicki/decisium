@@ -27,7 +27,11 @@ export function NewThreadButton() {
 
   return (
     <Button onClick={handleCreate}>
-      <HugeiconsIcon icon={PlusSignIcon} strokeWidth={2} data-icon="inline-start" />
+      <HugeiconsIcon
+        icon={PlusSignIcon}
+        strokeWidth={2}
+        data-icon="inline-start"
+      />
       New Conversation
     </Button>
   );

@@ -1,5 +1,5 @@
-import { google, gmail_v1 } from 'googleapis';
-import { OAuth2Client } from 'google-auth-library';
+import { google, gmail_v1 } from "googleapis";
+import { OAuth2Client } from "google-auth-library";
 import {
   BaseAdapter,
   AdapterConfig,
@@ -9,10 +9,10 @@ import {
   Evidence,
   FetchOptions,
   Provider,
-} from './base.adapter';
+} from "./base.adapter";
 
 export class GmailAdapter extends BaseAdapter {
-  readonly provider: Provider = 'gmail';
+  readonly provider: Provider = "gmail";
   private oauth2Client: OAuth2Client;
 
   constructor(config: AdapterConfig) {
@@ -20,7 +20,7 @@ export class GmailAdapter extends BaseAdapter {
     this.oauth2Client = new google.auth.OAuth2(
       config.clientId,
       config.clientSecret,
-      config.redirectUri
+      config.redirectUri,
     );
   }
 
@@ -30,10 +30,10 @@ export class GmailAdapter extends BaseAdapter {
 
   getAuthorizationUrl(state: string): string {
     return this.oauth2Client.generateAuthUrl({
-      access_type: 'offline',
+      access_type: "offline",
       scope: this.config.scopes,
       state,
-      prompt: 'consent',
+      prompt: "consent",
       include_granted_scopes: true,
     });
   }
@@ -42,15 +42,15 @@ export class GmailAdapter extends BaseAdapter {
     const { tokens } = await this.oauth2Client.getToken(code);
 
     if (!tokens.access_token) {
-      throw new Error('No access token received from Google');
+      throw new Error("No access token received from Google");
     }
 
     return {
       accessToken: tokens.access_token,
       refreshToken: tokens.refresh_token ?? undefined,
       expiresAt: new Date(tokens.expiry_date ?? Date.now() + 3600 * 1000),
-      tokenType: tokens.token_type ?? 'Bearer',
-      scope: tokens.scope ?? '',
+      tokenType: tokens.token_type ?? "Bearer",
+      scope: tokens.scope ?? "",
     };
   }
 
@@ -60,15 +60,15 @@ export class GmailAdapter extends BaseAdapter {
     const { credentials } = await this.oauth2Client.refreshAccessToken();
 
     if (!credentials.access_token) {
-      throw new Error('Failed to refresh access token');
+      throw new Error("Failed to refresh access token");
     }
 
     return {
       accessToken: credentials.access_token,
       refreshToken: credentials.refresh_token ?? refreshToken,
       expiresAt: new Date(credentials.expiry_date ?? Date.now() + 3600 * 1000),
-      tokenType: credentials.token_type ?? 'Bearer',
-      scope: credentials.scope ?? '',
+      tokenType: credentials.token_type ?? "Bearer",
+      scope: credentials.scope ?? "",
     };
   }
 
@@ -81,15 +81,15 @@ export class GmailAdapter extends BaseAdapter {
   // ─────────────────────────────────────────────
 
   async getUserInfo(
-    accessToken: string
+    accessToken: string,
   ): Promise<{ id: string; email?: string; name?: string }> {
     this.oauth2Client.setCredentials({ access_token: accessToken });
 
-    const gmail = google.gmail({ version: 'v1', auth: this.oauth2Client });
-    const { data } = await gmail.users.getProfile({ userId: 'me' });
+    const gmail = google.gmail({ version: "v1", auth: this.oauth2Client });
+    const { data } = await gmail.users.getProfile({ userId: "me" });
 
     return {
-      id: data.historyId ?? '',
+      id: data.historyId ?? "",
       email: data.emailAddress ?? undefined,
       name: undefined,
     };
@@ -101,11 +101,11 @@ export class GmailAdapter extends BaseAdapter {
 
   async fetchData(
     accessToken: string,
-    options?: FetchOptions
+    options?: FetchOptions,
   ): Promise<SyncResult> {
     this.oauth2Client.setCredentials({ access_token: accessToken });
 
-    const gmail = google.gmail({ version: 'v1', auth: this.oauth2Client });
+    const gmail = google.gmail({ version: "v1", auth: this.oauth2Client });
 
     // Build query for messages
     const queryParts: string[] = [];
@@ -122,10 +122,10 @@ export class GmailAdapter extends BaseAdapter {
 
     // Fetch message list
     const listResponse = await gmail.users.messages.list({
-      userId: 'me',
+      userId: "me",
       maxResults: options?.limit ?? 50,
       pageToken: options?.cursor ?? undefined,
-      q: queryParts.join(' ') || undefined,
+      q: queryParts.join(" ") || undefined,
     });
 
     const messageIds = listResponse.data.messages ?? [];
@@ -138,10 +138,10 @@ export class GmailAdapter extends BaseAdapter {
 
       try {
         const messageResponse = await gmail.users.messages.get({
-          userId: 'me',
+          userId: "me",
           id: msg.id,
-          format: 'metadata',
-          metadataHeaders: ['From', 'To', 'Subject', 'Date'],
+          format: "metadata",
+          metadataHeaders: ["From", "To", "Subject", "Date"],
         });
 
         const atom = this.messageToAtom(messageResponse.data);
@@ -177,19 +177,20 @@ export class GmailAdapter extends BaseAdapter {
 
     const headers = message.payload?.headers ?? [];
     const getHeader = (name: string): string | undefined =>
-      headers.find((h) => h.name?.toLowerCase() === name.toLowerCase())?.value ?? undefined;
+      headers.find((h) => h.name?.toLowerCase() === name.toLowerCase())
+        ?.value ?? undefined;
 
-    const subject = getHeader('Subject') ?? 'No Subject';
-    const from = getHeader('From') ?? '';
-    const to = getHeader('To') ?? '';
-    const dateStr = getHeader('Date');
+    const subject = getHeader("Subject") ?? "No Subject";
+    const from = getHeader("From") ?? "";
+    const to = getHeader("To") ?? "";
+    const dateStr = getHeader("Date");
 
     // Parse date
     let occurredAt: Date;
     if (dateStr) {
       occurredAt = new Date(dateStr);
       if (isNaN(occurredAt.getTime())) {
-        occurredAt = new Date(parseInt(message.internalDate ?? '0', 10));
+        occurredAt = new Date(parseInt(message.internalDate ?? "0", 10));
       }
     } else if (message.internalDate) {
       occurredAt = new Date(parseInt(message.internalDate, 10));
@@ -201,7 +202,7 @@ export class GmailAdapter extends BaseAdapter {
     const participants: string[] = [];
     if (from) participants.push(from);
     if (to) {
-      to.split(',').forEach((email) => {
+      to.split(",").forEach((email) => {
         const trimmed = email.trim();
         if (trimmed && !participants.includes(trimmed)) {
           participants.push(trimmed);
@@ -210,14 +211,14 @@ export class GmailAdapter extends BaseAdapter {
     }
 
     // Get snippet for content
-    const snippet = message.snippet ?? '';
+    const snippet = message.snippet ?? "";
 
     // Build semantic content
     const contentParts = [
       `Subject: ${subject}`,
       `From: ${from}`,
-      to ? `To: ${to}` : '',
-      snippet ? `Preview: ${snippet}` : '',
+      to ? `To: ${to}` : "",
+      snippet ? `Preview: ${snippet}` : "",
     ];
 
     // Gmail deep link
@@ -225,7 +226,7 @@ export class GmailAdapter extends BaseAdapter {
 
     return {
       externalId: message.id,
-      atomType: 'message',
+      atomType: "message",
       title: subject,
       content: this.buildSemanticContent(contentParts),
       occurredAt,
@@ -245,13 +246,14 @@ export class GmailAdapter extends BaseAdapter {
   // ─────────────────────────────────────────────
 
   extractEvidence(atom: ActivityAtom): Evidence {
-    const snippet = atom.content.length > 200
-      ? atom.content.substring(0, 200) + '...'
-      : atom.content;
+    const snippet =
+      atom.content.length > 200
+        ? atom.content.substring(0, 200) + "..."
+        : atom.content;
 
     return {
-      url: atom.sourceUrl ?? '',
-      title: atom.title ?? 'Email',
+      url: atom.sourceUrl ?? "",
+      title: atom.title ?? "Email",
       snippet,
       provider: this.provider,
       timestamp: atom.occurredAt,

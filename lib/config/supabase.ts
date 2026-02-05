@@ -9,6 +9,6 @@ const hasServiceRole = Boolean(supabaseConfig.serviceRoleKey);
 
 if (!supabaseConfig.url || (!hasAnon && !hasServiceRole)) {
   throw new Error(
-    "Missing Supabase environment variables. Please set SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL) and either NEXT_PUBLIC_SUPABASE_ANON_KEY or SUPABASE_SERVICE_ROLE_KEY"
+    "Missing Supabase environment variables. Please set SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL) and either NEXT_PUBLIC_SUPABASE_ANON_KEY or SUPABASE_SERVICE_ROLE_KEY",
   );
 }

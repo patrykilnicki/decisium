@@ -31,7 +31,7 @@ export const DAILY_STEPS: StepMapping[] = [
 
 export function getStepLabel(
   nodeId: string,
-  mode: "linear" | "agentic"
+  mode: "linear" | "agentic",
 ): string {
   const steps = mode === "agentic" ? ORCHESTRATOR_STEPS : ROOT_AGENT_STEPS;
   return steps.find((s) => s.nodeId === nodeId)?.label ?? nodeId;
@@ -51,8 +51,12 @@ export function getTaskStepLabel(taskType: TaskType): string {
   }
 
   if (graph === "orchestrator") {
-    return ORCHESTRATOR_STEPS.find((step) => step.nodeId === nodeId)?.label ?? nodeId;
+    return (
+      ORCHESTRATOR_STEPS.find((step) => step.nodeId === nodeId)?.label ?? nodeId
+    );
   }
 
-  return ROOT_AGENT_STEPS.find((step) => step.nodeId === nodeId)?.label ?? nodeId;
+  return (
+    ROOT_AGENT_STEPS.find((step) => step.nodeId === nodeId)?.label ?? nodeId
+  );
 }

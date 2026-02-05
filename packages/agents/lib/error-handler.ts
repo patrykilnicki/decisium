@@ -12,11 +12,7 @@ export class AgentError extends Error {
   public readonly context?: ErrorContext;
   public readonly originalError?: Error;
 
-  constructor(
-    message: string,
-    context?: ErrorContext,
-    originalError?: Error
-  ) {
+  constructor(message: string, context?: ErrorContext, originalError?: Error) {
     super(message);
     this.name = "AgentError";
     this.context = context;
@@ -34,7 +30,7 @@ export class AgentError extends Error {
  */
 export function handleAgentError(
   error: unknown,
-  context?: ErrorContext
+  context?: ErrorContext,
 ): never {
   // Log error with context
   console.error("[Agent Error]", {
@@ -60,7 +56,7 @@ export function handleAgentError(
       throw new AgentError(
         "The agent encountered a complex request that required too many steps to complete. Please try simplifying your request or breaking it into smaller parts.",
         context,
-        error
+        error,
       );
     }
 
@@ -69,7 +65,7 @@ export function handleAgentError(
       throw new AgentError(
         "Authentication required. Please log in.",
         context,
-        error
+        error,
       );
     }
 
@@ -77,7 +73,7 @@ export function handleAgentError(
       throw new AgentError(
         "The requested resource was not found.",
         context,
-        error
+        error,
       );
     }
 
@@ -85,7 +81,7 @@ export function handleAgentError(
       throw new AgentError(
         "Failed to save data. Please try again.",
         context,
-        error
+        error,
       );
     }
 
@@ -93,7 +89,7 @@ export function handleAgentError(
     throw new AgentError(
       error.message || "An unexpected error occurred.",
       context,
-      error
+      error,
     );
   }
 
@@ -101,17 +97,16 @@ export function handleAgentError(
   throw new AgentError(
     "An unexpected error occurred.",
     context,
-    error instanceof Error ? error : new Error(String(error))
+    error instanceof Error ? error : new Error(String(error)),
   );
 }
 
 /**
  * Wrap async functions with error handling
  */
-export function withErrorHandling<T extends (...args: unknown[]) => Promise<unknown>>(
-  fn: T,
-  context?: ErrorContext
-): T {
+export function withErrorHandling<
+  T extends (...args: unknown[]) => Promise<unknown>,
+>(fn: T, context?: ErrorContext): T {
   return (async (...args: Parameters<T>) => {
     try {
       return await fn(...args);
@@ -126,7 +121,7 @@ export function withErrorHandling<T extends (...args: unknown[]) => Promise<unkn
  */
 export async function safeExecute<T>(
   fn: () => Promise<T>,
-  context?: ErrorContext
+  context?: ErrorContext,
 ): Promise<{ data?: T; error?: AgentError }> {
   try {
     const data = await fn();
@@ -138,7 +133,7 @@ export async function safeExecute<T>(
         : new AgentError(
             error instanceof Error ? error.message : String(error),
             context,
-            error instanceof Error ? error : undefined
+            error instanceof Error ? error : undefined,
           );
     return { error: agentError };
   }

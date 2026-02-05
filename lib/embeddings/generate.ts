@@ -1,1 +1,4 @@
-export { generateEmbedding, generateEmbeddings } from "@/packages/agents/lib/embeddings";
+export {
+  generateEmbedding,
+  generateEmbeddings,
+} from "@/packages/agents/lib/embeddings";

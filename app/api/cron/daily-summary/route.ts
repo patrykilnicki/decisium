@@ -27,7 +27,8 @@ async function runDailySummary(): Promise<NextResponse> {
       throw new Error("Failed to fetch users");
     }
 
-    const results: Array<{ userId: string; status: string; error?: string }> = [];
+    const results: Array<{ userId: string; status: string; error?: string }> =
+      [];
 
     // Type assertion needed because select with specific columns returns a narrowed type
     const typedUsers = users as Array<Pick<User, "id" | "timezone">>;
@@ -46,7 +47,10 @@ async function runDailySummary(): Promise<NextResponse> {
 
     return NextResponse.json({ results });
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : "Failed to generate daily summaries";
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Failed to generate daily summaries";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
@@ -55,8 +59,11 @@ async function runDailySummary(): Promise<NextResponse> {
 export async function GET(request: NextRequest) {
   if (!isAuthorized(request)) {
     return NextResponse.json(
-      { error: "Unauthorized. Use Authorization: Bearer <CRON_SECRET> or call via Vercel Cron." },
-      { status: 401 }
+      {
+        error:
+          "Unauthorized. Use Authorization: Bearer <CRON_SECRET> or call via Vercel Cron.",
+      },
+      { status: 401 },
     );
   }
   return runDailySummary();

@@ -1,5 +1,5 @@
 // Adapters
-export * from './adapters';
+export * from "./adapters";
 
 // Types re-exported for convenience
 export type {
@@ -13,7 +13,7 @@ export type {
   Evidence,
   IntegrationAdapter,
   AdapterRegistryEntry,
-} from './adapters';
+} from "./adapters";
 
 export {
   PROVIDERS,
@@ -25,4 +25,4 @@ export {
   AdapterConfigSchema,
   OAuthTokensSchema,
   BaseAdapter,
-} from './adapters';
+} from "./adapters";

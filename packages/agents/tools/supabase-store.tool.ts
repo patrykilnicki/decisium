@@ -14,39 +14,58 @@ export const supabaseStoreTool = new DynamicStructuredTool({
 - ask_messages: For Ask AI messages (requires: thread_id, role ('user'|'assistant'|'system'), content)
 - embeddings: For vector embeddings (requires: user_id, content, embedding as array, metadata as JSONB)`,
   schema: z.object({
-    table: z.enum([
-      "daily_events",
-      "daily_summaries",
-      "weekly_summaries",
-      "monthly_summaries",
-      "ask_threads",
-      "ask_messages",
-      "embeddings",
-    ]).describe("The Supabase table name to insert into. Must be one of the available tables."),
-    data: z.record(z.any()).describe("The data object to insert into the table"),
+    table: z
+      .enum([
+        "daily_events",
+        "daily_summaries",
+        "weekly_summaries",
+        "monthly_summaries",
+        "ask_threads",
+        "ask_messages",
+        "embeddings",
+      ])
+      .describe(
+        "The Supabase table name to insert into. Must be one of the available tables.",
+      ),
+    data: z
+      .record(z.any())
+      .describe("The data object to insert into the table"),
   }),
   func: async ({ table, data }) => {
     // Validate daily_events data
     if (table === "daily_events") {
-      const validTypes = ["note", "question", "note+question", "answer", "summary", "system"];
+      const validTypes = [
+        "note",
+        "question",
+        "note+question",
+        "answer",
+        "summary",
+        "system",
+      ];
       const validRoles = ["user", "agent", "system"];
-      
+
       if (data.type && !validTypes.includes(data.type)) {
         throw new Error(
-          `Invalid type for daily_events: "${data.type}". Must be one of: ${validTypes.join(", ")}`
+          `Invalid type for daily_events: "${data.type}". Must be one of: ${validTypes.join(", ")}`,
         );
       }
-      
+
       if (data.role && !validRoles.includes(data.role)) {
         throw new Error(
-          `Invalid role for daily_events: "${data.role}". Must be one of: ${validRoles.join(", ")}`
+          `Invalid role for daily_events: "${data.role}". Must be one of: ${validRoles.join(", ")}`,
         );
       }
-      
+
       // Validate required fields
-      if (!data.user_id || !data.date || !data.role || !data.type || !data.content) {
+      if (
+        !data.user_id ||
+        !data.date ||
+        !data.role ||
+        !data.type ||
+        !data.content
+      ) {
         throw new Error(
-          `Missing required fields for daily_events. Required: user_id, date, role, type, content`
+          `Missing required fields for daily_events. Required: user_id, date, role, type, content`,
         );
       }
     }
@@ -56,7 +75,7 @@ export const supabaseStoreTool = new DynamicStructuredTool({
       const validRoles = ["user", "assistant", "system"];
       if (data.role && !validRoles.includes(data.role)) {
         throw new Error(
-          `Invalid role for ask_messages: "${data.role}". Must be one of: ${validRoles.join(", ")}`
+          `Invalid role for ask_messages: "${data.role}". Must be one of: ${validRoles.join(", ")}`,
         );
       }
     }
@@ -69,7 +88,7 @@ export const supabaseStoreTool = new DynamicStructuredTool({
     const { data: result, error } = await supabase
       .from(table)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic insert per table; schema validated above
-.insert(data as any)
+      .insert(data as any)
       .select()
       .single();
 

@@ -79,7 +79,8 @@ export function createDailyContext(params: {
   currentDate?: string;
   userEmail?: string;
 }): MainAgentContext {
-  const currentDate = params.currentDate || new Date().toISOString().split("T")[0];
+  const currentDate =
+    params.currentDate || new Date().toISOString().split("T")[0];
   return {
     page: "daily",
     userId: params.userId,

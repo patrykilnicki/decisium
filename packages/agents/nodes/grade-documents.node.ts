@@ -7,12 +7,15 @@ import { GRADE_DOCUMENTS_PROMPT } from "../prompts";
  * Schema for document grading result
  */
 export const GradeDocumentsSchema = z.object({
-  binaryScore: z.enum(["yes", "no"]).describe(
-    "Relevance score: 'yes' if documents are relevant to the question, 'no' otherwise"
-  ),
-  reasoning: z.string().optional().describe(
-    "Brief explanation for the grading decision"
-  ),
+  binaryScore: z
+    .enum(["yes", "no"])
+    .describe(
+      "Relevance score: 'yes' if documents are relevant to the question, 'no' otherwise",
+    ),
+  reasoning: z
+    .string()
+    .optional()
+    .describe("Brief explanation for the grading decision"),
 });
 
 export type GradeDocumentsResult = z.infer<typeof GradeDocumentsSchema>;
@@ -32,7 +35,8 @@ export interface GradeDocumentsConfig {
  * Create a document grader with structured output
  */
 export function createDocumentGrader(config?: GradeDocumentsConfig) {
-  const provider = config?.llmProvider ||
+  const provider =
+    config?.llmProvider ||
     (process.env.LLM_PROVIDER as "openai" | "anthropic" | "openrouter") ||
     "anthropic";
 
@@ -58,7 +62,7 @@ export function createDocumentGrader(config?: GradeDocumentsConfig) {
 export async function gradeDocuments(
   question: string,
   context: string,
-  config?: GradeDocumentsConfig
+  config?: GradeDocumentsConfig,
 ): Promise<{
   grade: GradeDocumentsResult;
   routeDecision: "generate" | "rewrite";
@@ -82,27 +86,26 @@ export async function gradeDocuments(
  * Node function for LangGraph integration
  * Accepts state and returns partial state update
  */
-export async function gradeDocumentsNode<TState extends {
-  userMessage?: string;
-  messages?: Array<{ content: string }>;
-  retrievedContext?: string;
-  memoryContext?: string;
-}>(
+export async function gradeDocumentsNode<
+  TState extends {
+    userMessage?: string;
+    messages?: Array<{ content: string }>;
+    retrievedContext?: string;
+    memoryContext?: string;
+  },
+>(
   state: TState,
-  config?: GradeDocumentsConfig
+  config?: GradeDocumentsConfig,
 ): Promise<{
   gradingResult: "relevant" | "irrelevant";
   gradingReasoning?: string;
 }> {
   // Extract question from state
-  const question = state.userMessage || 
-    state.messages?.find(m => m.content)?.content || 
-    "";
+  const question =
+    state.userMessage || state.messages?.find((m) => m.content)?.content || "";
 
   // Extract context from state
-  const context = state.retrievedContext || 
-    state.memoryContext || 
-    "";
+  const context = state.retrievedContext || state.memoryContext || "";
 
   // If no context was retrieved, mark as irrelevant
   if (!context || context === "No relevant memory found.") {
@@ -121,7 +124,11 @@ export async function gradeDocumentsNode<TState extends {
   }
 
   try {
-    const { grade, routeDecision } = await gradeDocuments(question, context, config);
+    const { grade, routeDecision } = await gradeDocuments(
+      question,
+      context,
+      config,
+    );
 
     return {
       gradingResult: routeDecision === "generate" ? "relevant" : "irrelevant",

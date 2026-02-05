@@ -3,31 +3,31 @@ import {
   AdapterConfig,
   IntegrationAdapter,
   ADAPTER_REGISTRY,
-} from './base.adapter';
-import { GoogleCalendarAdapter } from './google-calendar.adapter';
-import { GmailAdapter } from './gmail.adapter';
-import { NotionAdapter } from './notion.adapter';
-import { LinearAdapter } from './linear.adapter';
+} from "./base.adapter";
+import { GoogleCalendarAdapter } from "./google-calendar.adapter";
+import { GmailAdapter } from "./gmail.adapter";
+import { NotionAdapter } from "./notion.adapter";
+import { LinearAdapter } from "./linear.adapter";
 
 /**
  * Environment variable names for each provider
  */
 const ENV_VARS: Record<Provider, { clientId: string; clientSecret: string }> = {
   google_calendar: {
-    clientId: 'GOOGLE_CLIENT_ID',
-    clientSecret: 'GOOGLE_CLIENT_SECRET',
+    clientId: "GOOGLE_CLIENT_ID",
+    clientSecret: "GOOGLE_CLIENT_SECRET",
   },
   gmail: {
-    clientId: 'GOOGLE_CLIENT_ID',
-    clientSecret: 'GOOGLE_CLIENT_SECRET',
+    clientId: "GOOGLE_CLIENT_ID",
+    clientSecret: "GOOGLE_CLIENT_SECRET",
   },
   notion: {
-    clientId: 'NOTION_CLIENT_ID',
-    clientSecret: 'NOTION_CLIENT_SECRET',
+    clientId: "NOTION_CLIENT_ID",
+    clientSecret: "NOTION_CLIENT_SECRET",
   },
   linear: {
-    clientId: 'LINEAR_CLIENT_ID',
-    clientSecret: 'LINEAR_CLIENT_SECRET',
+    clientId: "LINEAR_CLIENT_ID",
+    clientSecret: "LINEAR_CLIENT_SECRET",
   },
 };
 
@@ -39,7 +39,7 @@ export function getAdapterConfig(
   options?: {
     redirectUri?: string;
     useExtendedScopes?: boolean;
-  }
+  },
 ): AdapterConfig {
   const envVars = ENV_VARS[provider];
   const registry = ADAPTER_REGISTRY[provider];
@@ -50,12 +50,12 @@ export function getAdapterConfig(
   if (!clientId || !clientSecret) {
     throw new Error(
       `Missing environment variables for ${provider}: ` +
-        `${envVars.clientId} and ${envVars.clientSecret} are required`
+        `${envVars.clientId} and ${envVars.clientSecret} are required`,
     );
   }
 
   // Determine redirect URI
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
   const redirectUri =
     options?.redirectUri ?? `${baseUrl}/api/integrations/${provider}/callback`;
 
@@ -78,18 +78,18 @@ export function getAdapterConfig(
  */
 export function createAdapter(
   provider: Provider,
-  config?: AdapterConfig
+  config?: AdapterConfig,
 ): IntegrationAdapter {
   const adapterConfig = config ?? getAdapterConfig(provider);
 
   switch (provider) {
-    case 'google_calendar':
+    case "google_calendar":
       return new GoogleCalendarAdapter(adapterConfig);
-    case 'gmail':
+    case "gmail":
       return new GmailAdapter(adapterConfig);
-    case 'notion':
+    case "notion":
       return new NotionAdapter(adapterConfig);
-    case 'linear':
+    case "linear":
       return new LinearAdapter(adapterConfig);
     default:
       throw new Error(`Unknown provider: ${provider}`);
@@ -127,6 +127,6 @@ export function isProviderConfigured(provider: Provider): boolean {
  */
 export function getConfiguredProviders(): Provider[] {
   return (Object.keys(ADAPTER_REGISTRY) as Provider[]).filter(
-    isProviderConfigured
+    isProviderConfigured,
   );
 }

@@ -15,15 +15,14 @@ function sleep(ms: number): Promise<void> {
 }
 
 async function processTask(
-  client: Awaited<ReturnType<typeof import("@/lib/supabase/admin")["createAdminClient"]>>,
+  client: Awaited<
+    ReturnType<(typeof import("@/lib/supabase/admin"))["createAdminClient"]>
+  >,
   task: TaskRow,
-  maxRetries: number
+  maxRetries: number,
 ) {
-  const {
-    enqueueTasks,
-    updateTaskFailure,
-    updateTaskSuccess,
-  } = await import("@/lib/tasks/task-repository");
+  const { enqueueTasks, updateTaskFailure, updateTaskSuccess } =
+    await import("@/lib/tasks/task-repository");
   const { handleTask } = await import("@/packages/workers/langgraph-handlers");
 
   try {
@@ -68,7 +67,7 @@ async function runWorker() {
       }
 
       await Promise.all(
-        tasks.map((task) => processTask(client, task, maxRetries))
+        tasks.map((task) => processTask(client, task, maxRetries)),
       );
     } catch (error) {
       console.error("[task-runner] Worker loop error:", error);

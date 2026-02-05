@@ -1,4 +1,4 @@
-import { LinearClient, Issue } from '@linear/sdk';
+import { LinearClient, Issue } from "@linear/sdk";
 import {
   BaseAdapter,
   AdapterConfig,
@@ -8,14 +8,14 @@ import {
   Evidence,
   FetchOptions,
   Provider,
-} from './base.adapter';
+} from "./base.adapter";
 
-const LINEAR_AUTH_URL = 'https://linear.app/oauth/authorize';
-const LINEAR_TOKEN_URL = 'https://api.linear.app/oauth/token';
-const LINEAR_REVOKE_URL = 'https://api.linear.app/oauth/revoke';
+const LINEAR_AUTH_URL = "https://linear.app/oauth/authorize";
+const LINEAR_TOKEN_URL = "https://api.linear.app/oauth/token";
+const LINEAR_REVOKE_URL = "https://api.linear.app/oauth/revoke";
 
 export class LinearAdapter extends BaseAdapter {
-  readonly provider: Provider = 'linear';
+  readonly provider: Provider = "linear";
 
   constructor(config: AdapterConfig) {
     super(config);
@@ -28,11 +28,11 @@ export class LinearAdapter extends BaseAdapter {
   getAuthorizationUrl(state: string): string {
     const params = new URLSearchParams({
       client_id: this.config.clientId,
-      response_type: 'code',
+      response_type: "code",
       redirect_uri: this.config.redirectUri,
       state,
-      scope: this.config.scopes.join(','),
-      prompt: 'consent',
+      scope: this.config.scopes.join(","),
+      prompt: "consent",
     });
 
     return `${LINEAR_AUTH_URL}?${params.toString()}`;
@@ -40,12 +40,12 @@ export class LinearAdapter extends BaseAdapter {
 
   async exchangeCodeForTokens(code: string): Promise<OAuthTokens> {
     const response = await fetch(LINEAR_TOKEN_URL, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
+        "Content-Type": "application/x-www-form-urlencoded",
       },
       body: new URLSearchParams({
-        grant_type: 'authorization_code',
+        grant_type: "authorization_code",
         client_id: this.config.clientId,
         client_secret: this.config.clientSecret,
         redirect_uri: this.config.redirectUri,
@@ -64,19 +64,19 @@ export class LinearAdapter extends BaseAdapter {
       accessToken: data.access_token,
       refreshToken: data.refresh_token ?? undefined,
       expiresAt: new Date(Date.now() + (data.expires_in ?? 315360000) * 1000), // ~10 years default
-      tokenType: data.token_type ?? 'Bearer',
-      scope: data.scope ?? '',
+      tokenType: data.token_type ?? "Bearer",
+      scope: data.scope ?? "",
     };
   }
 
   async refreshAccessToken(refreshToken: string): Promise<OAuthTokens> {
     const response = await fetch(LINEAR_TOKEN_URL, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
+        "Content-Type": "application/x-www-form-urlencoded",
       },
       body: new URLSearchParams({
-        grant_type: 'refresh_token',
+        grant_type: "refresh_token",
         client_id: this.config.clientId,
         client_secret: this.config.clientSecret,
         refresh_token: refreshToken,
@@ -94,16 +94,16 @@ export class LinearAdapter extends BaseAdapter {
       accessToken: data.access_token,
       refreshToken: data.refresh_token ?? refreshToken,
       expiresAt: new Date(Date.now() + (data.expires_in ?? 315360000) * 1000),
-      tokenType: data.token_type ?? 'Bearer',
-      scope: data.scope ?? '',
+      tokenType: data.token_type ?? "Bearer",
+      scope: data.scope ?? "",
     };
   }
 
   async revokeTokens(accessToken: string): Promise<void> {
     await fetch(LINEAR_REVOKE_URL, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
+        "Content-Type": "application/x-www-form-urlencoded",
         Authorization: `Bearer ${accessToken}`,
       },
     });
@@ -114,7 +114,7 @@ export class LinearAdapter extends BaseAdapter {
   // ─────────────────────────────────────────────
 
   async getUserInfo(
-    accessToken: string
+    accessToken: string,
   ): Promise<{ id: string; email?: string; name?: string }> {
     const client = new LinearClient({ accessToken });
     const viewer = await client.viewer;
@@ -132,7 +132,7 @@ export class LinearAdapter extends BaseAdapter {
 
   async fetchData(
     accessToken: string,
-    options?: FetchOptions
+    options?: FetchOptions,
   ): Promise<SyncResult> {
     const client = new LinearClient({ accessToken });
 
@@ -145,7 +145,7 @@ export class LinearAdapter extends BaseAdapter {
 
     if (options?.until) {
       filter.updatedAt = {
-        ...(filter.updatedAt as object || {}),
+        ...((filter.updatedAt as object) || {}),
         lte: options.until.toISOString(),
       };
     }
@@ -163,7 +163,7 @@ export class LinearAdapter extends BaseAdapter {
     return {
       atoms,
       nextCursor: issues.pageInfo.hasNextPage
-        ? issues.pageInfo.endCursor ?? undefined
+        ? (issues.pageInfo.endCursor ?? undefined)
         : undefined,
       hasMore: issues.pageInfo.hasNextPage,
       syncedAt: new Date(),
@@ -204,7 +204,7 @@ export class LinearAdapter extends BaseAdapter {
       issue.project,
     ]);
 
-    const title = issue.title ?? 'Untitled Issue';
+    const title = issue.title ?? "Untitled Issue";
     const occurredAt = new Date(issue.updatedAt);
 
     // Build content
@@ -212,11 +212,13 @@ export class LinearAdapter extends BaseAdapter {
       `[${issue.identifier}] ${title}`,
       issue.description
         ? `Description: ${this.truncateContent(issue.description, 500)}`
-        : '',
-      state?.name ? `Status: ${state.name}` : '',
-      assignee?.name ? `Assignee: ${assignee.name}` : '',
-      project?.name ? `Project: ${project.name}` : '',
-      issue.priority ? `Priority: ${this.getPriorityLabel(issue.priority)}` : '',
+        : "",
+      state?.name ? `Status: ${state.name}` : "",
+      assignee?.name ? `Assignee: ${assignee.name}` : "",
+      project?.name ? `Project: ${project.name}` : "",
+      issue.priority
+        ? `Priority: ${this.getPriorityLabel(issue.priority)}`
+        : "",
     ];
 
     // Participants (assignee)
@@ -227,7 +229,7 @@ export class LinearAdapter extends BaseAdapter {
 
     return {
       externalId: issue.id,
-      atomType: 'task',
+      atomType: "task",
       title: `[${issue.identifier}] ${title}`,
       content: this.buildSemanticContent(contentParts),
       occurredAt,
@@ -254,20 +256,22 @@ export class LinearAdapter extends BaseAdapter {
   private issueToAtomSync(issue: Issue): ActivityAtom | null {
     if (!issue.id) return null;
 
-    const title = issue.title ?? 'Untitled Issue';
+    const title = issue.title ?? "Untitled Issue";
     const occurredAt = new Date(issue.updatedAt);
 
     const contentParts = [
       `[${issue.identifier}] ${title}`,
       issue.description
         ? `Description: ${this.truncateContent(issue.description, 500)}`
-        : '',
-      issue.priority ? `Priority: ${this.getPriorityLabel(issue.priority)}` : '',
+        : "",
+      issue.priority
+        ? `Priority: ${this.getPriorityLabel(issue.priority)}`
+        : "",
     ];
 
     return {
       externalId: issue.id,
-      atomType: 'task',
+      atomType: "task",
       title: `[${issue.identifier}] ${title}`,
       content: this.buildSemanticContent(contentParts),
       occurredAt,
@@ -285,17 +289,17 @@ export class LinearAdapter extends BaseAdapter {
   private getPriorityLabel(priority: number | undefined): string {
     switch (priority) {
       case 0:
-        return 'No priority';
+        return "No priority";
       case 1:
-        return 'Urgent';
+        return "Urgent";
       case 2:
-        return 'High';
+        return "High";
       case 3:
-        return 'Medium';
+        return "Medium";
       case 4:
-        return 'Low';
+        return "Low";
       default:
-        return 'Unknown';
+        return "Unknown";
     }
   }
 
@@ -304,13 +308,14 @@ export class LinearAdapter extends BaseAdapter {
   // ─────────────────────────────────────────────
 
   extractEvidence(atom: ActivityAtom): Evidence {
-    const snippet = atom.content.length > 200
-      ? atom.content.substring(0, 200) + '...'
-      : atom.content;
+    const snippet =
+      atom.content.length > 200
+        ? atom.content.substring(0, 200) + "..."
+        : atom.content;
 
     return {
-      url: atom.sourceUrl ?? '',
-      title: atom.title ?? 'Linear Issue',
+      url: atom.sourceUrl ?? "",
+      title: atom.title ?? "Linear Issue",
       snippet,
       provider: this.provider,
       timestamp: atom.occurredAt,

@@ -39,6 +39,4 @@ export type {
   DailyWelcomeResult,
   DailyMessageResult,
 } from "./core/daily.agent";
-export {
-  createDailyInitGraph,
-} from "./core/daily.agent";
+export { createDailyInitGraph } from "./core/daily.agent";

@@ -69,7 +69,7 @@ export function createBaseAgent(config: BaseAgentConfig): unknown {
 export interface SimpleAgentInvokable {
   invoke(
     input: { messages: Array<{ role: string; content: string }> },
-    config?: { recursionLimit?: number }
+    config?: { recursionLimit?: number },
   ): Promise<{ messages: Array<{ content?: string }> }>;
 }
 
@@ -105,7 +105,7 @@ export function createAgentWithTools(
     llmProvider?: "openai" | "anthropic" | "openrouter";
     model?: string;
     currentDate?: string;
-  }
+  },
 ): unknown {
   return createBaseAgent({
     systemPrompt,

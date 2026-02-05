@@ -42,9 +42,11 @@ const EMPTY_MESSAGE =
 export function SummariesContent() {
   const [loading, setLoading] = useState(true);
   const [dailySummaries, setDailySummaries] = useState<DailySummaryRow[]>([]);
-  const [weeklySummaries, setWeeklySummaries] = useState<WeeklySummaryRow[]>([]);
+  const [weeklySummaries, setWeeklySummaries] = useState<WeeklySummaryRow[]>(
+    [],
+  );
   const [monthlySummaries, setMonthlySummaries] = useState<MonthlySummaryRow[]>(
-    []
+    [],
   );
 
   const loadSummaries = useCallback(async () => {
@@ -95,80 +97,78 @@ export function SummariesContent() {
 
   return (
     <div
-    className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-background p-4"
-    style={{
-      backgroundImage: "url(/bg.svg)",
-      backgroundRepeat: "no-repeat",
-      backgroundPosition: "top left",
-      backgroundSize: "auto 50vh",
-    }}
-  >
-    <div className="flex flex-col h-full max-w-2xl mx-auto">
-  
+      className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-background p-4"
+      style={{
+        backgroundImage: "url(/bg.svg)",
+        backgroundRepeat: "no-repeat",
+        backgroundPosition: "top left",
+        backgroundSize: "auto 50vh",
+      }}
+    >
+      <div className="flex flex-col h-full max-w-2xl mx-auto">
+        <div className="flex-1 overflow-auto p-4">
+          <Tabs defaultValue="daily" className="w-full">
+            <TabsList className="mb-4">
+              <TabsTrigger value="daily">Daily</TabsTrigger>
+              <TabsTrigger value="weekly">Weekly</TabsTrigger>
+              <TabsTrigger value="monthly">Monthly</TabsTrigger>
+            </TabsList>
 
-      <div className="flex-1 overflow-auto p-4">
-        <Tabs defaultValue="daily" className="w-full">
-          <TabsList className="mb-4">
-            <TabsTrigger value="daily">Daily</TabsTrigger>
-            <TabsTrigger value="weekly">Weekly</TabsTrigger>
-            <TabsTrigger value="monthly">Monthly</TabsTrigger>
-          </TabsList>
+            <TabsContent value="daily" className="space-y-4">
+              {dailySummaries.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-8">
+                  {EMPTY_MESSAGE}
+                </p>
+              ) : (
+                <div className="space-y-4">
+                  {dailySummaries.map((s) => (
+                    <DaySummaryCard
+                      key={s.id}
+                      date={s.date}
+                      summary={s.content}
+                    />
+                  ))}
+                </div>
+              )}
+            </TabsContent>
 
-          <TabsContent value="daily" className="space-y-4">
-            {dailySummaries.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-8">
-                {EMPTY_MESSAGE}
-              </p>
-            ) : (
-              <div className="space-y-4">
-                {dailySummaries.map((s) => (
-                  <DaySummaryCard
-                    key={s.id}
-                    date={s.date}
-                    summary={s.content}
-                  />
-                ))}
-              </div>
-            )}
-          </TabsContent>
+            <TabsContent value="weekly" className="space-y-4">
+              {weeklySummaries.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-8">
+                  {EMPTY_MESSAGE}
+                </p>
+              ) : (
+                <div className="space-y-4">
+                  {weeklySummaries.map((s) => (
+                    <WeeklySummaryCard
+                      key={s.id}
+                      weekStart={s.week_start}
+                      summary={s.content}
+                    />
+                  ))}
+                </div>
+              )}
+            </TabsContent>
 
-          <TabsContent value="weekly" className="space-y-4">
-            {weeklySummaries.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-8">
-                {EMPTY_MESSAGE}
-              </p>
-            ) : (
-              <div className="space-y-4">
-                {weeklySummaries.map((s) => (
-                  <WeeklySummaryCard
-                    key={s.id}
-                    weekStart={s.week_start}
-                    summary={s.content}
-                  />
-                ))}
-              </div>
-            )}
-          </TabsContent>
-
-          <TabsContent value="monthly" className="space-y-4">
-            {monthlySummaries.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-8">
-                {EMPTY_MESSAGE}
-              </p>
-            ) : (
-              <div className="space-y-4">
-                {monthlySummaries.map((s) => (
-                  <MonthlySummaryCard
-                    key={s.id}
-                    monthStart={s.month_start}
-                    summary={s.content}
-                  />
-                ))}
-              </div>
-            )}
-          </TabsContent>
-        </Tabs>
-      </div>
+            <TabsContent value="monthly" className="space-y-4">
+              {monthlySummaries.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-8">
+                  {EMPTY_MESSAGE}
+                </p>
+              ) : (
+                <div className="space-y-4">
+                  {monthlySummaries.map((s) => (
+                    <MonthlySummaryCard
+                      key={s.id}
+                      monthStart={s.month_start}
+                      summary={s.content}
+                    />
+                  ))}
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
+        </div>
       </div>
     </div>
   );

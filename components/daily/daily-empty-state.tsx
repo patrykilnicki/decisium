@@ -77,9 +77,7 @@ export function DailyEmptyState({
   }, [meetingsOpen, loadMeetings]);
 
   const greeting = getGreeting();
-  const greetingLine = userName
-    ? `${greeting}, ${userName}!`
-    : `${greeting}!`;
+  const greetingLine = userName ? `${greeting}, ${userName}!` : `${greeting}!`;
 
   return (
     <div
@@ -154,7 +152,10 @@ export function DailyEmptyState({
                           <td className="py-2.5 pr-4 text-muted-foreground">
                             {formatDuration(m.duration_minutes)}
                           </td>
-                          <td className="py-2.5 text-muted-foreground max-w-[140px] truncate" title={m.participants?.join(", ")}>
+                          <td
+                            className="py-2.5 text-muted-foreground max-w-[140px] truncate"
+                            title={m.participants?.join(", ")}
+                          >
                             {m.participants?.length
                               ? m.participants.join(", ")
                               : "—"}

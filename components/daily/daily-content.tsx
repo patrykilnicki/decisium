@@ -63,7 +63,7 @@ export function DailyContent() {
               event != null &&
               event.role != null &&
               // Exclude legacy welcome message (agent system message)
-              !(event.role === "agent" && event.type === "system")
+              !(event.role === "agent" && event.type === "system"),
           )
           .map(transformEvent);
         setMessages(transformedMessages);
@@ -77,7 +77,8 @@ export function DailyContent() {
   const getLatestTaskGroup = useCallback((allTasks: TaskRecord[]) => {
     const roots = allTasks.filter((task) => !task.parentTaskId);
     const sortedRoots = [...roots].sort(
-      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      (a, b) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
     );
     const latestRoot = sortedRoots[0];
     if (!latestRoot) return allTasks;
@@ -101,11 +102,14 @@ export function DailyContent() {
     }
 
     return Array.from(collected.values()).sort(
-      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      (a, b) =>
+        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
     );
   }, []);
 
-  function mapTaskStatus(status: string): ThinkingState["steps"][number]["status"] {
+  function mapTaskStatus(
+    status: string,
+  ): ThinkingState["steps"][number]["status"] {
     if (status === "in_progress") return "running";
     if (status === "completed") return "completed";
     if (status === "failed") return "error";
@@ -127,7 +131,7 @@ export function DailyContent() {
       });
 
       const hasActive = tasksForRun.some(
-        (task) => task.status === "pending" || task.status === "in_progress"
+        (task) => task.status === "pending" || task.status === "in_progress",
       );
 
       return {
@@ -136,12 +140,12 @@ export function DailyContent() {
         streamedContent: undefined,
       };
     },
-    [getLatestTaskGroup]
+    [getLatestTaskGroup],
   );
 
   const fetchTasks = useCallback(async () => {
     const response = await fetch(
-      `/api/tasks?sessionId=${encodeURIComponent(sessionId)}`
+      `/api/tasks?sessionId=${encodeURIComponent(sessionId)}`,
     );
     if (!response.ok) return [];
     const data = (await response.json()) as TaskRecord[];
@@ -163,7 +167,7 @@ export function DailyContent() {
       setThinkingState(thinking);
 
       const latestFailed = getLatestTaskGroup(latestTasks).find(
-        (task) => task.status === "failed" && task.lastError
+        (task) => task.status === "failed" && task.lastError,
       );
       if (latestFailed?.lastError) {
         setError(latestFailed.lastError);
@@ -178,7 +182,13 @@ export function DailyContent() {
         pollError instanceof Error ? pollError.message : "Failed to poll tasks";
       setError(message);
     }
-  }, [buildThinkingState, fetchTasks, getLatestTaskGroup, loadEvents, stopPolling]);
+  }, [
+    buildThinkingState,
+    fetchTasks,
+    getLatestTaskGroup,
+    loadEvents,
+    stopPolling,
+  ]);
 
   const startPolling = useCallback(() => {
     if (pollerRef.current) return;
@@ -257,7 +267,9 @@ export function DailyContent() {
         startPolling();
       } catch (error) {
         console.error("Failed to send message:", error);
-        setError(error instanceof Error ? error.message : "Failed to send message");
+        setError(
+          error instanceof Error ? error.message : "Failed to send message",
+        );
 
         // Remove optimistic user message on error
         setMessages((prev) => prev.filter((m) => m.id !== userMessage.id));
@@ -271,20 +283,26 @@ export function DailyContent() {
         throw error;
       }
     },
-    [startPolling]
+    [startPolling],
   );
 
   const failedTasks = tasks.filter((task) => task.status === "failed");
 
-  const retryTask = useCallback(async (taskId: string) => {
-    await fetch(`/api/tasks/${taskId}/retry`, { method: "POST" });
-    startPolling();
-  }, [startPolling]);
+  const retryTask = useCallback(
+    async (taskId: string) => {
+      await fetch(`/api/tasks/${taskId}/retry`, { method: "POST" });
+      startPolling();
+    },
+    [startPolling],
+  );
 
-  const cancelTask = useCallback(async (taskId: string) => {
-    await fetch(`/api/tasks/${taskId}/cancel`, { method: "POST" });
-    startPolling();
-  }, [startPolling]);
+  const cancelTask = useCallback(
+    async (taskId: string) => {
+      await fetch(`/api/tasks/${taskId}/cancel`, { method: "POST" });
+      startPolling();
+    },
+    [startPolling],
+  );
 
   if (loading) {
     return (
@@ -306,7 +324,11 @@ export function DailyContent() {
       {isEmpty ? (
         // First screen: Empty state with full input below meetings (all in scrollable area)
         <div className="flex-1 overflow-auto min-h-0">
-          <DailyEmptyState showDisclaimer={true} meetingsCount={meetingsCount} today={today}>
+          <DailyEmptyState
+            showDisclaimer={true}
+            meetingsCount={meetingsCount}
+            today={today}
+          >
             {failedTasks.length > 0 && (
               <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
                 <div className="flex flex-wrap items-center justify-between gap-3">
@@ -344,9 +366,8 @@ export function DailyContent() {
         // Second screen: Chat interface with messages
         <>
           <div className="bg-background/10 backdrop-blur supports-[backdrop-filter]:bg-background/80 z-10 p-6 shrink-0 font-semibold flex items-center gap-2">
-          
-             <Calendar className="size-4 text-muted-foreground" /> {format(new Date(today), "EEEE, MMMM d, yyyy")}
-      
+            <Calendar className="size-4 text-muted-foreground" />{" "}
+            {format(new Date(today), "EEEE, MMMM d, yyyy")}
           </div>
           {failedTasks.length > 0 && (
             <div className="px-6 pt-4">

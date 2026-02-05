@@ -12,7 +12,7 @@ import { storeEmbedding } from "../lib/embeddings/store";
 
 const supabase = createClient<Database>(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
 );
 
 async function backfillDailyEvents() {
@@ -35,15 +35,15 @@ async function backfillDailyEvents() {
   const embeddedSourceIds = new Set(
     (existingEmbeddings || [])
       .map((e) => (e.metadata as { source_id?: string } | null)?.source_id)
-      .filter((id): id is string => Boolean(id))
+      .filter((id): id is string => Boolean(id)),
   );
 
   const toEmbed = (events || []).filter(
-    (e) => !embeddedSourceIds.has(e.id) && e.content?.trim()
+    (e) => !embeddedSourceIds.has(e.id) && e.content?.trim(),
   );
 
   console.log(
-    `[backfill] Found ${toEmbed.length} daily events without embeddings (${events?.length || 0} total user messages)`
+    `[backfill] Found ${toEmbed.length} daily events without embeddings (${events?.length || 0} total user messages)`,
   );
 
   let count = 0;
@@ -59,7 +59,8 @@ async function backfillDailyEvents() {
         },
       });
       count++;
-      if (count % 10 === 0) console.log(`[backfill] Embedded ${count} events...`);
+      if (count % 10 === 0)
+        console.log(`[backfill] Embedded ${count} events...`);
     } catch (err) {
       console.error(`[backfill] Failed to embed event ${event.id}:`, err);
     }
@@ -79,9 +80,21 @@ interface SummaryRow {
 
 async function backfillSummaries() {
   const types = [
-    { table: "daily_summaries" as const, type: "daily_summary" as const, dateCol: "date" as const },
-    { table: "weekly_summaries" as const, type: "weekly_summary" as const, dateCol: "week_start" as const },
-    { table: "monthly_summaries" as const, type: "monthly_summary" as const, dateCol: "month_start" as const },
+    {
+      table: "daily_summaries" as const,
+      type: "daily_summary" as const,
+      dateCol: "date" as const,
+    },
+    {
+      table: "weekly_summaries" as const,
+      type: "weekly_summary" as const,
+      dateCol: "week_start" as const,
+    },
+    {
+      table: "monthly_summaries" as const,
+      type: "monthly_summary" as const,
+      dateCol: "month_start" as const,
+    },
   ];
 
   let total = 0;
@@ -104,13 +117,11 @@ async function backfillSummaries() {
     const embeddedIds = new Set(
       (existing || [])
         .map((e) => (e.metadata as { source_id?: string } | null)?.source_id)
-        .filter((id): id is string => Boolean(id))
+        .filter((id): id is string => Boolean(id)),
     );
 
     const rows = (summaries || []) as unknown as SummaryRow[];
-    const toEmbed = rows.filter(
-      (s) => !embeddedIds.has(s.id) && s.content
-    );
+    const toEmbed = rows.filter((s) => !embeddedIds.has(s.id) && s.content);
 
     const contentStr = (c: unknown) =>
       typeof c === "string" ? c : JSON.stringify(c);
@@ -145,7 +156,7 @@ async function main() {
   const summariesCount = await backfillSummaries();
 
   console.log(
-    `\n[backfill] Done. Embedded ${eventsCount} daily events, ${summariesCount} summaries.`
+    `\n[backfill] Done. Embedded ${eventsCount} daily events, ${summariesCount} summaries.`,
   );
 }
 

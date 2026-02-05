@@ -62,7 +62,7 @@ export function ChatInput({
         handleSubmit();
       }
     },
-    [handleSubmit]
+    [handleSubmit],
   );
 
   if (isFull) {
@@ -70,8 +70,8 @@ export function ChatInput({
       <div
         className={cn(
           "relative flex w-full flex-col rounded-2xl border border-border/60 bg-background shadow-lg transition-shadow",
-        
-          isDisabled && "opacity-60"
+
+          isDisabled && "opacity-60",
         )}
       >
         <Textarea
@@ -86,7 +86,7 @@ export function ChatInput({
             "min-h-[88px] w-full resize-none border-0 bg-transparent px-4 pt-4 pb-2 text-base md:text-base",
             "focus-visible:ring-0 focus-visible:ring-offset-0",
             "placeholder:text-muted-foreground",
-            "scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent"
+            "scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent",
           )}
           style={{ maxHeight: "200px" }}
         />
@@ -120,33 +120,31 @@ export function ChatInput({
   }
 
   return (
-   
-      <div className="w-full max-w-4xl mx-auto p-4">
-        <div
+    <div className="w-full max-w-4xl mx-auto p-4">
+      <div
+        className={cn(
+          "relative flex items-end gap-2 rounded-3xl border border-border/60 bg-background shadow-lg transition-shadow",
+          isDisabled && "opacity-60",
+        )}
+      >
+        <Textarea
+          ref={textareaRef}
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder={placeholder}
+          disabled={isDisabled}
+          rows={1}
           className={cn(
-            "relative flex items-end gap-2 rounded-3xl border border-border/60 bg-background shadow-lg transition-shadow",
-            isDisabled && "opacity-60"
+            "resize-none border-0 bg-transparent",
+            "text-base md:text-base px-6 mb-1",
+            "focus-visible:ring-0 focus-visible:ring-offset-0",
+            "placeholder:text-muted-foreground",
           )}
-        >
-          <Textarea
-            ref={textareaRef}
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={placeholder}
-            disabled={isDisabled}
-            rows={1}
-            className={cn(
-              "resize-none border-0 bg-transparent",
-              "text-base md:text-base px-6 mb-1",
-              "focus-visible:ring-0 focus-visible:ring-offset-0",
-              "placeholder:text-muted-foreground",
-      
-            )}
-            style={{ minHeight: "44px", maxHeight: "200px" }}
-          />
+          style={{ minHeight: "44px", maxHeight: "200px" }}
+        />
 
-          <div className="flex items-center gap-2 pr-2 py-2">
+        <div className="flex items-center gap-2 pr-2 py-2">
           <Button
             type="button"
             size="icon"
@@ -170,12 +168,13 @@ export function ChatInput({
               <ArrowUp className="size-5" />
             )}
           </Button>
-          </div>
         </div>
-
-        <p className="mt-2 text-center text-muted-foreground text-sm">
-        The agent could make mistakes. Please report any issue to improve the experience.
-        </p>
       </div>
+
+      <p className="mt-2 text-center text-muted-foreground text-sm">
+        The agent could make mistakes. Please report any issue to improve the
+        experience.
+      </p>
+    </div>
   );
 }

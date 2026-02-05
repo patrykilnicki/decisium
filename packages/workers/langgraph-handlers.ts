@@ -26,7 +26,11 @@ import {
   saveEventsNode,
   suggestAskAiNode,
 } from "@/packages/agents/core/daily.agent";
-import type { TaskExecutionResult, TaskInsert, TaskRow } from "@/lib/tasks/task-types";
+import type {
+  TaskExecutionResult,
+  TaskInsert,
+  TaskRow,
+} from "@/lib/tasks/task-types";
 import type { TaskType } from "@/lib/tasks/task-definitions";
 import type { Json } from "@/types/supabase";
 
@@ -114,7 +118,7 @@ export async function handleTask(task: TaskRow): Promise<TaskExecutionResult> {
 
 async function handleRootTask(
   task: TaskRow,
-  taskType: TaskType
+  taskType: TaskType,
 ): Promise<TaskExecutionResult> {
   const state = getTaskState<RootGraphState>(task);
   let partialState: Partial<RootGraphState> = {};
@@ -157,7 +161,7 @@ async function handleRootTask(
 
 async function handleOrchestratorTask(
   task: TaskRow,
-  taskType: TaskType
+  taskType: TaskType,
 ): Promise<TaskExecutionResult> {
   const state = getTaskState<OrchestratorState>(task);
   let partialState: Partial<OrchestratorState> = {};
@@ -207,7 +211,7 @@ async function handleOrchestratorTask(
 
 async function handleDailyTask(
   task: TaskRow,
-  taskType: TaskType
+  taskType: TaskType,
 ): Promise<TaskExecutionResult> {
   const state = getTaskState<DailyGraphState>(task);
   let partialState: Partial<DailyGraphState> = {};

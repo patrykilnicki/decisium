@@ -9,12 +9,24 @@ import {
 // TYPE DEFINITIONS
 // ═══════════════════════════════════════════════════════════════
 
-export type AgentType = "daily" | "root" | "ask" | "summary" | "system" | "orchestrator";
+export type AgentType =
+  | "daily"
+  | "root"
+  | "ask"
+  | "summary"
+  | "system"
+  | "orchestrator";
 
 /**
  * Tool categories for organization and routing decisions
  */
-export type ToolCategory = "memory" | "calendar" | "email" | "web" | "storage" | "utility";
+export type ToolCategory =
+  | "memory"
+  | "calendar"
+  | "email"
+  | "web"
+  | "storage"
+  | "utility";
 
 /**
  * Configuration for external tool integrations
@@ -61,50 +73,65 @@ const toolRegistry: Map<string, ToolRegistryEntry> = new Map();
  * External tools configuration (for future integrations)
  */
 const externalToolConfigs: Map<string, ExternalToolConfig> = new Map([
-  ["calendar_search", {
-    name: "calendar_search",
-    category: "calendar",
-    description: "Search Google Calendar for events",
-    requiresAuth: true,
-    enabled: false,
-    authProvider: "google",
-    scopes: ["https://www.googleapis.com/auth/calendar.readonly"],
-  }],
-  ["calendar_create", {
-    name: "calendar_create",
-    category: "calendar",
-    description: "Create Google Calendar events",
-    requiresAuth: true,
-    enabled: false,
-    authProvider: "google",
-    scopes: ["https://www.googleapis.com/auth/calendar.events"],
-  }],
-  ["email_search", {
-    name: "email_search",
-    category: "email",
-    description: "Search Gmail messages",
-    requiresAuth: true,
-    enabled: false,
-    authProvider: "google",
-    scopes: ["https://www.googleapis.com/auth/gmail.readonly"],
-  }],
-  ["email_draft", {
-    name: "email_draft",
-    category: "email",
-    description: "Draft Gmail messages",
-    requiresAuth: true,
-    enabled: false,
-    authProvider: "google",
-    scopes: ["https://www.googleapis.com/auth/gmail.compose"],
-  }],
-  ["web_search", {
-    name: "web_search",
-    category: "web",
-    description: "Search the web for real-time information",
-    requiresAuth: true,
-    enabled: false,
-    authProvider: "custom",
-  }],
+  [
+    "calendar_search",
+    {
+      name: "calendar_search",
+      category: "calendar",
+      description: "Search Google Calendar for events",
+      requiresAuth: true,
+      enabled: false,
+      authProvider: "google",
+      scopes: ["https://www.googleapis.com/auth/calendar.readonly"],
+    },
+  ],
+  [
+    "calendar_create",
+    {
+      name: "calendar_create",
+      category: "calendar",
+      description: "Create Google Calendar events",
+      requiresAuth: true,
+      enabled: false,
+      authProvider: "google",
+      scopes: ["https://www.googleapis.com/auth/calendar.events"],
+    },
+  ],
+  [
+    "email_search",
+    {
+      name: "email_search",
+      category: "email",
+      description: "Search Gmail messages",
+      requiresAuth: true,
+      enabled: false,
+      authProvider: "google",
+      scopes: ["https://www.googleapis.com/auth/gmail.readonly"],
+    },
+  ],
+  [
+    "email_draft",
+    {
+      name: "email_draft",
+      category: "email",
+      description: "Draft Gmail messages",
+      requiresAuth: true,
+      enabled: false,
+      authProvider: "google",
+      scopes: ["https://www.googleapis.com/auth/gmail.compose"],
+    },
+  ],
+  [
+    "web_search",
+    {
+      name: "web_search",
+      category: "web",
+      description: "Search the web for real-time information",
+      requiresAuth: true,
+      enabled: false,
+      authProvider: "custom",
+    },
+  ],
 ]);
 
 /**
@@ -147,7 +174,7 @@ export function registerTool(
   name: string,
   tool: DynamicStructuredTool,
   category: ToolCategory,
-  config?: ExternalToolConfig
+  config?: ExternalToolConfig,
 ): void {
   toolRegistry.set(name, {
     tool,
@@ -181,7 +208,9 @@ export function getToolMetadata(name: string): ToolRegistryEntry | undefined {
 /**
  * Get all tools in a specific category
  */
-export function getToolsByCategory(category: ToolCategory): DynamicStructuredTool[] {
+export function getToolsByCategory(
+  category: ToolCategory,
+): DynamicStructuredTool[] {
   const tools: DynamicStructuredTool[] = [];
   for (const entry of toolRegistry.values()) {
     if (entry.category === category) {
@@ -239,7 +268,9 @@ export function disableExternalTool(name: string): boolean {
 /**
  * Get external tool configuration
  */
-export function getExternalToolConfig(name: string): ExternalToolConfig | undefined {
+export function getExternalToolConfig(
+  name: string,
+): ExternalToolConfig | undefined {
   return externalToolConfigs.get(name);
 }
 
@@ -259,7 +290,7 @@ export function getAllExternalToolConfigs(): ExternalToolConfig[] {
  * These are the standard tools available to most agents
  */
 export function getDefaultTools(
-  config: ToolConfig = {}
+  config: ToolConfig = {},
 ): DynamicStructuredTool[] {
   const tools: DynamicStructuredTool[] = [];
 
@@ -308,7 +339,7 @@ export function getToolsForAgent(
     excludeTools?: string[];
     includeExternalTools?: boolean;
     enabledCategories?: ToolCategory[];
-  }
+  },
 ): DynamicStructuredTool[] {
   const config: ToolConfig = {
     customTools: options?.customTools,
@@ -364,9 +395,7 @@ export function getToolsForAgent(
 
   // Filter out excluded tools
   if (options?.excludeTools && options.excludeTools.length > 0) {
-    tools = tools.filter(
-      (tool) => !options.excludeTools!.includes(tool.name)
-    );
+    tools = tools.filter((tool) => !options.excludeTools!.includes(tool.name));
   }
 
   return tools;
@@ -375,12 +404,10 @@ export function getToolsForAgent(
 /**
  * Get all tools for the orchestrator (includes all enabled external tools)
  */
-export function getOrchestratorTools(
-  options?: {
-    excludeTools?: string[];
-    enabledCategories?: ToolCategory[];
-  }
-): DynamicStructuredTool[] {
+export function getOrchestratorTools(options?: {
+  excludeTools?: string[];
+  enabledCategories?: ToolCategory[];
+}): DynamicStructuredTool[] {
   return getToolsForAgent("orchestrator", {
     includeExternalTools: true,
     excludeTools: options?.excludeTools,
@@ -394,7 +421,7 @@ export function getOrchestratorTools(
  */
 export function createToolWithContext<T extends DynamicStructuredTool>(
   tool: T,
-  _userId: string
+  _userId: string,
 ): T {
   // Note: This is a conceptual wrapper
   // In practice, tools should accept userId as a parameter

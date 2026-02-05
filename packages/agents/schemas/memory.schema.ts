@@ -1,7 +1,12 @@
 import { z } from "zod";
 
 export const MemoryMetadataSchema = z.object({
-  type: z.enum(["daily_event", "daily_summary", "weekly_summary", "monthly_summary"]),
+  type: z.enum([
+    "daily_event",
+    "daily_summary",
+    "weekly_summary",
+    "monthly_summary",
+  ]),
   source_id: z.string().uuid(),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
 });

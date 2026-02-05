@@ -3,13 +3,14 @@
 import { CentralIcon as CentralIconPrimitive } from "@central-icons-react/all";
 import { cn } from "@/lib/utils";
 
-type CentralIconName = React.ComponentProps<typeof CentralIconPrimitive>["name"];
+type CentralIconName = React.ComponentProps<
+  typeof CentralIconPrimitive
+>["name"];
 
-interface CentralIconProps
-  extends Omit<
-    React.ComponentProps<typeof CentralIconPrimitive>,
-    "join" | "fill" | "radius" | "stroke"
-  > {
+interface CentralIconProps extends Omit<
+  React.ComponentProps<typeof CentralIconPrimitive>,
+  "join" | "fill" | "radius" | "stroke"
+> {
   iconJoin?: "round" | "square";
   iconFill?: "filled" | "outlined";
   iconStroke?: "1" | "1.5" | "2";

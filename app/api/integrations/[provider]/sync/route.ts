@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
-import { createOAuthManager, createSyncPipeline } from '@/lib/integrations';
-import { Provider } from '@agents/integrations';
+import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
+import { createOAuthManager, createSyncPipeline } from "@/lib/integrations";
+import { Provider } from "@agents/integrations";
 
 /**
  * POST /api/integrations/[provider]/sync
@@ -9,7 +9,7 @@ import { Provider } from '@agents/integrations';
  */
 export async function POST(
   request: NextRequest,
-  { params }: { params: Promise<{ provider: string }> }
+  { params }: { params: Promise<{ provider: string }> },
 ) {
   const { provider } = await params;
 
@@ -23,18 +23,15 @@ export async function POST(
     } = await supabase.auth.getUser();
 
     if (authError || !user) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     // Validate provider
-    const validProviders = ['google_calendar', 'gmail', 'notion', 'linear'];
+    const validProviders = ["google_calendar", "gmail", "notion", "linear"];
     if (!validProviders.includes(provider)) {
       return NextResponse.json(
         { error: `Invalid provider: ${provider}` },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -54,20 +51,20 @@ export async function POST(
     const oauthManager = createOAuthManager(supabase);
     const integration = await oauthManager.getIntegrationByProvider(
       user.id,
-      provider as Provider
+      provider as Provider,
     );
 
     if (!integration) {
       return NextResponse.json(
-        { error: 'Integration not found' },
-        { status: 404 }
+        { error: "Integration not found" },
+        { status: 404 },
       );
     }
 
-    if (integration.status !== 'active') {
+    if (integration.status !== "active") {
       return NextResponse.json(
         { error: `Integration is not active: ${integration.status}` },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -75,10 +72,10 @@ export async function POST(
     const syncPipeline = createSyncPipeline(supabase, oauthManager);
     const progress = await syncPipeline.sync(integration.id, syncOptions);
 
-    if (progress.status === 'error') {
+    if (progress.status === "error") {
       return NextResponse.json(
-        { error: progress.error || 'Sync failed' },
-        { status: 500 }
+        { error: progress.error || "Sync failed" },
+        { status: 500 },
       );
     }
 
@@ -93,8 +90,8 @@ export async function POST(
   } catch (error) {
     console.error(`Error syncing ${provider}:`, error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Sync failed' },
-      { status: 500 }
+      { error: error instanceof Error ? error.message : "Sync failed" },
+      { status: 500 },
     );
   }
 }

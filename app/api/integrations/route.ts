@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
-import { createOAuthManager } from '@/lib/integrations';
-import { getAppUrl } from '@/lib/utils/app-url';
+import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
+import { createOAuthManager } from "@/lib/integrations";
+import { getAppUrl } from "@/lib/utils/app-url";
 
 /**
  * GET /api/integrations
@@ -18,10 +18,7 @@ export async function GET() {
     } = await supabase.auth.getUser();
 
     if (authError || !user) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     // Get user's integrations
@@ -40,10 +37,10 @@ export async function GET() {
       })),
     });
   } catch (error) {
-    console.error('Error listing integrations:', error);
+    console.error("Error listing integrations:", error);
     return NextResponse.json(
-      { error: 'Failed to list integrations' },
-      { status: 500 }
+      { error: "Failed to list integrations" },
+      { status: 500 },
     );
   }
 }
@@ -64,10 +61,7 @@ export async function POST(request: NextRequest) {
     } = await supabase.auth.getUser();
 
     if (authError || !user) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     // Parse request body
@@ -76,17 +70,17 @@ export async function POST(request: NextRequest) {
 
     if (!provider) {
       return NextResponse.json(
-        { error: 'Provider is required' },
-        { status: 400 }
+        { error: "Provider is required" },
+        { status: 400 },
       );
     }
 
     // Validate provider
-    const validProviders = ['google_calendar', 'gmail', 'notion', 'linear'];
+    const validProviders = ["google_calendar", "gmail", "notion", "linear"];
     if (!validProviders.includes(provider)) {
       return NextResponse.json(
         { error: `Invalid provider: ${provider}` },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -104,10 +98,13 @@ export async function POST(request: NextRequest) {
       authorizationUrl: result.authorizationUrl,
     });
   } catch (error) {
-    console.error('Error starting OAuth flow:', error);
+    console.error("Error starting OAuth flow:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Failed to start OAuth flow' },
-      { status: 500 }
+      {
+        error:
+          error instanceof Error ? error.message : "Failed to start OAuth flow",
+      },
+      { status: 500 },
     );
   }
 }

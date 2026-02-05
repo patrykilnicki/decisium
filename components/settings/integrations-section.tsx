@@ -55,13 +55,15 @@ const INTEGRATIONS_CONFIG = [
 export function IntegrationsSection() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [integrations, setIntegrations] = useState<Record<string, IntegrationStatus>>({});
+  const [integrations, setIntegrations] = useState<
+    Record<string, IntegrationStatus>
+  >({});
   const [loading, setLoading] = useState(true);
   const [notification, setNotification] = useState<{
     type: "success" | "error";
     message: string;
   } | null>(null);
-  
+
   // Sync modal state
   const [syncModalOpen, setSyncModalOpen] = useState(false);
   const [syncProvider, setSyncProvider] = useState("");
@@ -71,10 +73,10 @@ export function IntegrationsSection() {
     try {
       const response = await fetch("/api/integrations");
       if (!response.ok) throw new Error("Failed to fetch integrations");
-      
+
       const data = await response.json();
       const statusMap: Record<string, IntegrationStatus> = {};
-      
+
       // Initialize all providers as disconnected
       INTEGRATIONS_CONFIG.forEach((config) => {
         statusMap[config.provider] = {
@@ -82,7 +84,7 @@ export function IntegrationsSection() {
           provider: config.provider,
         };
       });
-      
+
       // Update with actual integration data
       data.integrations.forEach((integration: Integration) => {
         statusMap[integration.provider] = {
@@ -91,7 +93,7 @@ export function IntegrationsSection() {
           integration,
         };
       });
-      
+
       setIntegrations(statusMap);
     } catch (error) {
       console.error("Error fetching integrations:", error);
@@ -116,7 +118,7 @@ export function IntegrationsSection() {
       setSyncProvider(connected);
       setSyncIntegrationId(integrationId);
       setSyncModalOpen(true);
-      
+
       // Clear URL params
       router.replace("/settings");
     } else if (error) {
@@ -150,7 +152,7 @@ export function IntegrationsSection() {
       }
 
       const data = await response.json();
-      
+
       // Redirect to OAuth authorization URL
       window.location.href = data.authorizationUrl;
     } catch (error) {
@@ -177,14 +179,15 @@ export function IntegrationsSection() {
         type: "success",
         message: `Disconnected from ${provider.replace("_", " ")}`,
       });
-      
+
       // Refresh integrations list
       fetchIntegrations();
     } catch (error) {
       console.error("Error disconnecting:", error);
       setNotification({
         type: "error",
-        message: error instanceof Error ? error.message : "Failed to disconnect",
+        message:
+          error instanceof Error ? error.message : "Failed to disconnect",
       });
     }
   }
@@ -195,7 +198,9 @@ export function IntegrationsSection() {
     fetchIntegrations();
   }
 
-  function getStatus(provider: string): "connected" | "disconnected" | "error" | "loading" {
+  function getStatus(
+    provider: string,
+  ): "connected" | "disconnected" | "error" | "loading" {
     if (loading) return "loading";
     const status = integrations[provider];
     if (!status) return "disconnected";

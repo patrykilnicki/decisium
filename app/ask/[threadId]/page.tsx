@@ -2,7 +2,12 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
-import { ChatContainer, useChat, ChatMessageType, type ChatRole } from "@/components/chat";
+import {
+  ChatContainer,
+  useChat,
+  ChatMessageType,
+  type ChatRole,
+} from "@/components/chat";
 import { ProtectedRoute } from "@/components/auth/protected-route";
 import { AppLayout } from "@/components/layout/app-layout";
 import { Button } from "@/components/ui/button";
@@ -75,11 +80,10 @@ export default function ThreadPage() {
     async (content: string) => {
       await sendMessage(content);
     },
-    [sendMessage]
+    [sendMessage],
   );
 
-  const failedTasks =
-    tasks?.filter((task) => task.status === "failed") ?? [];
+  const failedTasks = tasks?.filter((task) => task.status === "failed") ?? [];
 
   return (
     <ProtectedRoute>

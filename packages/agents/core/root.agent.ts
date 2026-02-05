@@ -71,9 +71,10 @@ async function storeAskEmbedding(params: {
     const embeddingResultStr = await embeddingGeneratorTool.invoke({
       content: params.content,
     });
-    const embeddingResult = typeof embeddingResultStr === "string"
-      ? JSON.parse(embeddingResultStr)
-      : embeddingResultStr;
+    const embeddingResult =
+      typeof embeddingResultStr === "string"
+        ? JSON.parse(embeddingResultStr)
+        : embeddingResultStr;
 
     if (
       embeddingResult?.embedding &&
@@ -103,7 +104,7 @@ async function storeAskEmbedding(params: {
 // Node Implementations
 
 async function memoryRetrieverNode(
-  state: RootGraphState
+  state: RootGraphState,
 ): Promise<Partial<RootGraphState>> {
   if (!state.userMessage) {
     return {};
@@ -115,7 +116,8 @@ async function memoryRetrieverNode(
       query: state.userMessage,
     });
 
-    const result = typeof resultStr === "string" ? JSON.parse(resultStr) : resultStr;
+    const result =
+      typeof resultStr === "string" ? JSON.parse(resultStr) : resultStr;
     const memoryContext = buildMemoryContext([result]);
 
     return { memoryContext };
@@ -130,7 +132,7 @@ async function memoryRetrieverNode(
 }
 
 async function rootResponseAgentNode(
-  state: RootGraphState
+  state: RootGraphState,
 ): Promise<Partial<RootGraphState>> {
   if (!state.userMessage) {
     return {};
@@ -166,14 +168,16 @@ async function rootResponseAgentNode(
   // Extract response content, handling both string and array types
   const lastMessage = result.messages?.[result.messages.length - 1];
   let agentResponse = "";
-  
+
   if (lastMessage?.content) {
     if (typeof lastMessage.content === "string") {
       agentResponse = lastMessage.content;
     } else if (Array.isArray(lastMessage.content)) {
       // Handle array of content blocks (extract text from each)
       agentResponse = lastMessage.content
-        .map((block: { text?: string } | string) => (typeof block === "string" ? block : block?.text || ""))
+        .map((block: { text?: string } | string) =>
+          typeof block === "string" ? block : block?.text || "",
+        )
         .join("");
     }
   }
@@ -182,7 +186,7 @@ async function rootResponseAgentNode(
 }
 
 async function saveUserMessageNode(
-  state: RootGraphState
+  state: RootGraphState,
 ): Promise<Partial<RootGraphState>> {
   if (!state.userMessage || !state.threadId) {
     return {};
@@ -209,9 +213,10 @@ async function saveUserMessageNode(
       },
     });
 
-    const savedMessage = typeof savedMessageStr === "string"
-      ? JSON.parse(savedMessageStr)
-      : savedMessageStr;
+    const savedMessage =
+      typeof savedMessageStr === "string"
+        ? JSON.parse(savedMessageStr)
+        : savedMessageStr;
 
     if (savedMessage?.id) {
       await storeAskEmbedding({
@@ -235,7 +240,7 @@ async function saveUserMessageNode(
 }
 
 async function saveAssistantMessageNode(
-  state: RootGraphState
+  state: RootGraphState,
 ): Promise<Partial<RootGraphState>> {
   if (!state.agentResponse || !state.threadId) {
     return {};
@@ -262,9 +267,10 @@ async function saveAssistantMessageNode(
       },
     });
 
-    const savedMessage = typeof savedMessageStr === "string"
-      ? JSON.parse(savedMessageStr)
-      : savedMessageStr;
+    const savedMessage =
+      typeof savedMessageStr === "string"
+        ? JSON.parse(savedMessageStr)
+        : savedMessageStr;
 
     if (savedMessage?.id) {
       await storeAskEmbedding({
@@ -348,7 +354,9 @@ export function createRootMessageGraph() {
 
 /** Minimal type for root agent so callers can use .invoke() without casting */
 export interface RootAgentInvokable {
-  invoke(input: { messages: Array<{ role: string; content: string }> }): Promise<{
+  invoke(input: {
+    messages: Array<{ role: string; content: string }>;
+  }): Promise<{
     messages: Array<{ content?: string | Array<{ text?: string }> }>;
   }>;
 }
@@ -399,14 +407,14 @@ export async function processRootMessage(
   },
   options?: {
     forceMode?: AgentMode;
-  }
+  },
 ): Promise<RootMessageResult & { mode: AgentMode; toolsUsed?: string[] }> {
   const mode = options?.forceMode || getAgentMode();
 
   if (mode === "agentic") {
     // Use the new orchestrator with autonomous tool selection
     console.log("[processRootMessage] Using agentic mode (orchestrator)");
-    
+
     const result = await processOrchestratorMessage({
       userId: input.userId,
       threadId: input.threadId,
@@ -426,7 +434,7 @@ export async function processRootMessage(
   } else {
     // Use the original linear flow
     console.log("[processRootMessage] Using linear mode (original)");
-    
+
     const graph = createRootMessageGraph();
     const result = await graph.invoke({
       userId: input.userId,
@@ -451,11 +459,11 @@ export async function processRootMessage(
  */
 export function getRootGraph(mode?: AgentMode) {
   const effectiveMode = mode || getAgentMode();
-  
+
   if (effectiveMode === "agentic") {
     return createAgenticRootGraph();
   }
-  
+
   return createRootMessageGraph();
 }
 
