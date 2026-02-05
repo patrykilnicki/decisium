@@ -193,6 +193,12 @@ export async function sendMessage(
       input: { state: initialState } as Json,
     });
 
+    // Process immediately in background (fire-and-forget)
+    // Cron will catch any failures
+    const { processTaskImmediately } =
+      await import("@/lib/tasks/task-processor");
+    processTaskImmediately(task.id);
+
     return {
       userMessage: savedUserMessage,
       taskId: task.id,
