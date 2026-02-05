@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 const pollIntervalMs = 1000;
-const keepAliveIntervalMs = 15000;
+const keepAliveIntervalMs = 5000;
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -44,6 +44,10 @@ export async function GET(request: NextRequest) {
       let pollTimer: ReturnType<typeof setInterval> | null = null;
       let keepAliveTimer: ReturnType<typeof setInterval> | null = null;
       let isClosed = false;
+
+      // Send initial comment so the response has data immediately; keeps connection
+      // alive on platforms (e.g. Vercel) that may close idle responses.
+      controller.enqueue(encoder.encode(": connected\n\n"));
 
       function sendEvent(data: unknown, event?: string) {
         if (isClosed) return;

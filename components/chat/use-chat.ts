@@ -53,6 +53,8 @@ export function useChat({
     null,
   );
   const startTaskStreamingRef = useRef<() => void>(() => {});
+  const taskStreamOpenedAtRef = useRef<number>(0);
+  const TASK_STREAM_GRACE_MS = 5000;
 
   const getLatestTaskGroup = useCallback(
     (allTasks: TaskRecord[]): TaskRecord[] => {
@@ -195,6 +197,12 @@ export function useChat({
       }
 
       if (!thinking.isThinking) {
+        const withinGrace =
+          Date.now() - taskStreamOpenedAtRef.current < TASK_STREAM_GRACE_MS;
+        if (withinGrace && latestTasks.length === 0) {
+          // Empty tasks right after opening stream may be a race; keep stream open
+          return;
+        }
         await refreshMessages();
         stopTaskPolling();
         stopTaskStreaming();
@@ -253,6 +261,7 @@ export function useChat({
     )}`;
     const eventSource = new EventSource(url);
     streamRef.current = eventSource;
+    taskStreamOpenedAtRef.current = Date.now();
 
     eventSource.onopen = () => {
       streamReconnectRef.current = 0;
