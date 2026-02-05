@@ -32,6 +32,9 @@ export async function GET(request: NextRequest) {
     });
   }
 
+  const sessionIdValue: string = sessionId;
+  const userId: string = user.id;
+
   const encoder = new TextEncoder();
   let lastPayload = "";
   let closeStream: (() => void) | null = null;
@@ -53,8 +56,8 @@ export async function GET(request: NextRequest) {
         const { data, error } = await supabase
           .from("tasks")
           .select("*")
-          .eq("session_id", sessionId)
-          .eq("user_id", user.id)
+          .eq("session_id", sessionIdValue)
+          .eq("user_id", userId)
           .order("created_at", { ascending: true });
 
         if (error) {
