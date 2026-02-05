@@ -82,8 +82,7 @@ export async function GET(request: NextRequest) {
     return await runProcessTasks("Vercel Cron GET");
   } catch (error) {
     console.error("[process-tasks] Cron run error:", error);
-    const message =
-      error instanceof Error ? error.message : String(error);
+    const message = error instanceof Error ? error.message : String(error);
     return NextResponse.json(
       { success: false, error: message, triggeredBy: "Vercel Cron GET" },
       { status: 500 },
@@ -103,8 +102,7 @@ export async function POST(request: NextRequest) {
     return await runProcessTasks("manual POST");
   } catch (error) {
     console.error("[process-tasks] Manual run error:", error);
-    const message =
-      error instanceof Error ? error.message : String(error);
+    const message = error instanceof Error ? error.message : String(error);
     return NextResponse.json(
       { success: false, error: message, triggeredBy: "manual POST" },
       { status: 500 },

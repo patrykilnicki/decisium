@@ -70,7 +70,10 @@ export async function processTaskById(
 export function processTaskImmediately(taskId: string): void {
   // Fire-and-forget: don't await, don't block the HTTP response
   processTaskById(taskId).catch((error) => {
-    console.error(`[processTaskImmediately] Failed to process task ${taskId}:`, error);
+    console.error(
+      `[processTaskImmediately] Failed to process task ${taskId}:`,
+      error,
+    );
     // Task will be picked up by cron if this fails
   });
 }

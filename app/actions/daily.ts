@@ -73,7 +73,8 @@ export async function processDailyMessage(
 
     // Process immediately in background (fire-and-forget)
     // Cron will catch any failures
-    const { processTaskImmediately } = await import("@/lib/tasks/task-processor");
+    const { processTaskImmediately } =
+      await import("@/lib/tasks/task-processor");
     processTaskImmediately(task.id);
 
     return {
