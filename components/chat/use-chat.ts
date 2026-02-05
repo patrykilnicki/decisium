@@ -149,12 +149,11 @@ export function useChat({
       const latestJobEvent = [...latestEvents]
         .reverse()
         .find((event) => event.eventType.startsWith("job_"));
-      const hasActive = steps.some((step) => step.status === "running");
-      const isThinking =
+      const isJobFinished =
         latestJobEvent?.eventType === "job_completed" ||
-        latestJobEvent?.eventType === "job_failed"
-          ? false
-          : hasActive;
+        latestJobEvent?.eventType === "job_failed";
+      const hasJobActivity = latestEvents.length > 0 || steps.length > 0;
+      const isThinking = !isJobFinished && hasJobActivity;
 
       return {
         isThinking,
@@ -164,6 +163,16 @@ export function useChat({
     },
     [getLatestJobEvents],
   );
+
+  function isJobFinished(events: TaskEventRecord[]): boolean {
+    const latestJobEvent = [...events]
+      .reverse()
+      .find((event) => event.eventType.startsWith("job_"));
+    return (
+      latestJobEvent?.eventType === "job_completed" ||
+      latestJobEvent?.eventType === "job_failed"
+    );
+  }
 
   const fetchTaskEvents = useCallback(async () => {
     if (!sessionId) return [];
@@ -253,7 +262,7 @@ export function useChat({
         setError(null);
       }
 
-      if (!thinking.isThinking) {
+      if (isJobFinished(latestJobEvents)) {
         const withinGrace =
           Date.now() - taskStreamOpenedAtRef.current < TASK_STREAM_GRACE_MS;
         if (withinGrace && latestEvents.length === 0) {

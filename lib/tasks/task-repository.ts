@@ -137,6 +137,32 @@ export async function fetchTaskById(
   return data as TaskRow;
 }
 
+/**
+ * Atomically claim a pending task (set status to in_progress).
+ * Returns the task row if claimed, null if already in_progress/completed/failed or not found.
+ * Prevents the same task from being run by both processTaskImmediately and the worker.
+ */
+export async function claimTaskById(
+  client: SupabaseClient<Database>,
+  taskId: string,
+): Promise<TaskRow | null> {
+  const { data, error } = await client
+    .from("tasks")
+    .update({
+      status: "in_progress" as TaskStatus,
+    })
+    .eq("id", taskId)
+    .eq("status", "pending")
+    .select()
+    .single();
+
+  if (error || !data) {
+    return null;
+  }
+
+  return data as TaskRow;
+}
+
 export async function resolveRootTaskId(
   client: SupabaseClient<Database>,
   taskId: string,

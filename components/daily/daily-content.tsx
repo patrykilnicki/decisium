@@ -57,16 +57,30 @@ export function DailyContent() {
       const response = await fetch(`/api/daily/events?date=${today}`);
       if (response.ok) {
         const data: DailyEvent[] = await response.json();
-        const transformedMessages = data
-          .filter(
-            (event) =>
-              event != null &&
-              event.role != null &&
-              // Exclude legacy welcome message (agent system message)
-              !(event.role === "agent" && event.type === "system"),
-          )
-          .map(transformEvent);
-        setMessages(transformedMessages);
+        const filtered = data.filter(
+          (event) =>
+            event != null &&
+            event.role != null &&
+            // Exclude legacy welcome message (agent system message)
+            !(event.role === "agent" && event.type === "system"),
+        );
+        const transformed = filtered.map(transformEvent);
+        // Deduplicate consecutive agent messages with same content (avoids double response from race)
+        const deduped: ChatMessageType[] = [];
+        for (let i = 0; i < transformed.length; i++) {
+          const msg = transformed[i];
+          const prev = deduped[deduped.length - 1];
+          if (
+            prev &&
+            prev.role === "assistant" &&
+            msg.role === "assistant" &&
+            prev.content === msg.content
+          ) {
+            continue;
+          }
+          deduped.push(msg);
+        }
+        setMessages(deduped);
       }
     } catch (error) {
       console.error("Failed to load events:", error);
@@ -151,12 +165,11 @@ export function DailyContent() {
       const latestJobEvent = [...latestEvents]
         .reverse()
         .find((event) => event.eventType.startsWith("job_"));
-      const hasActive = steps.some((step) => step.status === "running");
-      const isThinking =
+      const isJobFinished =
         latestJobEvent?.eventType === "job_completed" ||
-        latestJobEvent?.eventType === "job_failed"
-          ? false
-          : hasActive;
+        latestJobEvent?.eventType === "job_failed";
+      const hasJobActivity = latestEvents.length > 0 || steps.length > 0;
+      const isThinking = !isJobFinished && hasJobActivity;
 
       return {
         isThinking,
@@ -166,6 +179,16 @@ export function DailyContent() {
     },
     [getLatestJobEvents],
   );
+
+  function isJobFinished(events: TaskEventRecord[]): boolean {
+    const latestJobEvent = [...events]
+      .reverse()
+      .find((event) => event.eventType.startsWith("job_"));
+    return (
+      latestJobEvent?.eventType === "job_completed" ||
+      latestJobEvent?.eventType === "job_failed"
+    );
+  }
 
   const fetchTaskEvents = useCallback(async () => {
     const response = await fetch(
@@ -216,7 +239,7 @@ export function DailyContent() {
         setError(null);
       }
 
-      if (!thinking.isThinking) {
+      if (isJobFinished(latestJobEvents)) {
         await loadEvents();
         stopPolling();
       }

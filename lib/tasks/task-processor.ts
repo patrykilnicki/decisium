@@ -2,8 +2,9 @@ import "@/lib/suppress-url-parse-deprecation";
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
-  fetchTaskById,
+  claimTaskById,
   enqueueTasks,
+  fetchTaskById,
   resolveRootTaskId,
   updateTaskFailure,
   updateTaskSuccess,
@@ -80,20 +81,11 @@ export async function processTaskById(
   const client = createAdminClient();
   const maxRetries = getNumberEnv("TASK_MAX_RETRIES", 3);
 
-  // Fetch the task
-  const task = await fetchTaskById(client, taskId);
+  // Atomically claim the task (pending -> in_progress). Prevents double execution
+  // when both processTaskImmediately and the worker could pick the same task.
+  const task = await claimTaskById(client, taskId);
   if (!task) {
-    return { ok: false, error: "Task not found" };
-  }
-
-  // If already claimed/processing, skip (another process is handling it)
-  if (task.status === "in_progress") {
-    return { ok: true }; // Already being processed
-  }
-
-  // If not pending, skip
-  if (task.status !== "pending") {
-    return { ok: true }; // Already completed or failed
+    return { ok: true }; // Already claimed, completed, failed, or not found
   }
 
   try {
