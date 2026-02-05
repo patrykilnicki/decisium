@@ -60,9 +60,9 @@ export function SummariesContent() {
         getWeeklySummaries(user.id),
         getMonthlySummaries(user.id),
       ]);
-      setDailySummaries(daily as DailySummaryRow[]);
-      setWeeklySummaries(weekly as WeeklySummaryRow[]);
-      setMonthlySummaries(monthly as MonthlySummaryRow[]);
+      setDailySummaries(daily as unknown as DailySummaryRow[]);
+      setWeeklySummaries(weekly as unknown as WeeklySummaryRow[]);
+      setMonthlySummaries(monthly as unknown as MonthlySummaryRow[]);
     } catch (error) {
       console.error("Failed to load summaries:", error);
     } finally {

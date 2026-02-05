@@ -28,6 +28,7 @@ import {
 } from "@/packages/agents/core/daily.agent";
 import type { TaskExecutionResult, TaskInsert, TaskRow } from "@/lib/tasks/task-types";
 import type { TaskType } from "@/lib/tasks/task-definitions";
+import type { Json } from "@/types/supabase";
 
 function buildNextTask(params: {
   parentTaskId: string;
@@ -41,12 +42,14 @@ function buildNextTask(params: {
     user_id: params.userId,
     session_id: params.sessionId,
     task_type: params.taskType,
-    input: { state: params.state },
+    status: "pending",
+    input: { state: params.state } as Json,
   };
 }
 
 function getTaskState<T extends object>(task: TaskRow): T {
-  return (task.input?.state ?? {}) as T;
+  const input = task.input as { state?: T } | null | undefined;
+  return (input?.state ?? {}) as T;
 }
 
 function getRootNextTaskType(taskType: TaskType): TaskType | null {

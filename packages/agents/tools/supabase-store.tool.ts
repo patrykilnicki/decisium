@@ -68,7 +68,8 @@ export const supabaseStoreTool = new DynamicStructuredTool({
 
     const { data: result, error } = await supabase
       .from(table)
-      .insert(data)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic insert per table; schema validated above
+.insert(data as any)
       .select()
       .single();
 

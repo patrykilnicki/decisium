@@ -71,7 +71,8 @@ export async function proxy(request: NextRequest) {
       .single();
 
     // Redirect to onboarding if not completed
-    if (!profile?.onboarding_completed) {
+    const onboardingCompleted = (profile as { onboarding_completed?: boolean } | null)?.onboarding_completed;
+    if (!onboardingCompleted) {
       const url = request.nextUrl.clone();
       url.pathname = "/onboarding";
       url.searchParams.set("step", "1");

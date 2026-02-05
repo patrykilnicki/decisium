@@ -10,6 +10,24 @@ import { enqueueTask } from "@/lib/tasks/task-repository";
 import type { TaskType } from "@/lib/tasks/task-definitions";
 import { getAgentMode, type RootGraphState } from "@/packages/agents/core/root.agent";
 import { createInitialOrchestratorState } from "@/packages/agents/schemas/orchestrator.schema";
+import type { Json } from "@/types/supabase";
+
+/** Map Supabase row (nullable columns) to AskThread (optional = undefined). */
+function toAskThread(row: {
+  id: string;
+  user_id: string;
+  title: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}): AskThread {
+  return {
+    id: row.id,
+    user_id: row.user_id,
+    title: row.title ?? undefined,
+    created_at: row.created_at ?? undefined,
+    updated_at: row.updated_at ?? undefined,
+  };
+}
 
 export async function createThread(userId: string, title?: string): Promise<AskThread> {
   const supabase = await createClient();
@@ -27,7 +45,7 @@ export async function createThread(userId: string, title?: string): Promise<AskT
     throw new Error(`Failed to create thread: ${error.message}`);
   }
 
-  return data;
+  return toAskThread(data);
 }
 
 export async function getThreads(userId: string): Promise<AskThread[]> {
@@ -43,7 +61,7 @@ export async function getThreads(userId: string): Promise<AskThread[]> {
     throw new Error(`Failed to fetch threads: ${error.message}`);
   }
 
-  return data || [];
+  return (data || []).map(toAskThread);
 }
 
 export async function getThread(threadId: string, userId: string): Promise<AskThread | null> {
@@ -60,7 +78,7 @@ export async function getThread(threadId: string, userId: string): Promise<AskTh
     return null;
   }
 
-  return data;
+  return toAskThread(data);
 }
 
 export async function getThreadMessages(threadId: string, userId: string) {
@@ -159,7 +177,8 @@ export async function sendMessage(
       user_id: userId,
       session_id: threadId,
       task_type: taskType,
-      input: { state: initialState },
+      status: "pending",
+      input: { state: initialState } as Json,
     });
 
     return {

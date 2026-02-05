@@ -11,6 +11,7 @@ import { getCurrentDate } from "@/packages/agents/lib/date-utils";
 import { handleAgentError } from "@/packages/agents/lib/error-handler";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { enqueueTask } from "@/lib/tasks/task-repository";
+import type { Json } from "@/types/supabase";
 
 export async function initializeDaily(): Promise<DailyWelcomeResult> {
   try {
@@ -59,6 +60,7 @@ export async function processDailyMessage(
       user_id: userId,
       session_id: sessionId,
       task_type: "daily.classifier_agent",
+      status: "pending",
       input: {
         state: {
           userId,
@@ -66,7 +68,7 @@ export async function processDailyMessage(
           userMessage,
           userEventId: savedEvent?.id,
         },
-      },
+      } as Json,
     });
 
     return {

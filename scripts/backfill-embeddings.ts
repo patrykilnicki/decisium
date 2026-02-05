@@ -33,7 +33,9 @@ async function backfillDailyEvents() {
     .eq("metadata->>type", "daily_event");
 
   const embeddedSourceIds = new Set(
-    (existingEmbeddings || []).map((e) => e.metadata?.source_id as string)
+    (existingEmbeddings || [])
+      .map((e) => (e.metadata as { source_id?: string } | null)?.source_id)
+      .filter((id): id is string => Boolean(id))
   );
 
   const toEmbed = (events || []).filter(
@@ -100,7 +102,9 @@ async function backfillSummaries() {
       .eq("metadata->>type", type);
 
     const embeddedIds = new Set(
-      (existing || []).map((e) => e.metadata?.source_id as string)
+      (existing || [])
+        .map((e) => (e.metadata as { source_id?: string } | null)?.source_id)
+        .filter((id): id is string => Boolean(id))
     );
 
     const rows = (summaries || []) as unknown as SummaryRow[];
