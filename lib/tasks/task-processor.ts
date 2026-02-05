@@ -1,3 +1,21 @@
+// Suppress url.parse() deprecation warnings from dependencies (e.g., @supabase/supabase-js)
+// This is a known issue in dependencies and will be fixed upstream
+if (typeof process !== "undefined" && process.on) {
+  const originalEmitWarning = process.emitWarning;
+  process.emitWarning = function (warning, ...args) {
+    if (
+      typeof warning === "object" &&
+      warning?.name === "DeprecationWarning" &&
+      typeof warning?.message === "string" &&
+      warning.message.includes("url.parse()")
+    ) {
+      // Suppress this specific deprecation warning
+      return;
+    }
+    return originalEmitWarning.call(this, warning, ...args);
+  };
+}
+
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   fetchTaskById,
