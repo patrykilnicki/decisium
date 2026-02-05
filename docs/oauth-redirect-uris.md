@@ -30,11 +30,11 @@ The app uses this path: `/api/integrations/{provider}/callback`.
 
 Add **every** environment you use (no trailing slash):
 
-| Environment | Redirect URI |
-|-------------|--------------|
-| **Production** | `https://your-production-domain.com/api/integrations/google_calendar/callback` |
-| **Vercel dev/preview** | `https://dev-decisium.vercel.app/api/integrations/google_calendar/callback` |
-| **Local** | `http://localhost:3000/api/integrations/google_calendar/callback` |
+| Environment            | Redirect URI                                                                   |
+| ---------------------- | ------------------------------------------------------------------------------ |
+| **Production**         | `https://your-production-domain.com/api/integrations/google_calendar/callback` |
+| **Vercel dev/preview** | `https://dev-decisium.vercel.app/api/integrations/google_calendar/callback`    |
+| **Local**              | `http://localhost:3000/api/integrations/google_calendar/callback`              |
 
 Replace `your-production-domain.com` or `dev-decisium.vercel.app` with the actual host you use.
 

@@ -6,10 +6,9 @@ Prompt for assessing relevance of retrieved documents to user questions.
 
 You are a grader assessing the relevance of retrieved documents to a user question.
 
-Here are the retrieved documents:
----
-{context}
----
+## Here are the retrieved documents:
+
+## {context}
 
 Here is the user question: {question}
 

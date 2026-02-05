@@ -4,7 +4,7 @@ import { getThread, deleteThread } from "@/app/actions/ask";
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ threadId: string }> }
+  { params }: { params: Promise<{ threadId: string }> },
 ) {
   try {
     const { threadId } = await params;
@@ -24,21 +24,23 @@ export async function GET(
 
     return NextResponse.json(thread);
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : "Failed to fetch thread";
+    const message =
+      error instanceof Error ? error.message : "Failed to fetch thread";
     return NextResponse.json({ error: message }, { status: 400 });
   }
 }
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: Promise<{ threadId: string }> }
+  { params }: { params: Promise<{ threadId: string }> },
 ) {
   try {
     const { threadId } = await params;
     await deleteThread(threadId);
     return NextResponse.json({ success: true });
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : "Failed to delete thread";
+    const message =
+      error instanceof Error ? error.message : "Failed to delete thread";
     return NextResponse.json({ error: message }, { status: 400 });
   }
 }

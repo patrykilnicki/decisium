@@ -1,7 +1,7 @@
 import { MemoryRetrievalResult } from "@/packages/agents/schemas/memory.schema";
 
 export function formatMemoryForPrompt(
-  results: MemoryRetrievalResult[]
+  results: MemoryRetrievalResult[],
 ): string {
   if (results.length === 0) {
     return "No relevant memories found.";
@@ -32,7 +32,7 @@ export function formatMemoryForPrompt(
 
 export function getMemoryContext(
   results: MemoryRetrievalResult[],
-  maxTokens: number = 2000
+  maxTokens: number = 2000,
 ): string {
   // Simple token estimation (rough: 1 token ≈ 4 characters)
   const maxChars = maxTokens * 4;

@@ -10,7 +10,12 @@ import { cn } from "@/lib/utils";
 
 interface NavItem {
   href: string;
-  name: "IconHome" | "IconStar" | "IconChart1" | "IconNote1" | "IconSettingsGear1";
+  name:
+    | "IconHome"
+    | "IconStar"
+    | "IconChart1"
+    | "IconNote1"
+    | "IconSettingsGear1";
   label: string;
 }
 
@@ -24,7 +29,11 @@ const navItems: NavItem[] = [
 
 export function Nav() {
   const pathname = usePathname();
-  const [user, setUser] = useState<{ avatar_url?: string; email?: string; full_name?: string } | null>(null);
+  const [user, setUser] = useState<{
+    avatar_url?: string;
+    email?: string;
+    full_name?: string;
+  } | null>(null);
   const supabase = createClient();
 
   useEffect(() => {
@@ -38,7 +47,8 @@ export function Nav() {
             authUser.user_metadata?.avatar_url ??
             authUser.user_metadata?.picture,
           email: authUser.email ?? undefined,
-          full_name: authUser.user_metadata?.full_name ?? authUser.user_metadata?.name,
+          full_name:
+            authUser.user_metadata?.full_name ?? authUser.user_metadata?.name,
         });
       }
     }
@@ -94,7 +104,7 @@ export function Nav() {
                 "flex size-12 items-center justify-center rounded-lg transition-colors",
                 isActive
                   ? "bg-muted text-foreground"
-                  : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                  : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
               )}
               aria-label={item.label}
               aria-current={isActive ? "page" : undefined}

@@ -1,4 +1,4 @@
-import { Client } from '@notionhq/client';
+import { Client } from "@notionhq/client";
 import {
   BaseAdapter,
   AdapterConfig,
@@ -8,13 +8,13 @@ import {
   Evidence,
   FetchOptions,
   Provider,
-} from './base.adapter';
+} from "./base.adapter";
 
-const NOTION_AUTH_URL = 'https://api.notion.com/v1/oauth/authorize';
-const NOTION_TOKEN_URL = 'https://api.notion.com/v1/oauth/token';
+const NOTION_AUTH_URL = "https://api.notion.com/v1/oauth/authorize";
+const NOTION_TOKEN_URL = "https://api.notion.com/v1/oauth/token";
 
 export class NotionAdapter extends BaseAdapter {
-  readonly provider: Provider = 'notion';
+  readonly provider: Provider = "notion";
 
   constructor(config: AdapterConfig) {
     super(config);
@@ -27,8 +27,8 @@ export class NotionAdapter extends BaseAdapter {
   getAuthorizationUrl(state: string): string {
     const params = new URLSearchParams({
       client_id: this.config.clientId,
-      response_type: 'code',
-      owner: 'user',
+      response_type: "code",
+      owner: "user",
       redirect_uri: this.config.redirectUri,
       state,
     });
@@ -38,17 +38,17 @@ export class NotionAdapter extends BaseAdapter {
 
   async exchangeCodeForTokens(code: string): Promise<OAuthTokens> {
     const credentials = Buffer.from(
-      `${this.config.clientId}:${this.config.clientSecret}`
-    ).toString('base64');
+      `${this.config.clientId}:${this.config.clientSecret}`,
+    ).toString("base64");
 
     const response = await fetch(NOTION_TOKEN_URL, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
         Authorization: `Basic ${credentials}`,
       },
       body: JSON.stringify({
-        grant_type: 'authorization_code',
+        grant_type: "authorization_code",
         code,
         redirect_uri: this.config.redirectUri,
       }),
@@ -66,14 +66,14 @@ export class NotionAdapter extends BaseAdapter {
       accessToken: data.access_token,
       refreshToken: undefined, // Notion doesn't use refresh tokens
       expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // 1 year
-      tokenType: 'Bearer',
-      scope: '',
+      tokenType: "Bearer",
+      scope: "",
     };
   }
 
   async refreshAccessToken(_: string): Promise<OAuthTokens> {
     // Notion tokens are long-lived and don't require refresh
-    throw new Error('Notion tokens do not require refresh');
+    throw new Error("Notion tokens do not require refresh");
   }
 
   // ─────────────────────────────────────────────
@@ -81,7 +81,7 @@ export class NotionAdapter extends BaseAdapter {
   // ─────────────────────────────────────────────
 
   async getUserInfo(
-    accessToken: string
+    accessToken: string,
   ): Promise<{ id: string; email?: string; name?: string }> {
     const notion = new Client({ auth: accessToken });
 
@@ -101,21 +101,21 @@ export class NotionAdapter extends BaseAdapter {
 
   async fetchData(
     accessToken: string,
-    options?: FetchOptions
+    options?: FetchOptions,
   ): Promise<SyncResult> {
     const notion = new Client({ auth: accessToken });
 
     // Search for all accessible pages
     const searchResponse = await notion.search({
       filter: {
-        property: 'object',
-        value: 'page',
+        property: "object",
+        value: "page",
       },
       page_size: options?.limit ?? 100,
       start_cursor: options?.cursor ?? undefined,
       sort: {
-        direction: 'descending',
-        timestamp: 'last_edited_time',
+        direction: "descending",
+        timestamp: "last_edited_time",
       },
     });
 
@@ -124,13 +124,11 @@ export class NotionAdapter extends BaseAdapter {
     // Filter by date if specified
     let filteredAtoms = atoms;
     if (options?.since) {
-      filteredAtoms = atoms.filter(
-        (atom) => atom.occurredAt >= options.since!
-      );
+      filteredAtoms = atoms.filter((atom) => atom.occurredAt >= options.since!);
     }
     if (options?.until) {
       filteredAtoms = filteredAtoms.filter(
-        (atom) => atom.occurredAt <= options.until!
+        (atom) => atom.occurredAt <= options.until!,
       );
     }
 
@@ -156,10 +154,10 @@ export class NotionAdapter extends BaseAdapter {
     if (!page.id) return null;
 
     // Extract title from properties
-    let title = 'Untitled';
+    let title = "Untitled";
     if (page.properties) {
       const titleProp = Object.values(page.properties).find(
-        (prop: unknown) => (prop as { type: string }).type === 'title'
+        (prop: unknown) => (prop as { type: string }).type === "title",
       ) as { title?: Array<{ plain_text: string }> } | undefined;
 
       if (titleProp?.title?.[0]?.plain_text) {
@@ -171,14 +169,11 @@ export class NotionAdapter extends BaseAdapter {
     const occurredAt = this.parseDate(page.last_edited_time) ?? new Date();
 
     // Build content
-    const contentParts = [
-      title,
-      page.url ? `URL: ${page.url}` : '',
-    ];
+    const contentParts = [title, page.url ? `URL: ${page.url}` : ""];
 
     return {
       externalId: page.id,
-      atomType: 'note',
+      atomType: "note",
       title,
       content: this.buildSemanticContent(contentParts),
       occurredAt,
@@ -199,13 +194,14 @@ export class NotionAdapter extends BaseAdapter {
   // ─────────────────────────────────────────────
 
   extractEvidence(atom: ActivityAtom): Evidence {
-    const snippet = atom.content.length > 200
-      ? atom.content.substring(0, 200) + '...'
-      : atom.content;
+    const snippet =
+      atom.content.length > 200
+        ? atom.content.substring(0, 200) + "..."
+        : atom.content;
 
     return {
-      url: atom.sourceUrl ?? '',
-      title: atom.title ?? 'Notion Page',
+      url: atom.sourceUrl ?? "",
+      title: atom.title ?? "Notion Page",
       snippet,
       provider: this.provider,
       timestamp: atom.occurredAt,

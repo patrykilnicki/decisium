@@ -24,16 +24,16 @@ export const memorySearchTool = new DynamicStructuredTool({
           metadata: fragment.metadata,
           similarity: fragment.similarity,
           hierarchy_level: result.hierarchy_level,
-        }))
+        })),
       );
 
       if (formattedResults.length === 0) {
         console.log(
-          `[memory_search] No results found for user ${userId} with query: "${query}"`
+          `[memory_search] No results found for user ${userId} with query: "${query}"`,
         );
       } else {
         console.log(
-          `[memory_search] Found ${formattedResults.length} results for user ${userId}`
+          `[memory_search] Found ${formattedResults.length} results for user ${userId}`,
         );
       }
 

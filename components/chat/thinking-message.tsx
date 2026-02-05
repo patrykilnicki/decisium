@@ -5,7 +5,11 @@ import { cn } from "@/lib/utils";
 import { Loader2, Check, AlertCircle } from "lucide-react";
 import { MarkdownContent } from "./markdown-content";
 import { AnimatedSystemAvatar } from "./animated-system-avatar";
-import type { ThinkingMessageProps, ThinkingStep, ThinkingStepStatus } from "./types";
+import type {
+  ThinkingMessageProps,
+  ThinkingStep,
+  ThinkingStepStatus,
+} from "./types";
 
 function StepIcon({ status }: { status: ThinkingStepStatus }) {
   switch (status) {
@@ -29,7 +33,7 @@ function CurrentStep({ step }: { step: ThinkingStep }) {
           "transition-colors duration-300",
           step.status === "completed" && "text-muted-foreground",
           step.status === "running" && "text-foreground",
-          step.status === "error" && "text-destructive"
+          step.status === "error" && "text-destructive",
         )}
       >
         {step.label}
@@ -46,18 +50,18 @@ function ThinkingMessageComponent({
   // Find the current active step (running step, or last completed step if no running step)
   const currentStep = useMemo(() => {
     if (steps.length === 0) return null;
-    
+
     // First, try to find a running step
     const runningStep = steps.find((step) => step.status === "running");
     if (runningStep) return runningStep;
-    
+
     // If no running step, find the last completed step
     const completedSteps = steps.filter((step) => step.status === "completed");
     if (completedSteps.length > 0) {
       // Return the last completed step (highest index)
       return completedSteps[completedSteps.length - 1];
     }
-    
+
     // If no completed steps, return the first pending step
     const pendingStep = steps.find((step) => step.status === "pending");
     return pendingStep || null;
@@ -80,12 +84,10 @@ function ThinkingMessageComponent({
             <span className="text-sm font-medium text-muted-foreground">
               Thinking...
             </span>
-            
+
             {/* Show current step below "Thinking..." */}
-            {currentStep && (
-              <CurrentStep step={currentStep} />
-            )}
-            
+            {currentStep && <CurrentStep step={currentStep} />}
+
             {/* Loading indicator when no steps yet */}
             {!currentStep && steps.length === 0 && !streamedContent && (
               <div className="flex items-center gap-2">

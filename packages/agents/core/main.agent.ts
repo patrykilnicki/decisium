@@ -41,7 +41,7 @@ interface MainAgentConfig {
 function createDailySubagent(currentDate: string): SubAgent {
   const systemPrompt = DAILY_SUBAGENT_SYSTEM_PROMPT.replace(
     /{{currentDate}}/g,
-    currentDate
+    currentDate,
   );
 
   return {
@@ -63,7 +63,7 @@ function createDailySubagent(currentDate: string): SubAgent {
 function createAskSubagent(currentDate: string): SubAgent {
   const systemPrompt = ASK_SUBAGENT_SYSTEM_PROMPT.replace(
     /{{currentDate}}/g,
-    currentDate
+    currentDate,
   );
 
   return {
@@ -134,7 +134,7 @@ export function createMainAgent(config?: MainAgentConfig): unknown {
  */
 export async function processMainAgentMessage(
   input: MainAgentInput,
-  config?: MainAgentConfig
+  config?: MainAgentConfig,
 ): Promise<MainAgentResult> {
   try {
     const agent = createMainAgent(config);
@@ -151,13 +151,20 @@ User message: ${input.userMessage}
 `.trim();
 
     // Raw invoke result has messages; we then map to MainAgentResult
-    type InvokeResult = { messages?: Array<{ content?: string | Array<{ text?: string }> }> };
+    type InvokeResult = {
+      messages?: Array<{ content?: string | Array<{ text?: string }> }>;
+    };
     const safeInvoke = createSafeAgentInvoker<InvokeResult>(
-      agent as { invoke: (input: unknown, config?: { recursionLimit?: number }) => Promise<InvokeResult> },
+      agent as {
+        invoke: (
+          input: unknown,
+          config?: { recursionLimit?: number },
+        ) => Promise<InvokeResult>;
+      },
       {
         recursionLimit: config?.recursionLimit ?? 100,
         extractPartialOnLimit: true,
-      }
+      },
     );
 
     const invocationResult = await safeInvoke({
@@ -181,7 +188,7 @@ User message: ${input.userMessage}
       } else if (Array.isArray(lastMessage.content)) {
         agentResponse = lastMessage.content
           .map((block: { text?: string } | string) =>
-            typeof block === "string" ? block : block?.text || ""
+            typeof block === "string" ? block : block?.text || "",
           )
           .join("");
       }

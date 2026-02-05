@@ -32,7 +32,7 @@ export function AnimatedSystemAvatar({
         size === "sm" && "size-6",
         size === "default" && "size-8",
         size === "lg" && "size-10",
-        className
+        className,
       )}
     >
       <svg
@@ -55,15 +55,10 @@ export function AnimatedSystemAvatar({
             <stop offset="100%" stopColor="#06b6d4" />
           </linearGradient>
         </defs>
-        
+
         {/* White background circle */}
-        <circle
-          cx={center}
-          cy={center}
-          r={radius}
-          fill="white"
-        />
-        
+        <circle cx={center} cy={center} r={radius} fill="white" />
+
         {/* Animated gradient stroke - smooth loading effect */}
         <circle
           cx={center}

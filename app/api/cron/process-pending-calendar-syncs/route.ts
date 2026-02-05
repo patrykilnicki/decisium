@@ -1,10 +1,11 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import { createOAuthManager, createSyncPipeline } from '@/lib/integrations';
+import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+import type { Database } from "@/types/supabase";
+import { createOAuthManager, createSyncPipeline } from "@/lib/integrations";
 
-const supabase = createClient(
+const supabase = createClient<Database>(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
 );
 
 /**
@@ -13,38 +14,45 @@ const supabase = createClient(
  * We run the same processing for both GET (Vercel automatic) and POST (manual).
  */
 function isCronAuthorized(request: NextRequest): boolean {
-  const authHeader = request.headers.get('authorization');
-  const vercelCronHeader = request.headers.get('x-vercel-cron');
+  const authHeader = request.headers.get("authorization");
+  const vercelCronHeader = request.headers.get("x-vercel-cron");
   const cronSecret = process.env.CRON_SECRET;
-  const isVercelCron = vercelCronHeader === '1';
-  const isValidAuth = Boolean(cronSecret && authHeader === `Bearer ${cronSecret}`);
+  const isVercelCron = vercelCronHeader === "1";
+  const isValidAuth = Boolean(
+    cronSecret && authHeader === `Bearer ${cronSecret}`,
+  );
   return isVercelCron || isValidAuth;
 }
 
 async function processPendingSyncs(_triggeredBy: string) {
   void _triggeredBy;
   const { data: pending, error: fetchError } = await supabase
-    .from('pending_calendar_syncs')
-    .select('integration_id, sync_token, created_at');
+    .from("pending_calendar_syncs")
+    .select("integration_id, sync_token, created_at");
 
   if (fetchError) {
-    console.error('[process-pending-calendar-syncs] Error fetching pending syncs:', fetchError);
+    console.error(
+      "[process-pending-calendar-syncs] Error fetching pending syncs:",
+      fetchError,
+    );
     return NextResponse.json(
       { success: false, processed: 0, error: fetchError.message },
-      { status: 500 }
+      { status: 500 },
     );
   }
 
   if (!pending || pending.length === 0) {
-    console.log('[process-pending-calendar-syncs] No pending syncs');
+    console.log("[process-pending-calendar-syncs] No pending syncs");
     return NextResponse.json({
       success: true,
       processed: 0,
-      message: 'No pending syncs',
+      message: "No pending syncs",
     });
   }
 
-  console.log(`[process-pending-calendar-syncs] Found ${pending.length} pending sync(s)`);
+  console.log(
+    `[process-pending-calendar-syncs] Found ${pending.length} pending sync(s)`,
+  );
 
   const oauthManager = createOAuthManager(supabase);
   const syncPipeline = createSyncPipeline(supabase, oauthManager);
@@ -53,31 +61,41 @@ async function processPendingSyncs(_triggeredBy: string) {
 
   for (const row of pending) {
     try {
-      console.log(`[process-pending-calendar-syncs] Processing sync for integration ${row.integration_id} (syncToken: ${row.sync_token ? 'present' : 'none'})`);
+      console.log(
+        `[process-pending-calendar-syncs] Processing sync for integration ${row.integration_id} (syncToken: ${row.sync_token ? "present" : "none"})`,
+      );
 
       const progress = await syncPipeline.sync(row.integration_id, {
         syncToken: row.sync_token ?? undefined,
         fullSync: !row.sync_token,
         generateEmbeddings: true,
-        calendarId: 'primary',
+        calendarId: "primary",
       });
 
-      console.log(`[process-pending-calendar-syncs] Sync completed for ${row.integration_id}: status=${progress.status}, atomsProcessed=${progress.atomsProcessed}, atomsStored=${progress.atomsStored}`);
+      console.log(
+        `[process-pending-calendar-syncs] Sync completed for ${row.integration_id}: status=${progress.status}, atomsProcessed=${progress.atomsProcessed}, atomsStored=${progress.atomsStored}`,
+      );
 
-      if (progress.status === 'error') {
-        throw new Error(progress.error || 'Sync failed');
+      if (progress.status === "error") {
+        throw new Error(progress.error || "Sync failed");
       }
 
       await supabase
-        .from('pending_calendar_syncs')
+        .from("pending_calendar_syncs")
         .delete()
-        .eq('integration_id', row.integration_id);
+        .eq("integration_id", row.integration_id);
 
       processed++;
-      console.log(`[process-pending-calendar-syncs] Successfully processed and deleted pending sync for ${row.integration_id}`);
+      console.log(
+        `[process-pending-calendar-syncs] Successfully processed and deleted pending sync for ${row.integration_id}`,
+      );
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
-      console.error(`[process-pending-calendar-syncs] Failed for ${row.integration_id}:`, errorMessage, err);
+      console.error(
+        `[process-pending-calendar-syncs] Failed for ${row.integration_id}:`,
+        errorMessage,
+        err,
+      );
       errors.push({ integrationId: row.integration_id, error: errorMessage });
     }
   }
@@ -96,20 +114,23 @@ async function processPendingSyncs(_triggeredBy: string) {
  */
 export async function GET(request: NextRequest) {
   if (isCronAuthorized(request)) {
-    console.log('[process-pending-calendar-syncs] Starting cron run (triggered by: Vercel Cron GET)');
-    return processPendingSyncs('Vercel Cron GET');
+    console.log(
+      "[process-pending-calendar-syncs] Starting cron run (triggered by: Vercel Cron GET)",
+    );
+    return processPendingSyncs("Vercel Cron GET");
   }
 
   // Diagnostic: show pending syncs when called without auth (e.g. browser)
   const { data: pending, error } = await supabase
-    .from('pending_calendar_syncs')
-    .select('integration_id, sync_token, created_at')
-    .order('created_at', { ascending: false });
+    .from("pending_calendar_syncs")
+    .select("integration_id, sync_token, created_at")
+    .order("created_at", { ascending: false });
 
   return NextResponse.json({
-    status: 'ok',
-    endpoint: '/api/cron/process-pending-calendar-syncs',
-    description: 'Processes pending calendar syncs (runs every 1 min via Vercel Cron). Use POST with Authorization: Bearer CRON_SECRET to run manually.',
+    status: "ok",
+    endpoint: "/api/cron/process-pending-calendar-syncs",
+    description:
+      "Processes pending calendar syncs (runs every 1 min via Vercel Cron). Use POST with Authorization: Bearer CRON_SECRET to run manually.",
     pendingCount: pending?.length ?? 0,
     pending: pending ?? [],
     error: error?.message,
@@ -121,9 +142,11 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   if (!isCronAuthorized(request)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  console.log('[process-pending-calendar-syncs] Starting cron run (triggered by: manual POST)');
-  return processPendingSyncs('manual POST');
+  console.log(
+    "[process-pending-calendar-syncs] Starting cron run (triggered by: manual POST)",
+  );
+  return processPendingSyncs("manual POST");
 }

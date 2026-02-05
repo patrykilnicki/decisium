@@ -4,9 +4,10 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-const DEFAULT_EMBEDDING_MODEL = process.env.EMBEDDING_MODEL || "text-embedding-3-small";
+const DEFAULT_EMBEDDING_MODEL =
+  process.env.EMBEDDING_MODEL || "text-embedding-3-small";
 const DEFAULT_EMBEDDING_DIMENSION = parseInt(
-  process.env.EMBEDDING_DIMENSION || "1536"
+  process.env.EMBEDDING_DIMENSION || "1536",
 );
 
 export interface EmbeddingResult {
@@ -16,7 +17,7 @@ export interface EmbeddingResult {
 
 export async function generateEmbedding(
   text: string,
-  model: string = DEFAULT_EMBEDDING_MODEL
+  model: string = DEFAULT_EMBEDDING_MODEL,
 ): Promise<EmbeddingResult> {
   const response = await openai.embeddings.create({
     model,
@@ -32,7 +33,7 @@ export async function generateEmbedding(
 
 export async function generateEmbeddings(
   texts: string[],
-  model: string = DEFAULT_EMBEDDING_MODEL
+  model: string = DEFAULT_EMBEDDING_MODEL,
 ): Promise<EmbeddingResult[]> {
   const response = await openai.embeddings.create({
     model,

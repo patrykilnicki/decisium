@@ -52,7 +52,7 @@ export async function getUserContext(): Promise<UserContext> {
  * Get user context with a specific date (for historical queries)
  */
 export async function getUserContextWithDate(
-  date: string
+  date: string,
 ): Promise<UserContext> {
   const user = await getAuthenticatedUser();
 

@@ -10,7 +10,8 @@ export async function POST(request: NextRequest) {
     const event = await createDailyEvent(validated);
     return NextResponse.json(event, { status: 201 });
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : "Failed to create daily event";
+    const message =
+      error instanceof Error ? error.message : "Failed to create daily event";
     return NextResponse.json({ error: message }, { status: 400 });
   }
 }
@@ -23,14 +24,15 @@ export async function GET(request: NextRequest) {
     if (!date) {
       return NextResponse.json(
         { error: "Date parameter is required" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
     const events = await getDailyEvents(date);
     return NextResponse.json(events);
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : "Failed to fetch daily events";
+    const message =
+      error instanceof Error ? error.message : "Failed to fetch daily events";
     return NextResponse.json({ error: message }, { status: 400 });
   }
 }

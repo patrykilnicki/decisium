@@ -1,6 +1,11 @@
 import { createClient } from "@supabase/supabase-js";
+import type { Database } from "@/types/supabase";
 import { generateEmbedding } from "@/packages/agents/lib/embeddings";
-import { MemoryFragment, MemoryRetrievalResult } from "@/packages/agents/schemas/memory.schema";
+import {
+  MemoryFragment,
+  MemoryRetrievalResult,
+  type MemoryMetadata,
+} from "@/packages/agents/schemas/memory.schema";
 
 interface EmbeddingRow {
   id: string;
@@ -20,12 +25,12 @@ interface ActivityAtomRow {
   content: string;
   occurred_at: string;
   source_url?: string;
-  similarity: number;
+  similarity?: number; // Optional - only present when returned from RPC functions
 }
 
-const supabase = createClient(
+const supabase = createClient<Database>(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
 );
 
 // ============================================
@@ -58,47 +63,45 @@ export async function retrieveMemory(
     threshold?: number;
     limit?: number;
     hierarchyLevel?: "monthly" | "weekly" | "daily" | "raw";
-  } = {}
+  } = {},
 ): Promise<MemoryRetrievalResult> {
-  const {
-    threshold = 0.5,
-    limit = 10,
-    hierarchyLevel = "monthly",
-  } = options;
+  const { threshold = 0.5, limit = 10, hierarchyLevel = "monthly" } = options;
 
   // Generate embedding for query
   const { embedding } = await generateEmbedding(query);
+  // Convert number array to PostgreSQL array string format for pgvector
+  const queryEmbeddingString = `[${embedding.join(",")}]`;
 
   // Search embeddings using pgvector
   const { data, error } = await supabase.rpc("match_embeddings", {
-    query_embedding: embedding,
+    query_embedding: queryEmbeddingString,
     match_user_id: userId,
     match_threshold: threshold,
     match_count: limit,
     match_type:
-      hierarchyLevel === "raw"
-        ? "daily_event"
-        : `${hierarchyLevel}_summary`,
+      hierarchyLevel === "raw" ? "daily_event" : `${hierarchyLevel}_summary`,
   });
 
   if (error) {
     throw new Error(`Memory retrieval failed: ${error.message}`);
   }
 
-  const fragments: MemoryFragment[] = (data || []).map((item: EmbeddingRow) => ({
-    id: item.id,
-    user_id: item.user_id,
-    content: item.content,
-    metadata: item.metadata,
-    similarity: item.similarity,
-    created_at: item.created_at,
-  }));
+  const fragments: MemoryFragment[] = (data || []).map(
+    (item: EmbeddingRow) => ({
+      id: item.id,
+      user_id: item.user_id,
+      content: item.content,
+      metadata: item.metadata as MemoryMetadata,
+      similarity: item.similarity,
+      created_at: item.created_at,
+    }),
+  );
 
   if (fragments.length === 0 && hierarchyLevel === "monthly") {
     // Log once per query - new daily notes are auto-embedded; backfill needed for existing data
     console.info(
       `[memory] No embeddings for user ${userId}. New notes are auto-embedded. ` +
-        "Run `pnpm backfill-embeddings` to populate from existing events/summaries."
+        "Run `pnpm backfill-embeddings` to populate from existing events/summaries.",
     );
   }
 
@@ -115,7 +118,7 @@ export async function retrieveHierarchicalMemory(
   options: {
     threshold?: number;
     limitPerLevel?: number;
-  } = {}
+  } = {},
 ): Promise<MemoryRetrievalResult[]> {
   const { threshold = 0.5, limitPerLevel = 5 } = options;
 
@@ -173,31 +176,35 @@ export async function retrieveHierarchicalMemory(
 export async function retrieveMemoryAllTypes(
   query: string,
   userId: string,
-  options: { threshold?: number; limit?: number } = {}
+  options: { threshold?: number; limit?: number } = {},
 ): Promise<MemoryRetrievalResult> {
   const { threshold = 0.25, limit = 15 } = options;
   const { embedding } = await generateEmbedding(query);
+  // Convert number array to PostgreSQL array string format for pgvector
+  const queryEmbeddingString = `[${embedding.join(",")}]`;
 
   const { data, error } = await supabase.rpc("match_embeddings", {
-    query_embedding: embedding,
+    query_embedding: queryEmbeddingString,
     match_user_id: userId,
     match_threshold: threshold,
     match_count: limit,
-    match_type: null,
+    match_type: undefined,
   });
 
   if (error) {
     throw new Error(`Memory retrieval failed: ${error.message}`);
   }
 
-  const fragments: MemoryFragment[] = (data || []).map((item: EmbeddingRow) => ({
-    id: item.id,
-    user_id: item.user_id,
-    content: item.content,
-    metadata: item.metadata,
-    similarity: item.similarity,
-    created_at: item.created_at,
-  }));
+  const fragments: MemoryFragment[] = (data || []).map(
+    (item: EmbeddingRow) => ({
+      id: item.id,
+      user_id: item.user_id,
+      content: item.content,
+      metadata: item.metadata as MemoryMetadata,
+      similarity: item.similarity,
+      created_at: item.created_at,
+    }),
+  );
 
   return {
     fragments,
@@ -221,21 +228,23 @@ export async function retrieveActivityAtoms(
     limit?: number;
     provider?: string;
     atomType?: string;
-  } = {}
+  } = {},
 ): Promise<ActivityAtomFragment[]> {
   const { threshold = 0.5, limit = 10, provider, atomType } = options;
 
   // Generate embedding for query
   const { embedding } = await generateEmbedding(query);
+  // Convert number array to PostgreSQL array string format for pgvector
+  const queryEmbeddingString = `[${embedding.join(",")}]`;
 
   // Search using the match_activity_atoms function
   const { data, error } = await supabase.rpc("match_activity_atoms", {
-    query_embedding: embedding,
+    query_embedding: queryEmbeddingString,
     match_user_id: userId,
     match_threshold: threshold,
     match_count: limit,
-    filter_provider: provider ?? null,
-    filter_atom_type: atomType ?? null,
+    filter_provider: provider ?? undefined,
+    filter_atom_type: atomType ?? undefined,
   });
 
   if (error) {
@@ -252,7 +261,7 @@ export async function retrieveActivityAtoms(
     content: item.content,
     occurredAt: new Date(item.occurred_at),
     sourceUrl: item.source_url,
-    similarity: item.similarity,
+    similarity: item.similarity ?? 0, // RPC should always return similarity, but default to 0 if missing
   }));
 }
 
@@ -268,7 +277,7 @@ export async function retrieveIntegratedMemory(
     limitMemory?: number;
     limitAtoms?: number;
     includeAtoms?: boolean;
-  } = {}
+  } = {},
 ): Promise<IntegrationMemoryResult> {
   const {
     threshold = 0.5,
@@ -285,7 +294,7 @@ export async function retrieveIntegratedMemory(
 
   // Combine all memory fragments
   const allFragments: MemoryFragment[] = memoryResults.flatMap(
-    (result) => result.fragments
+    (result) => result.fragments,
   );
 
   // Get activity atoms if enabled
@@ -320,7 +329,7 @@ export async function retrieveIntegratedMemory(
  * Format integrated memory results for AI context
  */
 export function formatIntegratedMemoryForContext(
-  result: IntegrationMemoryResult
+  result: IntegrationMemoryResult,
 ): string {
   const sections: string[] = [];
 
@@ -367,7 +376,7 @@ export async function getRecentActivityAtoms(
     provider?: string;
     atomType?: string;
     since?: Date;
-  } = {}
+  } = {},
 ): Promise<ActivityAtomFragment[]> {
   const { limit = 20, provider, atomType, since } = options;
 
@@ -397,15 +406,15 @@ export async function getRecentActivityAtoms(
     return [];
   }
 
-  return (data || []).map((item: ActivityAtomRow) => ({
+  return (data || []).map((item) => ({
     id: item.id,
     userId: item.user_id,
     provider: item.provider,
     atomType: item.atom_type,
-    title: item.title,
+    title: item.title ?? undefined,
     content: item.content,
     occurredAt: new Date(item.occurred_at),
-    sourceUrl: item.source_url,
-    similarity: 1, // Not from similarity search
+    sourceUrl: item.source_url ?? undefined,
+    similarity: 1.0, // Not from similarity search - default to 1.0 for recent atoms
   }));
 }

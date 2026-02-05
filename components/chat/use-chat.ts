@@ -43,36 +43,38 @@ export function useChat({
 
   const getLatestTaskGroup = useCallback(
     (allTasks: TaskRecord[]): TaskRecord[] => {
-    const roots = allTasks.filter((task) => !task.parentTaskId);
-    const sortedRoots = [...roots].sort(
-      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    );
-    const latestRoot = sortedRoots[0];
-    if (!latestRoot) return allTasks;
+      const roots = allTasks.filter((task) => !task.parentTaskId);
+      const sortedRoots = [...roots].sort(
+        (a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      );
+      const latestRoot = sortedRoots[0];
+      if (!latestRoot) return allTasks;
 
-    const byParent = new Map<string, TaskRecord[]>();
-    allTasks.forEach((task) => {
-      if (!task.parentTaskId) return;
-      const existing = byParent.get(task.parentTaskId) ?? [];
-      existing.push(task);
-      byParent.set(task.parentTaskId, existing);
-    });
+      const byParent = new Map<string, TaskRecord[]>();
+      allTasks.forEach((task) => {
+        if (!task.parentTaskId) return;
+        const existing = byParent.get(task.parentTaskId) ?? [];
+        existing.push(task);
+        byParent.set(task.parentTaskId, existing);
+      });
 
-    const collected = new Map<string, TaskRecord>();
-    const stack = [latestRoot];
-    while (stack.length > 0) {
-      const current = stack.pop();
-      if (!current || collected.has(current.id)) continue;
-      collected.set(current.id, current);
-      const children = byParent.get(current.id) ?? [];
-      children.forEach((child) => stack.push(child));
-    }
+      const collected = new Map<string, TaskRecord>();
+      const stack = [latestRoot];
+      while (stack.length > 0) {
+        const current = stack.pop();
+        if (!current || collected.has(current.id)) continue;
+        collected.set(current.id, current);
+        const children = byParent.get(current.id) ?? [];
+        children.forEach((child) => stack.push(child));
+      }
 
       return Array.from(collected.values()).sort(
-        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+        (a, b) =>
+          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
       );
     },
-    []
+    [],
   );
 
   function mapTaskStatus(status: string): ThinkingStep["status"] {
@@ -98,7 +100,7 @@ export function useChat({
       });
 
       const hasActive = tasksForRun.some(
-        (task) => task.status === "pending" || task.status === "in_progress"
+        (task) => task.status === "pending" || task.status === "in_progress",
       );
 
       return {
@@ -107,13 +109,13 @@ export function useChat({
         streamedContent: undefined,
       };
     },
-    [getLatestTaskGroup]
+    [getLatestTaskGroup],
   );
 
   const fetchTasks = useCallback(async () => {
     if (!sessionId) return [];
     const response = await fetch(
-      `${tasksEndpoint}?sessionId=${encodeURIComponent(sessionId)}`
+      `${tasksEndpoint}?sessionId=${encodeURIComponent(sessionId)}`,
     );
     if (!response.ok) {
       const errorBody = await response.json().catch(() => ({}));
@@ -163,7 +165,7 @@ export function useChat({
       setThinkingState(thinking);
 
       const latestFailed = getLatestTaskGroup(latestTasks).find(
-        (task) => task.status === "failed" && task.lastError
+        (task) => task.status === "failed" && task.lastError,
       );
       if (latestFailed?.lastError) {
         setError(latestFailed.lastError);
@@ -206,7 +208,7 @@ export function useChat({
       await fetch(`/api/tasks/${taskId}/retry`, { method: "POST" });
       startTaskPolling();
     },
-    [startTaskPolling]
+    [startTaskPolling],
   );
 
   const cancelTask = useCallback(
@@ -214,7 +216,7 @@ export function useChat({
       await fetch(`/api/tasks/${taskId}/cancel`, { method: "POST" });
       startTaskPolling();
     },
-    [startTaskPolling]
+    [startTaskPolling],
   );
 
   const handleStreamEvent = useCallback((event: StreamEvent) => {
@@ -241,7 +243,7 @@ export function useChat({
                 steps: prev.steps.map((s) =>
                   s.stepId === stepId
                     ? { ...s, status: "running" as const }
-                    : s
+                    : s,
                 ),
               };
             }
@@ -269,7 +271,7 @@ export function useChat({
             steps: prev.steps.map((s) =>
               s.stepId === completedStepId
                 ? { ...s, status: "completed" as const }
-                : s
+                : s,
             ),
           }));
         }
@@ -281,9 +283,7 @@ export function useChat({
           setThinkingState((prev) => ({
             ...prev,
             steps: prev.steps.map((s) =>
-              s.stepId === errorStepId
-                ? { ...s, status: "error" as const }
-                : s
+              s.stepId === errorStepId ? { ...s, status: "error" as const } : s,
             ),
           }));
         }
@@ -315,9 +315,7 @@ export function useChat({
           ...prev,
           isThinking: false,
           steps: prev.steps.map((s) =>
-            s.status === "running"
-              ? { ...s, status: "completed" as const }
-              : s
+            s.status === "running" ? { ...s, status: "completed" as const } : s,
           ),
         }));
         break;
@@ -377,8 +375,8 @@ export function useChat({
                       ...result.userMessage,
                       createdAt: result.userMessage.created_at,
                     }
-                  : m
-              )
+                  : m,
+              ),
             );
           }
 
@@ -436,8 +434,8 @@ export function useChat({
                             ...event.userMessage!,
                             createdAt: event.userMessage!.createdAt,
                           }
-                        : m
-                    )
+                        : m,
+                    ),
                   );
                 }
 
@@ -445,7 +443,7 @@ export function useChat({
                   setMessages((prev) => {
                     // Check if assistant message already exists
                     const exists = prev.some(
-                      (m) => m.id === event.assistantMessage!.id
+                      (m) => m.id === event.assistantMessage!.id,
                     );
                     if (exists) return prev;
                     return [
@@ -494,7 +492,7 @@ export function useChat({
       onMessageSent,
       onError,
       startTaskPolling,
-    ]
+    ],
   );
 
   useEffect(() => {

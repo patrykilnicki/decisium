@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { generateDailySummary } from "@/app/actions/summaries";
 import { format, subDays } from "date-fns";
+import type { User } from "@/types/database";
 
 // Verify cron secret (set in environment)
 const CRON_SECRET = process.env.CRON_SECRET;
@@ -26,9 +27,13 @@ async function runDailySummary(): Promise<NextResponse> {
       throw new Error("Failed to fetch users");
     }
 
-    const results: Array<{ userId: string; status: string; error?: string }> = [];
+    const results: Array<{ userId: string; status: string; error?: string }> =
+      [];
 
-    for (const user of users) {
+    // Type assertion needed because select with specific columns returns a narrowed type
+    const typedUsers = users as Array<Pick<User, "id" | "timezone">>;
+
+    for (const user of typedUsers) {
       try {
         const yesterday = format(subDays(new Date(), 1), "yyyy-MM-dd");
         await generateDailySummary(user.id, yesterday);
@@ -42,7 +47,10 @@ async function runDailySummary(): Promise<NextResponse> {
 
     return NextResponse.json({ results });
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : "Failed to generate daily summaries";
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Failed to generate daily summaries";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
@@ -51,8 +59,11 @@ async function runDailySummary(): Promise<NextResponse> {
 export async function GET(request: NextRequest) {
   if (!isAuthorized(request)) {
     return NextResponse.json(
-      { error: "Unauthorized. Use Authorization: Bearer <CRON_SECRET> or call via Vercel Cron." },
-      { status: 401 }
+      {
+        error:
+          "Unauthorized. Use Authorization: Bearer <CRON_SECRET> or call via Vercel Cron.",
+      },
+      { status: 401 },
     );
   }
   return runDailySummary();

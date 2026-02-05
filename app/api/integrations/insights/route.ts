@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
-import { createInsightGenerator } from '@/lib/integrations';
+import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
+import { createInsightGenerator } from "@/lib/integrations";
 
 /**
  * GET /api/integrations/insights
@@ -17,17 +17,14 @@ export async function GET(request: NextRequest) {
     } = await supabase.auth.getUser();
 
     if (authError || !user) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     // Parse query parameters
     const searchParams = request.nextUrl.searchParams;
-    const sourceType = searchParams.get('sourceType') || undefined;
-    const granularity = searchParams.get('granularity') || undefined;
-    const limit = parseInt(searchParams.get('limit') || '10', 10);
+    const sourceType = searchParams.get("sourceType") || undefined;
+    const granularity = searchParams.get("granularity") || undefined;
+    const limit = parseInt(searchParams.get("limit") || "10", 10);
 
     // Get insights
     const insightGenerator = createInsightGenerator(supabase);
@@ -51,10 +48,10 @@ export async function GET(request: NextRequest) {
       })),
     });
   } catch (error) {
-    console.error('Error fetching insights:', error);
+    console.error("Error fetching insights:", error);
     return NextResponse.json(
-      { error: 'Failed to fetch insights' },
-      { status: 500 }
+      { error: "Failed to fetch insights" },
+      { status: 500 },
     );
   }
 }
@@ -74,16 +71,13 @@ export async function POST(request: NextRequest) {
     } = await supabase.auth.getUser();
 
     if (authError || !user) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     // Parse request body
     const body = await request.json();
     const {
-      granularity = 'day',
+      granularity = "day",
       periodStart,
       periodEnd,
       provider,
@@ -91,10 +85,10 @@ export async function POST(request: NextRequest) {
     } = body;
 
     // Validate granularity
-    if (!['day', 'week', 'month'].includes(granularity)) {
+    if (!["day", "week", "month"].includes(granularity)) {
       return NextResponse.json(
-        { error: 'Invalid granularity. Must be day, week, or month.' },
-        { status: 400 }
+        { error: "Invalid granularity. Must be day, week, or month." },
+        { status: 400 },
       );
     }
 
@@ -126,10 +120,15 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error('Error generating insights:', error);
+    console.error("Error generating insights:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Failed to generate insights' },
-      { status: 500 }
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to generate insights",
+      },
+      { status: 500 },
     );
   }
 }

@@ -30,22 +30,26 @@ A personal daily journaling and AI-powered reflection assistant built with Next.
 ### Installation
 
 1. Clone the repository:
+
 ```bash
 git clone <repository-url>
 cd decisium
 ```
 
 2. Install dependencies:
+
 ```bash
 pnpm install
 ```
 
 3. Set up environment variables:
+
 ```bash
 cp .env.local.example .env.local
 ```
 
 Edit `.env.local` with your credentials:
+
 - `NEXT_PUBLIC_SUPABASE_URL`: Your Supabase project URL
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`: Your Supabase anon key
 - `SUPABASE_SERVICE_ROLE_KEY`: Your Supabase service role key
@@ -55,6 +59,7 @@ Edit `.env.local` with your credentials:
 4. Set up Supabase database:
 
 Run the migrations in `supabase/migrations/`:
+
 - `001_initial_schema.sql` - Creates all tables
 - `002_enable_pgvector.sql` - Enables pgvector extension
 - `003_indexes.sql` - Creates performance indexes
@@ -63,12 +68,15 @@ You can run these via Supabase Dashboard SQL Editor or using Supabase CLI.
 
 5. **Backfill embeddings (required for memory search):**  
    Ask AI and semantic memory search use the `embeddings` table only. If you have existing `daily_events` or summaries (e.g. from `004_seed_ui_designer_data.sql`) but no embeddings, memory retrieval returns nothing. Run:
+
    ```bash
    pnpm backfill-embeddings
    ```
+
    Optional: `pnpm backfill-embeddings --user-id=<UUID>` to limit to one user.
 
 6. Run the development server:
+
 ```bash
 pnpm dev
 ```
@@ -105,21 +113,25 @@ decisium/
 ## Architecture
 
 ### Daily Flow
+
 - Event-based: Each message is atomic, no conversation threads
 - Automatic classification: Notes, questions, or note+question
 - One-shot responses: Agent responds to questions but doesn't continue conversation
 
 ### Ask AI Flow
+
 - Thread-based: Full conversation context maintained
 - Memory retrieval: Hierarchical search (monthly → weekly → daily → raw)
 - Deep exploration: Agent uses full context for comprehensive answers
 
 ### Memory System
+
 - Hierarchical: Monthly summaries → Weekly summaries → Daily summaries → Raw events
 - Semantic search: Vector embeddings with pgvector
 - Progressive condensation: History becomes more condensed as it ages
 
 ### DeepAgents
+
 - Root agent orchestrates all workflows
 - Uses built-in planning (`write_todos`) for task decomposition
 - Spawns subagents via `task` tool for specialized work
@@ -136,6 +148,7 @@ Set up cron jobs to trigger summary generation:
 Include `Authorization: Bearer <CRON_SECRET>` header.
 
 Example with Vercel Cron:
+
 ```json
 {
   "crons": [
@@ -150,16 +163,19 @@ Example with Vercel Cron:
 ## Development
 
 ### Type Checking
+
 ```bash
 pnpm typecheck
 ```
 
 ### Linting
+
 ```bash
 pnpm lint
 ```
 
 ### Building
+
 ```bash
 pnpm build
 ```

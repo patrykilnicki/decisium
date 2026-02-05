@@ -1,20 +1,9 @@
-export type TaskStatus = "pending" | "in_progress" | "completed" | "failed";
+import type { Task, TaskInsert, TaskStatus } from "@/types/database";
 
-export interface TaskRow {
-  id: string;
-  parent_task_id: string | null;
-  user_id: string;
-  session_id: string;
-  task_type: string;
-  input: Record<string, unknown>;
-  output: Record<string, unknown> | null;
-  status: TaskStatus;
-  retry_count: number;
-  last_error: string | null;
-  created_at: string;
-  updated_at: string;
-}
+// Re-export types from database.ts for convenience
+export type { Task as TaskRow, TaskInsert, TaskStatus };
 
+// TaskRecord is a transformed type (camelCase) - keep it local
 export interface TaskRecord {
   id: string;
   parentTaskId: string | null;
@@ -28,18 +17,6 @@ export interface TaskRecord {
   lastError: string | null;
   createdAt: string;
   updatedAt: string;
-}
-
-export interface TaskInsert {
-  parent_task_id?: string | null;
-  user_id: string;
-  session_id: string;
-  task_type: string;
-  input: Record<string, unknown>;
-  output?: Record<string, unknown> | null;
-  status?: TaskStatus;
-  retry_count?: number;
-  last_error?: string | null;
 }
 
 export interface TaskExecutionResult {

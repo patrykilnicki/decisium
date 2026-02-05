@@ -1,5 +1,6 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import type { Database } from "@/types/supabase";
 
 interface CookieToSet {
   name: string;
@@ -12,7 +13,7 @@ export async function proxy(request: NextRequest) {
     request,
   });
 
-  const supabase = createServerClient(
+  const supabase = createServerClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
@@ -22,17 +23,17 @@ export async function proxy(request: NextRequest) {
         },
         setAll(cookiesToSet: CookieToSet[]) {
           cookiesToSet.forEach(({ name, value }) =>
-            request.cookies.set(name, value)
+            request.cookies.set(name, value),
           );
           supabaseResponse = NextResponse.next({
             request,
           });
           cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options)
+            supabaseResponse.cookies.set(name, value, options),
           );
         },
       },
-    }
+    },
   );
 
   const {
@@ -62,7 +63,11 @@ export async function proxy(request: NextRequest) {
   }
 
   // Check onboarding status for authenticated users
-  if (user && !pathname.startsWith("/onboarding") && !pathname.startsWith("/api")) {
+  if (
+    user &&
+    !pathname.startsWith("/onboarding") &&
+    !pathname.startsWith("/api")
+  ) {
     const { data: profile } = await supabase
       .from("users")
       .select("onboarding_completed")
@@ -70,7 +75,10 @@ export async function proxy(request: NextRequest) {
       .single();
 
     // Redirect to onboarding if not completed
-    if (!profile?.onboarding_completed) {
+    const onboardingCompleted = (
+      profile as { onboarding_completed?: boolean } | null
+    )?.onboarding_completed;
+    if (!onboardingCompleted) {
       const url = request.nextUrl.clone();
       url.pathname = "/onboarding";
       url.searchParams.set("step", "1");

@@ -17,7 +17,8 @@ export async function GET(_request: NextRequest) {
     const threads = await getThreads(user.id);
     return NextResponse.json(threads);
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : "Failed to fetch threads";
+    const message =
+      error instanceof Error ? error.message : "Failed to fetch threads";
     return NextResponse.json({ error: message }, { status: 400 });
   }
 }
@@ -39,7 +40,8 @@ export async function POST(request: NextRequest) {
     const thread = await createThread(user.id, title);
     return NextResponse.json(thread, { status: 201 });
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : "Failed to create thread";
+    const message =
+      error instanceof Error ? error.message : "Failed to create thread";
     return NextResponse.json({ error: message }, { status: 400 });
   }
 }

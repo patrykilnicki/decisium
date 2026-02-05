@@ -2,27 +2,25 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
-import { ChatContainer, useChat, ChatMessageType } from "@/components/chat";
+import {
+  ChatContainer,
+  useChat,
+  ChatMessageType,
+  type ChatRole,
+} from "@/components/chat";
 import { ProtectedRoute } from "@/components/auth/protected-route";
 import { AppLayout } from "@/components/layout/app-layout";
 import { Button } from "@/components/ui/button";
 import { Loader2 } from "lucide-react";
 import Link from "next/link";
+import type { AskMessage } from "@/types/database";
 
-interface ApiMessage {
-  id: string;
-  thread_id: string;
-  role: "user" | "assistant" | "system";
-  content: string;
-  created_at?: string;
-}
-
-function transformMessage(msg: ApiMessage): ChatMessageType {
+function transformMessage(msg: AskMessage): ChatMessageType {
   return {
     id: msg.id,
-    role: msg.role,
+    role: msg.role as ChatRole,
     content: msg.content,
-    createdAt: msg.created_at,
+    createdAt: msg.created_at ?? undefined,
   };
 }
 
@@ -55,7 +53,7 @@ export default function ThreadPage() {
       setInitialLoading(true);
       const response = await fetch(`/api/ask/threads/${threadId}/messages`);
       if (response.ok) {
-        const data: ApiMessage[] = await response.json();
+        const data: AskMessage[] = await response.json();
         const validMessages = Array.isArray(data)
           ? data
               .filter((msg) => msg != null && msg.role != null)
@@ -82,11 +80,10 @@ export default function ThreadPage() {
     async (content: string) => {
       await sendMessage(content);
     },
-    [sendMessage]
+    [sendMessage],
   );
 
-  const failedTasks =
-    tasks?.filter((task) => task.status === "failed") ?? [];
+  const failedTasks = tasks?.filter((task) => task.status === "failed") ?? [];
 
   return (
     <ProtectedRoute>

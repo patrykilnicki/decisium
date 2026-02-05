@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
     if (!message) {
       return NextResponse.json(
         { error: "Either eventId or message is required" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -24,7 +24,9 @@ export async function POST(request: NextRequest) {
   } catch (error: unknown) {
     console.error("Error processing daily message:", error);
     const message =
-      error instanceof Error ? error.message : "Failed to process daily message";
+      error instanceof Error
+        ? error.message
+        : "Failed to process daily message";
     return NextResponse.json({ error: message }, { status: 400 });
   }
 }

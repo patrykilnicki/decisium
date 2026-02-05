@@ -1,5 +1,11 @@
 import { createClient } from "@/lib/supabase/server";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { ProtectedRoute } from "@/components/auth/protected-route";
@@ -16,7 +22,6 @@ export default async function HomePage() {
     return (
       <ProtectedRoute>
         <AppLayout>
-          
           <DailyContent />
         </AppLayout>
       </ProtectedRoute>

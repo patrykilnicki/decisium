@@ -9,13 +9,13 @@ export interface AgentInvocationConfig {
    * Default: 100 (higher than default 25 to accommodate subagents)
    */
   recursionLimit?: number;
-  
+
   /**
    * Whether to attempt extracting partial results when recursion limit is hit
    * Default: true
    */
   extractPartialOnLimit?: boolean;
-  
+
   /**
    * Timeout in milliseconds (optional)
    * If set, will abort the invocation after this time
@@ -34,10 +34,10 @@ export interface AgentInvocationResult<T> {
  */
 function isRecursionLimitError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
-  
+
   // Check error name (for GraphRecursionError from LangGraph)
   if (error.name === "GraphRecursionError") return true;
-  
+
   // Check error message patterns
   const message = error.message.toLowerCase();
   return (
@@ -62,7 +62,16 @@ interface PartialInvocationState {
 function extractPartialResult(result: unknown): string | null {
   try {
     // Try to get messages from the result
-    const r = result as { messages?: Array<{ content?: string | Array<{ text?: string; type?: string }> }>; state?: { messages?: Array<{ content?: string | Array<{ text?: string; type?: string }> }> } };
+    const r = result as {
+      messages?: Array<{
+        content?: string | Array<{ text?: string; type?: string }>;
+      }>;
+      state?: {
+        messages?: Array<{
+          content?: string | Array<{ text?: string; type?: string }>;
+        }>;
+      };
+    };
     const messages = r?.messages || r?.state?.messages || [];
 
     if (Array.isArray(messages) && messages.length > 0) {
@@ -81,12 +90,13 @@ function extractPartialResult(result: unknown): string | null {
               .map((block: { text?: string; type?: string } | string) => {
                 if (typeof block === "string") return block;
                 if (block?.text) return block.text;
-                if (block?.type === "text") return (block as { text?: string }).text;
+                if (block?.type === "text")
+                  return (block as { text?: string }).text;
                 return "";
               })
               .join("")
               .trim();
-            
+
             if (textContent.length > 0) {
               return textContent;
             }
@@ -94,13 +104,13 @@ function extractPartialResult(result: unknown): string | null {
         }
       }
     }
-    
+
     // Fallback: try to extract from state
     const state = (result as { state?: { agentResponse?: string } })?.state;
     if (state?.agentResponse) {
       return String(state.agentResponse);
     }
-    
+
     return null;
   } catch (e) {
     console.warn("[Agent Invocation] Failed to extract partial result:", e);
@@ -110,19 +120,21 @@ function extractPartialResult(result: unknown): string | null {
 
 /**
  * Safely invoke an agent with recursion limit handling
- * 
+ *
  * This function:
  * 1. Wraps the agent invocation with proper error handling
  * 2. Attempts to extract partial results if recursion limit is hit
  * 3. Provides graceful degradation instead of hard failures
- * 
+ *
  * @param agentInvocation - Function that invokes the agent
  * @param config - Configuration for the invocation
  * @returns Result with data and optional partial/warning flags
  */
-export async function safeAgentInvoke<T extends { messages?: unknown[]; agentResponse?: string }>(
+export async function safeAgentInvoke<
+  T extends { messages?: unknown[]; agentResponse?: string },
+>(
   agentInvocation: () => Promise<T>,
-  config: AgentInvocationConfig = {}
+  config: AgentInvocationConfig = {},
 ): Promise<AgentInvocationResult<T>> {
   const {
     recursionLimit = 100,
@@ -139,34 +151,34 @@ export async function safeAgentInvoke<T extends { messages?: unknown[]; agentRes
 
     try {
       const result = await agentInvocation();
-      
+
       // Clear timeout if successful
       if (timeoutId) clearTimeout(timeoutId);
-      
+
       return { data: result };
     } catch (invocationError) {
       // Clear timeout on error
       if (timeoutId) clearTimeout(timeoutId);
-      
+
       // Check if it's a recursion limit error
       if (isRecursionLimitError(invocationError) && extractPartialOnLimit) {
         console.warn(
           `[Agent Invocation] Recursion limit (${recursionLimit}) reached. ` +
-          `Error: ${invocationError instanceof Error ? invocationError.message : String(invocationError)}`
+            `Error: ${invocationError instanceof Error ? invocationError.message : String(invocationError)}`,
         );
 
         // Try to extract partial results from the error or last state
         // Note: LangGraph errors may contain state information in some cases
         const err = invocationError as PartialInvocationState;
         const partialResult = extractPartialResult(
-          err.state ?? err.result ?? err.lastState ?? err.checkpoint
+          err.state ?? err.result ?? err.lastState ?? err.checkpoint,
         );
 
         if (partialResult && partialResult.length > 0) {
           console.info(
-            `[Agent Invocation] Successfully extracted partial result (${partialResult.length} chars)`
+            `[Agent Invocation] Successfully extracted partial result (${partialResult.length} chars)`,
           );
-          
+
           // Create a partial result object
           const partialData = {
             messages: [
@@ -185,7 +197,7 @@ export async function safeAgentInvoke<T extends { messages?: unknown[]; agentRes
           };
         } else {
           console.warn(
-            `[Agent Invocation] Could not extract partial results from recursion error`
+            `[Agent Invocation] Could not extract partial results from recursion error`,
           );
         }
       }
@@ -197,17 +209,18 @@ export async function safeAgentInvoke<T extends { messages?: unknown[]; agentRes
     // If we still have an error, check if it's a timeout
     if (error instanceof Error && error.name === "AbortError") {
       throw new Error(
-        `Agent invocation timed out after ${timeout}ms. The request may be too complex.`
+        `Agent invocation timed out after ${timeout}ms. The request may be too complex.`,
       );
     }
 
     // Re-throw recursion limit errors with better message if we couldn't extract partial results
     if (isRecursionLimitError(error)) {
       const message = `The agent reached the maximum number of steps (${recursionLimit}) without completing. This may indicate an infinite loop or an overly complex request. Please try simplifying your request or breaking it into smaller parts.`;
-      
+
       const enhancedError = new Error(message);
       enhancedError.name = "AgentRecursionLimitError";
-      (enhancedError as Error & { originalError?: unknown }).originalError = error;
+      (enhancedError as Error & { originalError?: unknown }).originalError =
+        error;
       throw enhancedError;
     }
 
@@ -219,20 +232,27 @@ export async function safeAgentInvoke<T extends { messages?: unknown[]; agentRes
 /**
  * Create a wrapper for agent.invoke with safe recursion limit handling
  */
-export function createSafeAgentInvoker<T extends { messages?: unknown[]; agentResponse?: string }>(
-  agent: { invoke: (input: unknown, config?: { recursionLimit?: number }) => Promise<T> },
-  defaultConfig?: AgentInvocationConfig
+export function createSafeAgentInvoker<
+  T extends { messages?: unknown[]; agentResponse?: string },
+>(
+  agent: {
+    invoke: (
+      input: unknown,
+      config?: { recursionLimit?: number },
+    ) => Promise<T>;
+  },
+  defaultConfig?: AgentInvocationConfig,
 ) {
   return async (
     input: unknown,
-    config?: AgentInvocationConfig
+    config?: AgentInvocationConfig,
   ): Promise<AgentInvocationResult<T>> => {
     const mergedConfig = { ...defaultConfig, ...config };
     const recursionLimit = mergedConfig.recursionLimit ?? 100;
 
     return safeAgentInvoke(
       () => agent.invoke(input, { recursionLimit }),
-      mergedConfig
+      mergedConfig,
     );
   };
 }

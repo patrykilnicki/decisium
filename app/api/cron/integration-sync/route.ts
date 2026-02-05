@@ -1,34 +1,32 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+import type { Database } from "@/types/supabase";
 import {
   createOAuthManager,
   createSyncPipeline,
   createInsightGenerator,
-} from '@/lib/integrations';
+} from "@/lib/integrations";
 
 // Use service role for cron jobs
-const supabase = createClient(
+const supabase = createClient<Database>(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
 );
 
 /**
  * POST /api/cron/integration-sync
  * Cron job to sync all active integrations and generate insights
- * 
+ *
  * This should be called periodically (e.g., every 15 minutes) by your cron service
  * Protect this endpoint with a secret header in production
  */
 export async function POST(request: NextRequest) {
   // Verify cron secret in production
-  const authHeader = request.headers.get('authorization');
+  const authHeader = request.headers.get("authorization");
   const cronSecret = process.env.CRON_SECRET;
 
   if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json(
-      { error: 'Unauthorized' },
-      { status: 401 }
-    );
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const results: Array<{
@@ -42,9 +40,9 @@ export async function POST(request: NextRequest) {
   try {
     // Get all active integrations
     const { data: integrations, error: queryError } = await supabase
-      .from('integrations')
-      .select('id, user_id, provider')
-      .eq('status', 'active');
+      .from("integrations")
+      .select("id, user_id, provider")
+      .eq("status", "active");
 
     if (queryError) {
       throw new Error(`Failed to fetch integrations: ${queryError.message}`);
@@ -53,7 +51,7 @@ export async function POST(request: NextRequest) {
     if (!integrations || integrations.length === 0) {
       return NextResponse.json({
         success: true,
-        message: 'No active integrations to sync',
+        message: "No active integrations to sync",
         results: [],
       });
     }
@@ -79,8 +77,8 @@ export async function POST(request: NextRequest) {
         results.push({
           userId: integration.user_id,
           provider: integration.provider,
-          status: 'error',
-          error: error instanceof Error ? error.message : 'Unknown error',
+          status: "error",
+          error: error instanceof Error ? error.message : "Unknown error",
         });
       }
     }
@@ -97,8 +95,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const successCount = results.filter((r) => r.status === 'completed').length;
-    const errorCount = results.filter((r) => r.status === 'error').length;
+    const successCount = results.filter((r) => r.status === "completed").length;
+    const errorCount = results.filter((r) => r.status === "error").length;
 
     return NextResponse.json({
       success: true,
@@ -106,10 +104,10 @@ export async function POST(request: NextRequest) {
       results,
     });
   } catch (error) {
-    console.error('Error in integration sync cron:', error);
+    console.error("Error in integration sync cron:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Sync failed' },
-      { status: 500 }
+      { error: error instanceof Error ? error.message : "Sync failed" },
+      { status: 500 },
     );
   }
 }
@@ -120,8 +118,8 @@ export async function POST(request: NextRequest) {
  */
 export async function GET() {
   return NextResponse.json({
-    status: 'ok',
-    endpoint: '/api/cron/integration-sync',
-    description: 'Cron job for syncing integrations and generating insights',
+    status: "ok",
+    endpoint: "/api/cron/integration-sync",
+    description: "Cron job for syncing integrations and generating insights",
   });
 }

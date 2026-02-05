@@ -33,7 +33,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (!content) {
       return NextResponse.json(
         { error: "Content is required" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 

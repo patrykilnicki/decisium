@@ -21,7 +21,7 @@ export interface ActivityAtomContext {
  * Build conversation history from messages array
  */
 export function buildConversationHistory(
-  messages: Array<{ role: string; content: string }>
+  messages: Array<{ role: string; content: string }>,
 ): string {
   if (messages.length === 0) {
     return "No previous conversation history.";
@@ -47,7 +47,7 @@ export function buildMemoryContext(
   memoryResults: Array<{
     results?: Array<{ content?: string; text?: string; metadata?: unknown }>;
     total_found?: number;
-  }>
+  }>,
 ): string {
   if (!memoryResults || memoryResults.length === 0) {
     return "No relevant memory found.";
@@ -56,7 +56,7 @@ export function buildMemoryContext(
   const allResults = memoryResults.flatMap((result) => result.results || []);
   const totalFound = memoryResults.reduce(
     (sum, result) => sum + (result.total_found || 0),
-    0
+    0,
   );
 
   if (allResults.length === 0) {
@@ -82,7 +82,7 @@ export function buildMemoryContext(
 export function buildUserContext(
   userId: string,
   date: string,
-  userEmail?: string
+  userEmail?: string,
 ): string {
   const parts = [`User ID: ${userId}`, `Date: ${date}`];
   if (userEmail) {
@@ -101,9 +101,7 @@ export function combineContexts(...contexts: string[]): string {
 /**
  * Build activity atom context string for prompts
  */
-export function buildActivityAtomContext(
-  atoms: ActivityAtomContext[]
-): string {
+export function buildActivityAtomContext(atoms: ActivityAtomContext[]): string {
   if (!atoms || atoms.length === 0) {
     return "";
   }
@@ -152,7 +150,9 @@ export function buildAgentContext(options: {
   const parts: string[] = [];
 
   // User context
-  parts.push(buildUserContext(options.userId, options.currentDate, options.userEmail));
+  parts.push(
+    buildUserContext(options.userId, options.currentDate, options.userEmail),
+  );
 
   // Date context
   parts.push(getDateContext(options.currentDate));
@@ -187,7 +187,10 @@ export function buildIntegratedContext(options: {
   userId: string;
   currentDate: string;
   conversationHistory?: string;
-  memoryFragments?: Array<{ content: string; metadata?: Record<string, unknown> }>;
+  memoryFragments?: Array<{
+    content: string;
+    metadata?: Record<string, unknown>;
+  }>;
   activityAtoms?: ActivityAtomContext[];
   userEmail?: string;
   additionalContext?: string;
@@ -195,7 +198,9 @@ export function buildIntegratedContext(options: {
   const parts: string[] = [];
 
   // User context
-  parts.push(buildUserContext(options.userId, options.currentDate, options.userEmail));
+  parts.push(
+    buildUserContext(options.userId, options.currentDate, options.userEmail),
+  );
 
   // Date context
   parts.push(getDateContext(options.currentDate));

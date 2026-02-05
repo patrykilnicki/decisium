@@ -1,5 +1,5 @@
-import { google, calendar_v3 } from 'googleapis';
-import { OAuth2Client } from 'google-auth-library';
+import { google, calendar_v3 } from "googleapis";
+import { OAuth2Client } from "google-auth-library";
 import {
   BaseAdapter,
   AdapterConfig,
@@ -9,10 +9,10 @@ import {
   Evidence,
   FetchOptions,
   Provider,
-} from './base.adapter';
+} from "./base.adapter";
 
 export class GoogleCalendarAdapter extends BaseAdapter {
-  readonly provider: Provider = 'google_calendar';
+  readonly provider: Provider = "google_calendar";
   private oauth2Client: OAuth2Client;
 
   constructor(config: AdapterConfig) {
@@ -20,7 +20,7 @@ export class GoogleCalendarAdapter extends BaseAdapter {
     this.oauth2Client = new google.auth.OAuth2(
       config.clientId,
       config.clientSecret,
-      config.redirectUri
+      config.redirectUri,
     );
   }
 
@@ -30,10 +30,10 @@ export class GoogleCalendarAdapter extends BaseAdapter {
 
   getAuthorizationUrl(state: string): string {
     return this.oauth2Client.generateAuthUrl({
-      access_type: 'offline',
+      access_type: "offline",
       scope: this.config.scopes,
       state,
-      prompt: 'consent', // Force refresh token
+      prompt: "consent", // Force refresh token
       include_granted_scopes: true,
     });
   }
@@ -42,15 +42,15 @@ export class GoogleCalendarAdapter extends BaseAdapter {
     const { tokens } = await this.oauth2Client.getToken(code);
 
     if (!tokens.access_token) {
-      throw new Error('No access token received from Google');
+      throw new Error("No access token received from Google");
     }
 
     return {
       accessToken: tokens.access_token,
       refreshToken: tokens.refresh_token ?? undefined,
       expiresAt: new Date(tokens.expiry_date ?? Date.now() + 3600 * 1000),
-      tokenType: tokens.token_type ?? 'Bearer',
-      scope: tokens.scope ?? '',
+      tokenType: tokens.token_type ?? "Bearer",
+      scope: tokens.scope ?? "",
     };
   }
 
@@ -60,15 +60,15 @@ export class GoogleCalendarAdapter extends BaseAdapter {
     const { credentials } = await this.oauth2Client.refreshAccessToken();
 
     if (!credentials.access_token) {
-      throw new Error('Failed to refresh access token');
+      throw new Error("Failed to refresh access token");
     }
 
     return {
       accessToken: credentials.access_token,
       refreshToken: credentials.refresh_token ?? refreshToken,
       expiresAt: new Date(credentials.expiry_date ?? Date.now() + 3600 * 1000),
-      tokenType: credentials.token_type ?? 'Bearer',
-      scope: credentials.scope ?? '',
+      tokenType: credentials.token_type ?? "Bearer",
+      scope: credentials.scope ?? "",
     };
   }
 
@@ -81,15 +81,15 @@ export class GoogleCalendarAdapter extends BaseAdapter {
   // ─────────────────────────────────────────────
 
   async getUserInfo(
-    accessToken: string
+    accessToken: string,
   ): Promise<{ id: string; email?: string; name?: string }> {
     this.oauth2Client.setCredentials({ access_token: accessToken });
 
-    const oauth2 = google.oauth2({ version: 'v2', auth: this.oauth2Client });
+    const oauth2 = google.oauth2({ version: "v2", auth: this.oauth2Client });
     const { data } = await oauth2.userinfo.get();
 
     return {
-      id: data.id ?? '',
+      id: data.id ?? "",
       email: data.email ?? undefined,
       name: data.name ?? undefined,
     };
@@ -101,16 +101,16 @@ export class GoogleCalendarAdapter extends BaseAdapter {
 
   async fetchData(
     accessToken: string,
-    options?: FetchOptions
+    options?: FetchOptions,
   ): Promise<SyncResult> {
     this.oauth2Client.setCredentials({ access_token: accessToken });
 
     const calendar = google.calendar({
-      version: 'v3',
+      version: "v3",
       auth: this.oauth2Client,
     });
 
-    const calendarId = options?.calendarId ?? 'primary';
+    const calendarId = options?.calendarId ?? "primary";
 
     if (options?.syncToken) {
       return this.fetchDataIncremental(calendar, calendarId, options);
@@ -120,8 +120,10 @@ export class GoogleCalendarAdapter extends BaseAdapter {
     // Note: Google Calendar API doesn't always return nextSyncToken when using timeMin/timeMax
     // So we make a final call without filters to get the syncToken for incremental sync
     const now = new Date();
-    const timeMin = options?.since ?? new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
-    const timeMax = options?.until ?? new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000);
+    const timeMin =
+      options?.since ?? new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
+    const timeMax =
+      options?.until ?? new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000);
 
     const allAtoms: ActivityAtom[] = [];
     let pageToken: string | undefined = options?.cursor;
@@ -134,7 +136,7 @@ export class GoogleCalendarAdapter extends BaseAdapter {
         timeMin: timeMin.toISOString(),
         timeMax: timeMax.toISOString(),
         singleEvents: true,
-        orderBy: 'startTime',
+        orderBy: "startTime",
         maxResults: options?.limit ?? 250,
         pageToken,
       });
@@ -167,7 +169,10 @@ export class GoogleCalendarAdapter extends BaseAdapter {
           }
         } while (syncPageToken);
       } catch (error) {
-        console.warn('[google-calendar-adapter] Failed to get syncToken after full sync:', error);
+        console.warn(
+          "[google-calendar-adapter] Failed to get syncToken after full sync:",
+          error,
+        );
         // Continue without syncToken - will do full sync next time
       }
     }
@@ -188,7 +193,7 @@ export class GoogleCalendarAdapter extends BaseAdapter {
   private async fetchDataIncremental(
     calendar: calendar_v3.Calendar,
     calendarId: string,
-    options: FetchOptions
+    options: FetchOptions,
   ): Promise<SyncResult> {
     const atoms: ActivityAtom[] = [];
     const deletedExternalIds: string[] = [];
@@ -208,7 +213,7 @@ export class GoogleCalendarAdapter extends BaseAdapter {
       const items = response.data.items ?? [];
 
       for (const event of items) {
-        if (event.status === 'cancelled' && event.id) {
+        if (event.status === "cancelled" && event.id) {
           deletedExternalIds.push(event.id);
         } else if (event.id && (event.start?.dateTime || event.start?.date)) {
           atoms.push(this.eventToAtom(event));
@@ -222,7 +227,8 @@ export class GoogleCalendarAdapter extends BaseAdapter {
     return {
       atoms,
       nextSyncToken,
-      deletedExternalIds: deletedExternalIds.length > 0 ? deletedExternalIds : undefined,
+      deletedExternalIds:
+        deletedExternalIds.length > 0 ? deletedExternalIds : undefined,
       hasMore: false,
       syncedAt: new Date(),
     };
@@ -239,7 +245,11 @@ export class GoogleCalendarAdapter extends BaseAdapter {
   async setupWatch(
     accessToken: string,
     webhookUrl: string,
-    options?: { calendarId?: string; channelToken?: string; ttlSeconds?: number }
+    options?: {
+      calendarId?: string;
+      channelToken?: string;
+      ttlSeconds?: number;
+    },
   ): Promise<{
     channelId: string;
     resourceId: string;
@@ -249,12 +259,12 @@ export class GoogleCalendarAdapter extends BaseAdapter {
     this.oauth2Client.setCredentials({ access_token: accessToken });
 
     const calendar = google.calendar({
-      version: 'v3',
+      version: "v3",
       auth: this.oauth2Client,
     });
 
     const channelId = crypto.randomUUID();
-    const calendarId = options?.calendarId ?? 'primary';
+    const calendarId = options?.calendarId ?? "primary";
     const ttlSeconds = options?.ttlSeconds ?? 604800; // 7 days default
     const expiration = Date.now() + ttlSeconds * 1000;
 
@@ -262,7 +272,7 @@ export class GoogleCalendarAdapter extends BaseAdapter {
       calendarId,
       requestBody: {
         id: channelId,
-        type: 'web_hook',
+        type: "web_hook",
         address: webhookUrl,
         token: options?.channelToken,
         expiration: String(expiration),
@@ -271,7 +281,7 @@ export class GoogleCalendarAdapter extends BaseAdapter {
 
     return {
       channelId: response.data.id ?? channelId,
-      resourceId: response.data.resourceId ?? '',
+      resourceId: response.data.resourceId ?? "",
       resourceUri: response.data.resourceUri ?? undefined,
       expiration: Number(response.data.expiration ?? expiration),
     };
@@ -283,12 +293,12 @@ export class GoogleCalendarAdapter extends BaseAdapter {
   async stopWatch(
     accessToken: string,
     channelId: string,
-    resourceId: string
+    resourceId: string,
   ): Promise<void> {
     this.oauth2Client.setCredentials({ access_token: accessToken });
 
     const calendar = google.calendar({
-      version: 'v3',
+      version: "v3",
       auth: this.oauth2Client,
     });
 
@@ -304,12 +314,12 @@ export class GoogleCalendarAdapter extends BaseAdapter {
    * Fetch all calendars for the user
    */
   async fetchCalendars(
-    accessToken: string
+    accessToken: string,
   ): Promise<{ id: string; name: string; primary: boolean }[]> {
     this.oauth2Client.setCredentials({ access_token: accessToken });
 
     const calendar = google.calendar({
-      version: 'v3',
+      version: "v3",
       auth: this.oauth2Client,
     });
 
@@ -317,8 +327,8 @@ export class GoogleCalendarAdapter extends BaseAdapter {
     const items = response.data.items ?? [];
 
     return items.map((cal) => ({
-      id: cal.id ?? '',
-      name: cal.summary ?? 'Untitled Calendar',
+      id: cal.id ?? "",
+      name: cal.summary ?? "Untitled Calendar",
       primary: cal.primary ?? false,
     }));
   }
@@ -329,7 +339,9 @@ export class GoogleCalendarAdapter extends BaseAdapter {
 
   normalizeToAtoms(events: calendar_v3.Schema$Event[]): ActivityAtom[] {
     return events
-      .filter((event) => event.id && (event.start?.dateTime || event.start?.date))
+      .filter(
+        (event) => event.id && (event.start?.dateTime || event.start?.date),
+      )
       .map((event) => this.eventToAtom(event));
   }
 
@@ -343,7 +355,7 @@ export class GoogleCalendarAdapter extends BaseAdapter {
       const start = new Date(startTime);
       const end = new Date(endTime);
       durationMinutes = Math.round(
-        (end.getTime() - start.getTime()) / (1000 * 60)
+        (end.getTime() - start.getTime()) / (1000 * 60),
       );
 
       // All-day events: duration is in days * 24 * 60
@@ -355,7 +367,7 @@ export class GoogleCalendarAdapter extends BaseAdapter {
 
     // Extract participant emails/names
     const participants = (event.attendees ?? [])
-      .map((a) => a.displayName ?? a.email ?? '')
+      .map((a) => a.displayName ?? a.email ?? "")
       .filter(Boolean);
 
     // Determine if it's a meeting (has attendees or conference)
@@ -364,19 +376,21 @@ export class GoogleCalendarAdapter extends BaseAdapter {
 
     // Build semantic content for AI
     const contentParts = [
-      event.summary ?? 'Untitled Event',
-      event.description ? `Description: ${this.truncateContent(event.description, 500)}` : '',
-      participants.length > 0 ? `Participants: ${participants.join(', ')}` : '',
-      event.location ? `Location: ${event.location}` : '',
+      event.summary ?? "Untitled Event",
+      event.description
+        ? `Description: ${this.truncateContent(event.description, 500)}`
+        : "",
+      participants.length > 0 ? `Participants: ${participants.join(", ")}` : "",
+      event.location ? `Location: ${event.location}` : "",
       event.conferenceData?.entryPoints?.[0]?.uri
         ? `Meeting link: ${event.conferenceData.entryPoints[0].uri}`
-        : '',
+        : "",
     ];
 
     return {
       externalId: event.id!,
-      atomType: 'event',
-      title: event.summary ?? 'Untitled Event',
+      atomType: "event",
+      title: event.summary ?? "Untitled Event",
       content: this.buildSemanticContent(contentParts),
       occurredAt: new Date(startTime!),
       durationMinutes,
@@ -393,7 +407,7 @@ export class GoogleCalendarAdapter extends BaseAdapter {
         isMeeting,
         eventType: event.eventType,
         visibility: event.visibility,
-        calendarId: 'primary',
+        calendarId: "primary",
         originalStartTime: event.originalStartTime?.dateTime,
         recurringEventId: event.recurringEventId,
       },
@@ -406,13 +420,14 @@ export class GoogleCalendarAdapter extends BaseAdapter {
 
   extractEvidence(atom: ActivityAtom): Evidence {
     // Create a snippet from the content
-    const snippet = atom.content.length > 200
-      ? atom.content.substring(0, 200) + '...'
-      : atom.content;
+    const snippet =
+      atom.content.length > 200
+        ? atom.content.substring(0, 200) + "..."
+        : atom.content;
 
     return {
-      url: atom.sourceUrl ?? '',
-      title: atom.title ?? 'Calendar Event',
+      url: atom.sourceUrl ?? "",
+      title: atom.title ?? "Calendar Event",
       snippet,
       provider: this.provider,
       timestamp: atom.occurredAt,

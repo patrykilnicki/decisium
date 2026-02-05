@@ -49,9 +49,7 @@ export function DaySummaryCard({
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between">
-          <CardTitle className="text-sm">
-            {titleLabel}
-          </CardTitle>
+          <CardTitle className="text-sm">{titleLabel}</CardTitle>
           <Button
             variant="ghost"
             size="icon"

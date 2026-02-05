@@ -17,7 +17,8 @@ export interface RewriteQueryConfig {
  * Create a query rewriter
  */
 export function createQueryRewriter(config?: RewriteQueryConfig) {
-  const provider = config?.llmProvider ||
+  const provider =
+    config?.llmProvider ||
     (process.env.LLM_PROVIDER as "openai" | "anthropic" | "openrouter") ||
     "anthropic";
 
@@ -38,7 +39,7 @@ export function createQueryRewriter(config?: RewriteQueryConfig) {
  */
 export async function rewriteQuery(
   originalQuery: string,
-  config?: RewriteQueryConfig
+  config?: RewriteQueryConfig,
 ): Promise<string> {
   const rewriter = createQueryRewriter(config);
 
@@ -49,11 +50,17 @@ export async function rewriteQuery(
   const response = await rewriter.llm.invoke(formattedPrompt);
 
   // Extract content from response
-  const rewrittenQuery = typeof response.content === "string"
-    ? response.content.trim()
-    : Array.isArray(response.content)
-      ? response.content.map((c: unknown) => (typeof c === "string" ? c : (c as { text?: string }).text ?? "")).join("").trim()
-      : originalQuery;
+  const rewrittenQuery =
+    typeof response.content === "string"
+      ? response.content.trim()
+      : Array.isArray(response.content)
+        ? response.content
+            .map((c: unknown) =>
+              typeof c === "string" ? c : ((c as { text?: string }).text ?? ""),
+            )
+            .join("")
+            .trim()
+        : originalQuery;
 
   return rewrittenQuery || originalQuery;
 }
@@ -62,13 +69,15 @@ export async function rewriteQuery(
  * Node function for LangGraph integration
  * Accepts state and returns partial state update with rewritten query
  */
-export async function rewriteQueryNode<TState extends {
-  userMessage?: string;
-  originalQuery?: string;
-  rewriteCount?: number;
-}>(
+export async function rewriteQueryNode<
+  TState extends {
+    userMessage?: string;
+    originalQuery?: string;
+    rewriteCount?: number;
+  },
+>(
   state: TState,
-  config?: RewriteQueryConfig
+  config?: RewriteQueryConfig,
 ): Promise<{
   rewrittenQuery: string;
   rewriteCount: number;

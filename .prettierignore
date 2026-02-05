@@ -1,0 +1,23 @@
+# dependencies and package manager
+node_modules
+.pnp
+.pnp.*
+.pnpm-store
+
+# next.js
+.next
+out
+
+# build
+build
+
+# lockfiles
+pnpm-lock.yaml
+package-lock.json
+yarn.lock
+
+# generated
+types/supabase.ts
+
+# IDE and tooling
+.cursor

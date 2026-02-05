@@ -2,12 +2,16 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { rootAgent } from "@/packages/agents/core/root.agent";
-import { DailySummaryContent, WeeklySummaryContent, MonthlySummaryContent } from "@/packages/agents/schemas/summary.schema";
+import {
+  DailySummaryContent,
+  WeeklySummaryContent,
+  MonthlySummaryContent,
+} from "@/packages/agents/schemas/summary.schema";
 import { storeEmbedding } from "@/lib/embeddings/store";
 import { format } from "date-fns";
 
 function lastMessageContentAsString(
-  content: string | Array<{ text?: string }> | undefined
+  content: string | Array<{ text?: string }> | undefined,
 ): string {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) return content.map((b) => b.text ?? "").join("");
@@ -128,7 +132,7 @@ Generate the summary for the given date and data. Return only the JSON object.
   });
 
   const responseContent = lastMessageContentAsString(
-    result.messages[result.messages.length - 1]?.content
+    result.messages[result.messages.length - 1]?.content,
   );
 
   // Parse JSON from response (might need to extract JSON from markdown)
@@ -137,29 +141,55 @@ Generate the summary for the given date and data. Return only the JSON object.
     const jsonMatch = responseContent.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       const parsed = JSON.parse(jsonMatch[0]);
-      const notesCount = events.filter((e) => e.type === "note" || e.type === "note+question").length;
-      const ideasCount = events.filter((e) => e.type === "question" || e.type === "note+question").length;
-      const total = (parsed.time_allocation?.meetings ?? 0) + (parsed.time_allocation?.deep_work ?? 0) + (parsed.time_allocation?.other ?? 0);
+      const notesCount = events.filter(
+        (e) => e.type === "note" || e.type === "note+question",
+      ).length;
+      const ideasCount = events.filter(
+        (e) => e.type === "question" || e.type === "note+question",
+      ).length;
+      const total =
+        (parsed.time_allocation?.meetings ?? 0) +
+        (parsed.time_allocation?.deep_work ?? 0) +
+        (parsed.time_allocation?.other ?? 0);
       const norm = total > 0 ? total : 1;
       summaryContent = {
         score: Math.min(100, Math.max(0, Number(parsed.score) ?? 70)),
         score_label: parsed.score_label ?? "Solid",
-        explanation: parsed.explanation ?? "Review your day and reflect on patterns.",
+        explanation:
+          parsed.explanation ?? "Review your day and reflect on patterns.",
         time_allocation: {
-          meetings: Math.round((Number(parsed.time_allocation?.meetings) ?? 20) * (100 / norm)),
-          deep_work: Math.round((Number(parsed.time_allocation?.deep_work) ?? 60) * (100 / norm)),
-          other: Math.round((Number(parsed.time_allocation?.other) ?? 20) * (100 / norm)),
+          meetings: Math.round(
+            (Number(parsed.time_allocation?.meetings) ?? 20) * (100 / norm),
+          ),
+          deep_work: Math.round(
+            (Number(parsed.time_allocation?.deep_work) ?? 60) * (100 / norm),
+          ),
+          other: Math.round(
+            (Number(parsed.time_allocation?.other) ?? 20) * (100 / norm),
+          ),
         },
-        notes_added: typeof parsed.notes_added === "number" && parsed.notes_added >= 0 ? parsed.notes_added : notesCount,
-        new_ideas: typeof parsed.new_ideas === "number" && parsed.new_ideas >= 0 ? parsed.new_ideas : ideasCount,
-        narrative_summary: parsed.narrative_summary ?? "Review your day and reflect on patterns.",
+        notes_added:
+          typeof parsed.notes_added === "number" && parsed.notes_added >= 0
+            ? parsed.notes_added
+            : notesCount,
+        new_ideas:
+          typeof parsed.new_ideas === "number" && parsed.new_ideas >= 0
+            ? parsed.new_ideas
+            : ideasCount,
+        narrative_summary:
+          parsed.narrative_summary ??
+          "Review your day and reflect on patterns.",
       };
     } else {
       throw new Error("No JSON found in response");
     }
   } catch {
-    const notesCount = events.filter((e) => e.type === "note" || e.type === "note+question").length;
-    const ideasCount = events.filter((e) => e.type === "question" || e.type === "note+question").length;
+    const notesCount = events.filter(
+      (e) => e.type === "note" || e.type === "note+question",
+    ).length;
+    const ideasCount = events.filter(
+      (e) => e.type === "question" || e.type === "note+question",
+    ).length;
     summaryContent = {
       score: 70,
       score_label: "Solid",
@@ -191,8 +221,14 @@ Generate the summary for the given date and data. Return only the JSON object.
     let summaryText: string;
     if ("score_label" in summaryContent && summaryContent.score_label) {
       summaryText = `${summaryContent.score_label}: ${summaryContent.explanation} ${summaryContent.narrative_summary}`;
-    } else if ("facts" in summaryContent && Array.isArray((summaryContent as { facts?: string[] }).facts)) {
-      const s = summaryContent as unknown as { facts: string[]; insight: string };
+    } else if (
+      "facts" in summaryContent &&
+      Array.isArray((summaryContent as { facts?: string[] }).facts)
+    ) {
+      const s = summaryContent as unknown as {
+        facts: string[];
+        insight: string;
+      };
       summaryText = `${s.facts.join(". ")}. ${s.insight}`;
     } else {
       summaryText = JSON.stringify(summaryContent);
@@ -221,7 +257,8 @@ export async function getDailySummaries(userId: string, limit = 30) {
     .eq("user_id", userId)
     .order("date", { ascending: false })
     .limit(limit);
-  if (error) throw new Error(`Failed to fetch daily summaries: ${error.message}`);
+  if (error)
+    throw new Error(`Failed to fetch daily summaries: ${error.message}`);
   return data ?? [];
 }
 
@@ -233,7 +270,8 @@ export async function getWeeklySummaries(userId: string, limit = 12) {
     .eq("user_id", userId)
     .order("week_start", { ascending: false })
     .limit(limit);
-  if (error) throw new Error(`Failed to fetch weekly summaries: ${error.message}`);
+  if (error)
+    throw new Error(`Failed to fetch weekly summaries: ${error.message}`);
   return data ?? [];
 }
 
@@ -245,7 +283,8 @@ export async function getMonthlySummaries(userId: string, limit = 12) {
     .eq("user_id", userId)
     .order("month_start", { ascending: false })
     .limit(limit);
-  if (error) throw new Error(`Failed to fetch monthly summaries: ${error.message}`);
+  if (error)
+    throw new Error(`Failed to fetch monthly summaries: ${error.message}`);
   return data ?? [];
 }
 
@@ -387,7 +426,7 @@ Not:
   });
 
   const responseContent = lastMessageContentAsString(
-    result.messages[result.messages.length - 1]?.content
+    result.messages[result.messages.length - 1]?.content,
   );
 
   let summaryContent: WeeklySummaryContent;
@@ -439,7 +478,10 @@ Not:
   return summary;
 }
 
-export async function generateMonthlySummary(userId: string, monthStart: string) {
+export async function generateMonthlySummary(
+  userId: string,
+  monthStart: string,
+) {
   const supabase = await createClient();
 
   // Check if summary already exists
@@ -585,7 +627,7 @@ Not:
   });
 
   const responseContent = lastMessageContentAsString(
-    result.messages[result.messages.length - 1]?.content
+    result.messages[result.messages.length - 1]?.content,
   );
 
   let summaryContent: MonthlySummaryContent;

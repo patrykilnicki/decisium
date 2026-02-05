@@ -83,24 +83,26 @@ function AuthPageContent() {
 
 export default function AuthPage() {
   return (
-    <Suspense fallback={
-      <div
-        className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-background p-4"
-        style={{
-          backgroundImage: "url(/bg.svg)",
-          backgroundRepeat: "no-repeat",
-          backgroundPosition: "top left",
-          backgroundSize: "auto 50vh",
-        }}
-      >
-        <div className="relative z-10 flex w-full max-w-sm flex-col items-center text-center">
-          <h1 className="text-4xl font-bold text-foreground">Decisium</h1>
-          <p className="mt-2 text-base font-normal text-muted-foreground">
-            Welcome stranger
-          </p>
+    <Suspense
+      fallback={
+        <div
+          className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-background p-4"
+          style={{
+            backgroundImage: "url(/bg.svg)",
+            backgroundRepeat: "no-repeat",
+            backgroundPosition: "top left",
+            backgroundSize: "auto 50vh",
+          }}
+        >
+          <div className="relative z-10 flex w-full max-w-sm flex-col items-center text-center">
+            <h1 className="text-4xl font-bold text-foreground">Decisium</h1>
+            <p className="mt-2 text-base font-normal text-muted-foreground">
+              Welcome stranger
+            </p>
+          </div>
         </div>
-      </div>
-    }>
+      }
+    >
       <AuthPageContent />
     </Suspense>
   );
