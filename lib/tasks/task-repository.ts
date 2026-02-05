@@ -1,27 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "@/types/supabase";
-import type { TaskInsert, TaskRecord, TaskRow, TaskStatus } from "./task-types";
-
-function toTaskRecord(row: TaskRow): TaskRecord {
-  // Cast Json types to Record<string, unknown> for domain model
-  const input = (row.input ?? {}) as Record<string, unknown>;
-  const output = row.output ? (row.output as Record<string, unknown>) : null;
-
-  return {
-    id: row.id,
-    parentTaskId: row.parent_task_id,
-    userId: row.user_id,
-    sessionId: row.session_id,
-    taskType: row.task_type,
-    input,
-    output,
-    status: row.status,
-    retryCount: row.retry_count,
-    lastError: row.last_error,
-    createdAt: row.created_at ?? "",
-    updatedAt: row.updated_at ?? "",
-  };
-}
+import type { TaskInsert, TaskRow, TaskStatus } from "./task-types";
 
 export async function enqueueTask(
   client: SupabaseClient<Database>,
@@ -141,25 +120,6 @@ export async function updateTaskFailure(
   return data as TaskRow;
 }
 
-export async function fetchTasksBySession(
-  client: SupabaseClient<Database>,
-  sessionId: string,
-  userId: string,
-): Promise<TaskRecord[]> {
-  const { data, error } = await client
-    .from("tasks")
-    .select("*")
-    .eq("session_id", sessionId)
-    .eq("user_id", userId)
-    .order("created_at", { ascending: true });
-
-  if (error) {
-    throw new Error(`Failed to fetch tasks: ${error.message}`);
-  }
-
-  return (data ?? []).map((row) => toTaskRecord(row as TaskRow));
-}
-
 export async function fetchTaskById(
   client: SupabaseClient<Database>,
   taskId: string,
@@ -177,4 +137,19 @@ export async function fetchTaskById(
   return data as TaskRow;
 }
 
-export { toTaskRecord };
+export async function resolveRootTaskId(
+  client: SupabaseClient<Database>,
+  taskId: string,
+): Promise<string> {
+  let currentTaskId = taskId;
+  let currentTask = await fetchTaskById(client, currentTaskId);
+
+  while (currentTask?.parent_task_id) {
+    currentTaskId = currentTask.parent_task_id;
+    const parent = await fetchTaskById(client, currentTaskId);
+    if (!parent) break;
+    currentTask = parent;
+  }
+
+  return currentTask?.id ?? taskId;
+}

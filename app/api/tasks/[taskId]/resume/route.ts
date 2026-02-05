@@ -37,8 +37,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const { data: updated, error: updateError } = await adminClient
       .from("tasks")
       .update({
-        status: "failed",
-        last_error: "Cancelled by user",
+        status: "pending",
+        last_error: null,
       })
       .eq("id", taskId)
       .select()
@@ -46,7 +46,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     if (updateError || !updated) {
       return NextResponse.json(
-        { error: updateError?.message ?? "Failed to cancel task" },
+        { error: updateError?.message ?? "Failed to resume task" },
         { status: 400 },
       );
     }
@@ -56,21 +56,20 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       taskId,
       sessionId: updated.session_id,
       userId: updated.user_id,
-      eventType: "job_failed",
+      eventType: "job_resumed",
       nodeKey: "job",
       payload: {
         jobId,
         taskId,
         sessionId: updated.session_id,
         taskType: updated.task_type,
-        error: "Cancelled by user",
       },
     });
 
     return NextResponse.json(updated as Task);
   } catch (error) {
     const message =
-      error instanceof Error ? error.message : "Failed to cancel task";
+      error instanceof Error ? error.message : "Failed to resume task";
     return NextResponse.json({ error: message }, { status: 400 });
   }
 }

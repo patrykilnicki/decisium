@@ -9,10 +9,9 @@ import type {
   UseChatConfig,
   UseChatReturn,
 } from "./types";
-import type { TaskRecord } from "@/lib/tasks/task-types";
 import type { TaskType } from "@/lib/tasks/task-definitions";
-import { getTaskNodeId } from "@/lib/tasks/task-definitions";
 import { getTaskStepLabel } from "@/packages/agents/lib/step-mappings";
+import type { TaskEventRecord } from "@/lib/tasks/task-events";
 
 const initialThinkingState: ThinkingState = {
   isThinking: false,
@@ -24,7 +23,7 @@ export function useChat({
   apiEndpoint,
   mode = "stream",
   sessionId,
-  tasksEndpoint = "/api/tasks",
+  tasksEndpoint = "/api/tasks/events",
   tasksStreamEndpoint = "/api/tasks/stream",
   taskStreamEnabled = true,
   taskStreamReconnectMs = 1000,
@@ -44,7 +43,8 @@ export function useChat({
     useState<ThinkingState>(initialThinkingState);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [tasks, setTasks] = useState<TaskRecord[]>([]);
+  const [taskEvents, setTaskEvents] = useState<TaskEventRecord[]>([]);
+  const [failedTaskIds, setFailedTaskIds] = useState<string[]>([]);
   const abortControllerRef = useRef<AbortController | null>(null);
   const pollerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const streamRef = useRef<EventSource | null>(null);
@@ -56,87 +56,125 @@ export function useChat({
   const taskStreamOpenedAtRef = useRef<number>(0);
   const TASK_STREAM_GRACE_MS = 5000;
 
-  const getLatestTaskGroup = useCallback(
-    (allTasks: TaskRecord[]): TaskRecord[] => {
-      const roots = allTasks.filter((task) => !task.parentTaskId);
-      const sortedRoots = [...roots].sort(
-        (a, b) =>
-          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-      );
-      const latestRoot = sortedRoots[0];
-      if (!latestRoot) return allTasks;
+  function getPayloadValue<T>(
+    payload: Record<string, unknown>,
+    key: string,
+  ): T | null {
+    if (!Object.prototype.hasOwnProperty.call(payload, key)) return null;
+    return payload[key] as T;
+  }
 
-      const byParent = new Map<string, TaskRecord[]>();
-      allTasks.forEach((task) => {
-        if (!task.parentTaskId) return;
-        const existing = byParent.get(task.parentTaskId) ?? [];
-        existing.push(task);
-        byParent.set(task.parentTaskId, existing);
-      });
+  function getJobIdFromEvent(event: TaskEventRecord): string | null {
+    const payloadJobId = getPayloadValue<string>(event.payload, "jobId");
+    if (typeof payloadJobId === "string" && payloadJobId.length > 0) {
+      return payloadJobId;
+    }
+    return null;
+  }
 
-      const collected = new Map<string, TaskRecord>();
-      const stack = [latestRoot];
-      while (stack.length > 0) {
-        const current = stack.pop();
-        if (!current || collected.has(current.id)) continue;
-        collected.set(current.id, current);
-        const children = byParent.get(current.id) ?? [];
-        children.forEach((child) => stack.push(child));
+  const getLatestJobId = useCallback(
+    (events: TaskEventRecord[]): string | null => {
+      for (let i = events.length - 1; i >= 0; i -= 1) {
+        const event = events[i];
+        if (event.eventType === "job_started") {
+          const jobId = getJobIdFromEvent(event);
+          return jobId ?? event.taskId;
+        }
       }
 
-      return Array.from(collected.values()).sort(
-        (a, b) =>
-          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-      );
+      for (let i = events.length - 1; i >= 0; i -= 1) {
+        const event = events[i];
+        const jobId = getJobIdFromEvent(event);
+        if (jobId) return jobId;
+      }
+
+      return null;
     },
     [],
   );
 
-  function mapTaskStatus(status: string): ThinkingStep["status"] {
-    if (status === "in_progress") return "running";
-    if (status === "completed") return "completed";
-    if (status === "failed") return "error";
-    return "pending";
-  }
+  const getLatestJobEvents = useCallback(
+    (events: TaskEventRecord[]): TaskEventRecord[] => {
+      const jobId = getLatestJobId(events);
+      if (!jobId) return events;
+      return events.filter((event) => getJobIdFromEvent(event) === jobId);
+    },
+    [getLatestJobId],
+  );
 
   const buildThinkingState = useCallback(
-    (allTasks: TaskRecord[]): ThinkingState => {
-      const tasksForRun = getLatestTaskGroup(allTasks);
-      const steps = tasksForRun.map((task) => {
-        const taskType = task.taskType as TaskType;
-        const stepId = getTaskNodeId(taskType);
-        const label = getTaskStepLabel(taskType);
-        return {
-          stepId,
-          label,
-          status: mapTaskStatus(task.status),
-          timestamp: new Date(task.createdAt).getTime(),
-        };
+    (events: TaskEventRecord[]): ThinkingState => {
+      const latestEvents = getLatestJobEvents(events);
+      const stepsById = new Map<
+        string,
+        { step: ThinkingStep; firstTimestamp: number }
+      >();
+
+      latestEvents.forEach((event) => {
+        if (!event.eventType.startsWith("node_")) return;
+        const payloadTaskType = getPayloadValue<string>(
+          event.payload,
+          "taskType",
+        );
+        const nodeKey =
+          event.nodeKey ??
+          (typeof payloadTaskType === "string" ? payloadTaskType : "");
+        if (!nodeKey) return;
+
+        const stepId = nodeKey;
+        const label = getTaskStepLabel(nodeKey as TaskType);
+        const timestamp = new Date(event.createdAt).getTime();
+        const existing = stepsById.get(stepId);
+        const status =
+          event.eventType === "node_started"
+            ? "running"
+            : event.eventType === "node_completed"
+              ? "completed"
+              : "error";
+
+        if (!existing) {
+          stepsById.set(stepId, {
+            step: { stepId, label, status, timestamp },
+            firstTimestamp: timestamp,
+          });
+        } else {
+          existing.step.status = status;
+        }
       });
 
-      const hasActive = tasksForRun.some(
-        (task) => task.status === "pending" || task.status === "in_progress",
-      );
+      const steps = Array.from(stepsById.values())
+        .sort((a, b) => a.firstTimestamp - b.firstTimestamp)
+        .map((entry) => entry.step);
+
+      const latestJobEvent = [...latestEvents]
+        .reverse()
+        .find((event) => event.eventType.startsWith("job_"));
+      const hasActive = steps.some((step) => step.status === "running");
+      const isThinking =
+        latestJobEvent?.eventType === "job_completed" ||
+        latestJobEvent?.eventType === "job_failed"
+          ? false
+          : hasActive;
 
       return {
-        isThinking: hasActive,
+        isThinking,
         steps,
         streamedContent: undefined,
       };
     },
-    [getLatestTaskGroup],
+    [getLatestJobEvents],
   );
 
-  const fetchTasks = useCallback(async () => {
+  const fetchTaskEvents = useCallback(async () => {
     if (!sessionId) return [];
     const response = await fetch(
       `${tasksEndpoint}?sessionId=${encodeURIComponent(sessionId)}`,
     );
     if (!response.ok) {
       const errorBody = await response.json().catch(() => ({}));
-      throw new Error(errorBody.error ?? "Failed to fetch tasks");
+      throw new Error(errorBody.error ?? "Failed to fetch task events");
     }
-    const data = (await response.json()) as TaskRecord[];
+    const data = (await response.json()) as TaskEventRecord[];
     return Array.isArray(data) ? data : [];
   }, [sessionId, tasksEndpoint]);
 
@@ -182,24 +220,43 @@ export function useChat({
     streamReconnectRef.current = 0;
   }, []);
 
-  const applyTasksUpdate = useCallback(
-    async (latestTasks: TaskRecord[]) => {
-      setTasks(latestTasks);
+  const applyTaskEventsUpdate = useCallback(
+    async (latestEvents: TaskEventRecord[]) => {
+      setTaskEvents(latestEvents);
 
-      const thinking = buildThinkingState(latestTasks);
+      const thinking = buildThinkingState(latestEvents);
       setThinkingState(thinking);
 
-      const latestFailed = getLatestTaskGroup(latestTasks).find(
-        (task) => task.status === "failed" && task.lastError,
+      const latestJobEvents = getLatestJobEvents(latestEvents);
+      const failedEvents = latestJobEvents.filter(
+        (event) => event.eventType === "node_failed",
       );
-      if (latestFailed?.lastError) {
-        setError(latestFailed.lastError);
+      const failedIds = Array.from(
+        new Set(failedEvents.map((event) => event.taskId)),
+      );
+      setFailedTaskIds(failedIds);
+
+      const latestFailedEvent = [...latestJobEvents]
+        .reverse()
+        .find(
+          (event) =>
+            event.eventType === "node_failed" ||
+            event.eventType === "job_failed",
+        );
+      if (latestFailedEvent) {
+        const errorMessage = getPayloadValue<string>(
+          latestFailedEvent.payload,
+          "error",
+        );
+        if (errorMessage) setError(errorMessage);
+      } else {
+        setError(null);
       }
 
       if (!thinking.isThinking) {
         const withinGrace =
           Date.now() - taskStreamOpenedAtRef.current < TASK_STREAM_GRACE_MS;
-        if (withinGrace && latestTasks.length === 0) {
+        if (withinGrace && latestEvents.length === 0) {
           // Empty tasks right after opening stream may be a race; keep stream open
           return;
         }
@@ -210,31 +267,33 @@ export function useChat({
     },
     [
       buildThinkingState,
-      getLatestTaskGroup,
+      getLatestJobEvents,
       refreshMessages,
       stopTaskPolling,
       stopTaskStreaming,
     ],
   );
 
-  const pollTasks = useCallback(async () => {
+  const pollTaskEvents = useCallback(async () => {
     if (!sessionId) return;
     try {
-      const latestTasks = await fetchTasks();
-      await applyTasksUpdate(latestTasks);
+      const latestEvents = await fetchTaskEvents();
+      await applyTaskEventsUpdate(latestEvents);
     } catch (pollError) {
       const message =
-        pollError instanceof Error ? pollError.message : "Failed to poll tasks";
+        pollError instanceof Error
+          ? pollError.message
+          : "Failed to poll events";
       setError(message);
     }
-  }, [applyTasksUpdate, fetchTasks, sessionId]);
+  }, [applyTaskEventsUpdate, fetchTaskEvents, sessionId]);
 
   const startTaskPolling = useCallback(() => {
     if (pollerRef.current) return;
     stopTaskStreaming();
-    pollTasks();
-    pollerRef.current = setInterval(pollTasks, pollIntervalMs);
-  }, [pollIntervalMs, pollTasks, stopTaskStreaming]);
+    pollTaskEvents();
+    pollerRef.current = setInterval(pollTaskEvents, pollIntervalMs);
+  }, [pollIntervalMs, pollTaskEvents, stopTaskStreaming]);
 
   const isTaskStreamEnabled =
     taskStreamEnabled && typeof EventSource !== "undefined";
@@ -269,13 +328,13 @@ export function useChat({
 
     eventSource.onmessage = async (event) => {
       try {
-        const latestTasks = JSON.parse(event.data) as TaskRecord[];
-        await applyTasksUpdate(latestTasks);
+        const latestEvents = JSON.parse(event.data) as TaskEventRecord[];
+        await applyTaskEventsUpdate(latestEvents);
       } catch (parseError) {
         const message =
           parseError instanceof Error
             ? parseError.message
-            : "Failed to parse task stream";
+            : "Failed to parse event stream";
         setError(message);
       }
     };
@@ -297,7 +356,7 @@ export function useChat({
       scheduleStreamReconnect();
     };
   }, [
-    applyTasksUpdate,
+    applyTaskEventsUpdate,
     isTaskStreamEnabled,
     scheduleStreamReconnect,
     sessionId,
@@ -324,6 +383,8 @@ export function useChat({
     setThinkingState(initialThinkingState);
     setIsLoading(false);
     setError(null);
+    setTaskEvents([]);
+    setFailedTaskIds([]);
     stopTaskPolling();
     stopTaskStreaming();
   }, [initialMessages, stopTaskPolling, stopTaskStreaming]);
@@ -339,6 +400,14 @@ export function useChat({
   const cancelTask = useCallback(
     async (taskId: string) => {
       await fetch(`/api/tasks/${taskId}/cancel`, { method: "POST" });
+      startTaskTracking();
+    },
+    [startTaskTracking],
+  );
+
+  const resumeTask = useCallback(
+    async (taskId: string) => {
+      await fetch(`/api/tasks/${taskId}/resume`, { method: "POST" });
       startTaskTracking();
     },
     [startTaskTracking],
@@ -637,8 +706,10 @@ export function useChat({
     error,
     reset,
     setMessages,
-    tasks,
+    taskEvents,
+    failedTaskIds,
     retryTask,
     cancelTask,
+    resumeTask,
   };
 }

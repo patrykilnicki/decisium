@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { toTaskRecord } from "@/lib/tasks/task-repository";
-import type { Task } from "@/types/database";
+import { fetchTaskEventsBySession } from "@/lib/tasks/task-events";
 
 export async function GET(request: NextRequest) {
   try {
@@ -24,22 +23,11 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { data, error } = await supabase
-      .from("tasks")
-      .select("*")
-      .eq("session_id", sessionId)
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: true });
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
-    }
-
-    const tasks = (data ?? []).map((row) => toTaskRecord(row as Task));
-    return NextResponse.json(tasks);
+    const events = await fetchTaskEventsBySession(supabase, sessionId, user.id);
+    return NextResponse.json(events);
   } catch (error) {
     const message =
-      error instanceof Error ? error.message : "Failed to fetch tasks";
+      error instanceof Error ? error.message : "Failed to fetch task events";
     return NextResponse.json({ error: message }, { status: 400 });
   }
 }

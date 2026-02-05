@@ -1,7 +1,6 @@
 import { NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { toTaskRecord } from "@/lib/tasks/task-repository";
-import type { Task } from "@/types/database";
+import { fetchTaskEventsBySession } from "@/lib/tasks/task-events";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -57,23 +56,15 @@ export async function GET(request: NextRequest) {
       }
 
       async function fetchAndEmit() {
-        const { data, error } = await supabase
-          .from("tasks")
-          .select("*")
-          .eq("session_id", sessionIdValue)
-          .eq("user_id", userId)
-          .order("created_at", { ascending: true });
-
-        if (error) {
-          sendEvent({ error: error.message }, "error");
-          return;
-        }
-
-        const tasks = (data ?? []).map((row) => toTaskRecord(row as Task));
-        const payload = JSON.stringify(tasks);
+        const events = await fetchTaskEventsBySession(
+          supabase,
+          sessionIdValue,
+          userId,
+        );
+        const payload = JSON.stringify(events);
         if (payload !== lastPayload) {
           lastPayload = payload;
-          sendEvent(tasks);
+          sendEvent(events);
         }
       }
 
