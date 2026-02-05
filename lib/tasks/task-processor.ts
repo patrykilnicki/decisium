@@ -1,8 +1,14 @@
 // Suppress url.parse() deprecation warnings from dependencies (e.g., @supabase/supabase-js)
 // This is a known issue in dependencies and will be fixed upstream
-if (typeof process !== "undefined" && process.on) {
-  const originalEmitWarning = process.emitWarning;
-  process.emitWarning = function (warning, ...args) {
+if (typeof process !== "undefined" && process.emitWarning) {
+  const originalEmitWarning = process.emitWarning.bind(process);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (process.emitWarning as any) = function (
+    warning: string | Error,
+    type?: string,
+    code?: string,
+    ctor?: Function,
+  ) {
     if (
       typeof warning === "object" &&
       warning?.name === "DeprecationWarning" &&
@@ -12,7 +18,7 @@ if (typeof process !== "undefined" && process.on) {
       // Suppress this specific deprecation warning
       return;
     }
-    return originalEmitWarning.call(this, warning, ...args);
+    return originalEmitWarning(warning, type, code, ctor);
   };
 }
 
