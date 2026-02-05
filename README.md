@@ -83,6 +83,19 @@ pnpm dev
 
 Open [http://localhost:3000](http://localhost:3000) in your browser. If Ask AI shows "No relevant memories found." despite having events/summaries, run `pnpm backfill-embeddings` (see step 5).
 
+7. **Run the task worker (required for Daily and Ask AI responses):**  
+   Sending a message in Daily or Ask AI creates a **pending task** in the database. A separate worker process must be running to claim and run those tasks (classify, retrieve memory, generate response, save events). If the worker is not running, messages will stay in a "thinking" / pending state and the agent will never reply.
+
+   **Option A – one command (recommended for local dev):** run both Next.js and the worker together:
+
+   ```bash
+   pnpm dev:all
+   ```
+
+   **Option B – two terminals:** run `pnpm dev` in one terminal and `pnpm task-worker` in another. The worker needs the same env (e.g. `SUPABASE_SERVICE_ROLE_KEY`, `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`) to process tasks.
+
+   **Production (Vercel):** The worker runs automatically—no extra process. Vercel Cron invokes `/api/cron/process-tasks` every minute to claim and process pending tasks (see [Cron Jobs](#cron-jobs)).
+
 ## Project Structure
 
 ```
@@ -137,15 +150,28 @@ decisium/
 - Spawns subagents via `task` tool for specialized work
 - File system tools manage large contexts
 
+### Task processing (worker / cron)
+
+Daily and Ask AI run **agent workloads in the background** (enqueue task → return immediately → worker or cron processes the task). This matches **LangChain/LangGraph** and **industry** practice:
+
+- **LangGraph** is described as a runtime for *"long-running, stateful agents"* with *"durable execution"* ([LangGraph overview](https://docs.langchain.com/oss/javascript/langgraph/overview)). The [LangSmith Deployment](https://docs.langchain.com/oss/javascript/langgraph/deploy) doc states that *"Traditional hosting platforms are built for stateless, short-lived web applications. LangSmith Cloud is purpose-built for stateful, long-running agents that require persistent state and **background execution**."*
+- **LangSmith production** uses a **queue + workers** model: *"Queue scalability: As you add more instances, they increase run throughput linearly... Each attempt for each run will be handled by a single instance"* ([Scalability & resilience](https://docs.langchain.com/langgraph-platform/scalability-and-resilience)).
+- **Industry guidance** is to decouple orchestration from HTTP: keep endpoints thin (validate, auth) and delegate LLM/agent work to a separate service or queue so you avoid timeouts, get retries, and scale independently.
+
+So we use a **worker** (local: `pnpm task-worker` or `pnpm dev:all`) or **cron-invoked processing** (production: `/api/cron/process-tasks` every minute) rather than running the full agent pipeline inside the request.
+
 ## Cron Jobs
 
-Set up cron jobs to trigger summary generation:
+**Production (Vercel):** The task worker runs automatically via cron. `POST /api/cron/process-tasks` is invoked every minute to process pending Daily and Ask AI tasks—no separate worker process needed.
 
-- **Daily Summary**: `POST /api/cron/daily-summary` (run daily at 20:00-22:00 user timezone)
+Other cron jobs:
+
+- **Process tasks (Daily / Ask AI)**: `GET /api/cron/process-tasks` (every 1 min – processes pending agent tasks)
+- **Daily Summary**: `POST /api/cron/daily-summary` (run daily at 20:00–22:00 user timezone)
 - **Weekly Summary**: `POST /api/cron/weekly-summary` (run weekly on Sundays)
 - **Monthly Summary**: `POST /api/cron/monthly-summary` (run monthly on 1st)
 
-Include `Authorization: Bearer <CRON_SECRET>` header.
+Include `Authorization: Bearer <CRON_SECRET>` header for manual POST triggers.
 
 Example with Vercel Cron:
 

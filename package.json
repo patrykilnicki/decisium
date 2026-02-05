@@ -13,6 +13,7 @@
     "backfill-embeddings": "tsx scripts/backfill-embeddings.ts",
     "run-daily-summary": "tsx scripts/run-daily-summary.ts",
     "task-worker": "tsx packages/workers/task-runner.ts",
+    "dev:all": "concurrently -n next,worker -c blue,magenta \"pnpm dev\" \"pnpm task-worker\"",
     "db:types": "npx supabase gen types typescript --project-id ffgsdhsjuntcruomtygk --schema public > types/supabase.ts"
   },
   "dependencies": {
@@ -52,6 +53,7 @@
     }
   },
   "devDependencies": {
+    "concurrently": "^9.1.2",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
