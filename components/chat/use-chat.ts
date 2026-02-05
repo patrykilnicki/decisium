@@ -219,11 +219,7 @@ export function useChat({
         pollError instanceof Error ? pollError.message : "Failed to poll tasks";
       setError(message);
     }
-  }, [
-    applyTasksUpdate,
-    fetchTasks,
-    sessionId,
-  ]);
+  }, [applyTasksUpdate, fetchTasks, sessionId]);
 
   const startTaskPolling = useCallback(() => {
     if (pollerRef.current) return;
@@ -622,13 +618,7 @@ export function useChat({
       stopTaskPolling();
       stopTaskStreaming();
     };
-  }, [
-    mode,
-    sessionId,
-    startTaskTracking,
-    stopTaskPolling,
-    stopTaskStreaming,
-  ]);
+  }, [mode, sessionId, startTaskTracking, stopTaskPolling, stopTaskStreaming]);
 
   return {
     messages,

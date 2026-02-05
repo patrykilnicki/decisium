@@ -65,9 +65,7 @@ export async function GET(request: NextRequest) {
           return;
         }
 
-        const tasks = (data ?? []).map((row) =>
-          toTaskRecord(row as Task),
-        );
+        const tasks = (data ?? []).map((row) => toTaskRecord(row as Task));
         const payload = JSON.stringify(tasks);
         if (payload !== lastPayload) {
           lastPayload = payload;
@@ -84,9 +82,7 @@ export async function GET(request: NextRequest) {
         pollTimer = setInterval(() => {
           fetchAndEmit().catch((error) => {
             const message =
-              error instanceof Error
-                ? error.message
-                : "Failed to stream tasks";
+              error instanceof Error ? error.message : "Failed to stream tasks";
             sendEvent({ error: message }, "error");
           });
         }, pollIntervalMs);
