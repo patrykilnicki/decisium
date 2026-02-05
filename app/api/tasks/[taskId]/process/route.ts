@@ -12,8 +12,7 @@ type RouteParams = { params: Promise<{ taskId: string }> };
 export async function POST(request: NextRequest, { params }: RouteParams) {
   const authHeader = request.headers.get("authorization");
   const cronSecret = process.env.CRON_SECRET;
-  const isValid =
-    Boolean(cronSecret) && authHeader === `Bearer ${cronSecret}`;
+  const isValid = Boolean(cronSecret) && authHeader === `Bearer ${cronSecret}`;
 
   if (!isValid) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -36,9 +35,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Failed to process task";
-    return NextResponse.json(
-      { ok: false, error: message },
-      { status: 500 },
-    );
+    return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
 }

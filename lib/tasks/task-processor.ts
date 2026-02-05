@@ -22,7 +22,7 @@ function getNumberEnv(name: string, fallback: number): number {
 function getProcessTaskBaseUrl(): string | null {
   const url = process.env.VERCEL_URL
     ? `https://${process.env.VERCEL_URL}`
-    : process.env.APP_URL ?? null;
+    : (process.env.APP_URL ?? null);
   return url && process.env.CRON_SECRET ? url : null;
 }
 
@@ -40,10 +40,7 @@ function triggerNextTask(taskId: string): void {
         Authorization: `Bearer ${cronSecret}`,
       },
     }).catch((err) => {
-      console.error(
-        `[triggerNextTask] Failed to trigger task ${taskId}:`,
-        err,
-      );
+      console.error(`[triggerNextTask] Failed to trigger task ${taskId}:`, err);
     });
     return;
   }
