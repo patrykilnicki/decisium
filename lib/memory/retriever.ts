@@ -1,3 +1,5 @@
+import "@/lib/suppress-url-parse-deprecation";
+
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/supabase";
 import { generateEmbedding } from "@/packages/agents/lib/embeddings";

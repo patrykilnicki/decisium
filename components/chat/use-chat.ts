@@ -25,13 +25,20 @@ export function useChat({
   mode = "stream",
   sessionId,
   tasksEndpoint = "/api/tasks",
+  tasksStreamEndpoint = "/api/tasks/stream",
+  taskStreamEnabled = true,
+  taskStreamReconnectMs = 1000,
   messagesEndpoint,
   pollIntervalMs = 1500,
   initialMessages = [],
   onMessageSent,
   onMessageReceived,
   onError,
-}: UseChatConfig): UseChatReturn {
+}: UseChatConfig & {
+  tasksStreamEndpoint?: string;
+  taskStreamEnabled?: boolean;
+  taskStreamReconnectMs?: number;
+}): UseChatReturn {
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [thinkingState, setThinkingState] =
     useState<ThinkingState>(initialThinkingState);
@@ -40,6 +47,12 @@ export function useChat({
   const [tasks, setTasks] = useState<TaskRecord[]>([]);
   const abortControllerRef = useRef<AbortController | null>(null);
   const pollerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const streamRef = useRef<EventSource | null>(null);
+  const streamReconnectRef = useRef(0);
+  const streamReconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const startTaskStreamingRef = useRef<() => void>(() => {});
 
   const getLatestTaskGroup = useCallback(
     (allTasks: TaskRecord[]): TaskRecord[] => {
@@ -155,10 +168,20 @@ export function useChat({
     }
   }, []);
 
-  const pollTasks = useCallback(async () => {
-    if (!sessionId) return;
-    try {
-      const latestTasks = await fetchTasks();
+  const stopTaskStreaming = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.close();
+      streamRef.current = null;
+    }
+    if (streamReconnectTimerRef.current) {
+      clearTimeout(streamReconnectTimerRef.current);
+      streamReconnectTimerRef.current = null;
+    }
+    streamReconnectRef.current = 0;
+  }, []);
+
+  const applyTasksUpdate = useCallback(
+    async (latestTasks: TaskRecord[]) => {
       setTasks(latestTasks);
 
       const thinking = buildThinkingState(latestTasks);
@@ -174,26 +197,122 @@ export function useChat({
       if (!thinking.isThinking) {
         await refreshMessages();
         stopTaskPolling();
+        stopTaskStreaming();
       }
+    },
+    [
+      buildThinkingState,
+      getLatestTaskGroup,
+      refreshMessages,
+      stopTaskPolling,
+      stopTaskStreaming,
+    ],
+  );
+
+  const pollTasks = useCallback(async () => {
+    if (!sessionId) return;
+    try {
+      const latestTasks = await fetchTasks();
+      await applyTasksUpdate(latestTasks);
     } catch (pollError) {
       const message =
         pollError instanceof Error ? pollError.message : "Failed to poll tasks";
       setError(message);
     }
   }, [
-    buildThinkingState,
+    applyTasksUpdate,
     fetchTasks,
-    getLatestTaskGroup,
-    refreshMessages,
     sessionId,
-    stopTaskPolling,
   ]);
 
   const startTaskPolling = useCallback(() => {
     if (pollerRef.current) return;
+    stopTaskStreaming();
     pollTasks();
     pollerRef.current = setInterval(pollTasks, pollIntervalMs);
-  }, [pollIntervalMs, pollTasks]);
+  }, [pollIntervalMs, pollTasks, stopTaskStreaming]);
+
+  const isTaskStreamEnabled =
+    taskStreamEnabled && typeof EventSource !== "undefined";
+
+  const scheduleStreamReconnect = useCallback(() => {
+    if (!isTaskStreamEnabled || !sessionId) return;
+    if (streamReconnectTimerRef.current) return;
+    const attempt = streamReconnectRef.current + 1;
+    streamReconnectRef.current = attempt;
+    const delay = Math.min(taskStreamReconnectMs * 2 ** (attempt - 1), 10000);
+    streamReconnectTimerRef.current = setTimeout(() => {
+      streamReconnectTimerRef.current = null;
+      startTaskStreamingRef.current();
+    }, delay);
+  }, [isTaskStreamEnabled, sessionId, taskStreamReconnectMs]);
+
+  const startTaskStreaming = useCallback(() => {
+    if (!sessionId || !isTaskStreamEnabled) return;
+    if (streamRef.current) return;
+    stopTaskPolling();
+
+    const url = `${tasksStreamEndpoint}?sessionId=${encodeURIComponent(
+      sessionId,
+    )}`;
+    const eventSource = new EventSource(url);
+    streamRef.current = eventSource;
+
+    eventSource.onopen = () => {
+      streamReconnectRef.current = 0;
+    };
+
+    eventSource.onmessage = async (event) => {
+      try {
+        const latestTasks = JSON.parse(event.data) as TaskRecord[];
+        await applyTasksUpdate(latestTasks);
+      } catch (parseError) {
+        const message =
+          parseError instanceof Error
+            ? parseError.message
+            : "Failed to parse task stream";
+        setError(message);
+      }
+    };
+
+    eventSource.addEventListener("error", (event) => {
+      if (event instanceof MessageEvent && typeof event.data === "string") {
+        try {
+          const payload = JSON.parse(event.data) as { error?: string };
+          if (payload?.error) setError(payload.error);
+        } catch {
+          // Ignore parse errors for non-JSON error events
+        }
+      }
+    });
+
+    eventSource.onerror = () => {
+      stopTaskStreaming();
+      startTaskPolling();
+      scheduleStreamReconnect();
+    };
+  }, [
+    applyTasksUpdate,
+    isTaskStreamEnabled,
+    scheduleStreamReconnect,
+    sessionId,
+    startTaskPolling,
+    stopTaskPolling,
+    stopTaskStreaming,
+    tasksStreamEndpoint,
+  ]);
+
+  useEffect(() => {
+    startTaskStreamingRef.current = startTaskStreaming;
+  }, [startTaskStreaming]);
+
+  const startTaskTracking = useCallback(() => {
+    if (isTaskStreamEnabled) {
+      startTaskStreaming();
+    } else {
+      startTaskPolling();
+    }
+  }, [isTaskStreamEnabled, startTaskPolling, startTaskStreaming]);
 
   const reset = useCallback(() => {
     setMessages(initialMessages);
@@ -201,22 +320,23 @@ export function useChat({
     setIsLoading(false);
     setError(null);
     stopTaskPolling();
-  }, [initialMessages, stopTaskPolling]);
+    stopTaskStreaming();
+  }, [initialMessages, stopTaskPolling, stopTaskStreaming]);
 
   const retryTask = useCallback(
     async (taskId: string) => {
       await fetch(`/api/tasks/${taskId}/retry`, { method: "POST" });
-      startTaskPolling();
+      startTaskTracking();
     },
-    [startTaskPolling],
+    [startTaskTracking],
   );
 
   const cancelTask = useCallback(
     async (taskId: string) => {
       await fetch(`/api/tasks/${taskId}/cancel`, { method: "POST" });
-      startTaskPolling();
+      startTaskTracking();
     },
-    [startTaskPolling],
+    [startTaskTracking],
   );
 
   const handleStreamEvent = useCallback((event: StreamEvent) => {
@@ -380,7 +500,7 @@ export function useChat({
             );
           }
 
-          startTaskPolling();
+          startTaskTracking();
         } else {
           const response = await fetch(apiEndpoint, {
             method: "POST",
@@ -491,15 +611,24 @@ export function useChat({
       onMessageReceived,
       onMessageSent,
       onError,
-      startTaskPolling,
+      startTaskTracking,
     ],
   );
 
   useEffect(() => {
     if (mode !== "task" || !sessionId) return;
-    startTaskPolling();
-    return () => stopTaskPolling();
-  }, [mode, sessionId, startTaskPolling, stopTaskPolling]);
+    startTaskTracking();
+    return () => {
+      stopTaskPolling();
+      stopTaskStreaming();
+    };
+  }, [
+    mode,
+    sessionId,
+    startTaskTracking,
+    stopTaskPolling,
+    stopTaskStreaming,
+  ]);
 
   return {
     messages,

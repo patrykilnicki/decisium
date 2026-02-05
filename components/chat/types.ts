@@ -92,6 +92,9 @@ export interface UseChatConfig {
   mode?: "stream" | "task";
   sessionId?: string;
   tasksEndpoint?: string;
+  tasksStreamEndpoint?: string;
+  taskStreamEnabled?: boolean;
+  taskStreamReconnectMs?: number;
   messagesEndpoint?: string;
   pollIntervalMs?: number;
   initialMessages?: ChatMessage[];
