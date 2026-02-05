@@ -7,7 +7,7 @@ if (typeof process !== "undefined" && process.emitWarning) {
     warning: string | Error,
     type?: string,
     code?: string,
-    ctor?: Function,
+    ctor?: new () => Error,
   ) {
     if (
       typeof warning === "object" &&

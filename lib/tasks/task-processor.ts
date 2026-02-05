@@ -7,7 +7,7 @@ if (typeof process !== "undefined" && process.emitWarning) {
     warning: string | Error,
     type?: string,
     code?: string,
-    ctor?: Function,
+    ctor?: new () => Error,
   ) {
     if (
       typeof warning === "object" &&
@@ -29,7 +29,6 @@ import {
   updateTaskFailure,
   updateTaskSuccess,
 } from "@/lib/tasks/task-repository";
-import type { TaskRow } from "@/lib/tasks/task-types";
 import { handleTask } from "@/packages/workers/langgraph-handlers";
 
 function getNumberEnv(name: string, fallback: number): number {
