@@ -48,12 +48,17 @@ function pickFirstObject(
 function extractUsageFromCandidate(candidate: unknown): ExtractedUsage | null {
   if (!isRecord(candidate)) return null;
 
-  const lcKwargs = candidate.lc_kwargs && isRecord(candidate.lc_kwargs) ? candidate.lc_kwargs : undefined;
-  const lcResponseMeta = lcKwargs?.response_metadata && isRecord(lcKwargs.response_metadata) ? lcKwargs.response_metadata : undefined;
-  const responseMetadata =
-    isRecord(candidate.response_metadata)
-      ? candidate.response_metadata
-      : lcResponseMeta;
+  const lcKwargs =
+    candidate.lc_kwargs && isRecord(candidate.lc_kwargs)
+      ? candidate.lc_kwargs
+      : undefined;
+  const lcResponseMeta =
+    lcKwargs?.response_metadata && isRecord(lcKwargs.response_metadata)
+      ? lcKwargs.response_metadata
+      : undefined;
+  const responseMetadata = isRecord(candidate.response_metadata)
+    ? candidate.response_metadata
+    : lcResponseMeta;
   const usageMetadata =
     pickFirstObject(
       candidate.usage_metadata,
@@ -138,8 +143,11 @@ function extractUsageFromResponse(response: unknown): ExtractedUsage | null {
 /** Zwraca provider (z odpowiedzi lub env), znormalizowany do lowercase pod kątem zapytania do llm_model_prices */
 function resolveProvider(provider?: string): string | undefined {
   const raw =
-    (typeof provider === "string" && provider.trim() !== "" ? provider : null) ??
-    (typeof process.env.LLM_PROVIDER === "string" && process.env.LLM_PROVIDER.trim() !== ""
+    (typeof provider === "string" && provider.trim() !== ""
+      ? provider
+      : null) ??
+    (typeof process.env.LLM_PROVIDER === "string" &&
+    process.env.LLM_PROVIDER.trim() !== ""
       ? process.env.LLM_PROVIDER
       : null);
   return raw ? raw.toLowerCase().trim() : undefined;
@@ -156,11 +164,13 @@ const DEFAULT_MODELS_BY_PROVIDER: Record<string, string> = {
 function resolveModel(model?: string, provider?: string): string | undefined {
   const raw =
     (typeof model === "string" && model.trim() !== "" ? model : null) ??
-    (typeof process.env.LLM_MODEL === "string" && process.env.LLM_MODEL.trim() !== ""
+    (typeof process.env.LLM_MODEL === "string" &&
+    process.env.LLM_MODEL.trim() !== ""
       ? process.env.LLM_MODEL
       : null);
   if (raw) return raw.trim();
-  if (provider) return DEFAULT_MODELS_BY_PROVIDER[provider.toLowerCase()] ?? undefined;
+  if (provider)
+    return DEFAULT_MODELS_BY_PROVIDER[provider.toLowerCase()] ?? undefined;
   return undefined;
 }
 
