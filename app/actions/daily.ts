@@ -71,11 +71,9 @@ export async function processDailyMessage(
       } as Json,
     });
 
-    // Process immediately in background (fire-and-forget)
-    // Cron will catch any failures
-    const { processTaskImmediately } =
-      await import("@/lib/tasks/task-processor");
-    processTaskImmediately(task.id);
+    // Trigger execution: HTTP on production (new invocation), in-process locally (no CRON needed)
+    const { triggerTask } = await import("@/lib/tasks/task-processor");
+    triggerTask(task.id);
 
     return {
       taskId: task.id,

@@ -6,8 +6,9 @@ import { claimTasks } from "@/lib/tasks/task-repository";
 import { processTaskById } from "@/lib/tasks/task-processor";
 
 /**
- * Vercel Cron invokes this route every minute to process pending tasks
- * (Daily and Ask AI agent responses). No separate long-running worker needed.
+ * Optional fallback: process pending tasks (e.g. if triggerTask HTTP failed).
+ * Normal flow is trigger-driven (first task → HTTP process → next task → …); no CRON required.
+ * If you use Vercel Cron, it can run this every 1–5 min to catch stuck tasks.
  */
 
 function isCronAuthorized(request: NextRequest): boolean {
@@ -50,7 +51,10 @@ async function runProcessTasks(triggeredBy: string) {
   let completed = 0;
   let failed = 0;
   for (const task of tasks) {
-    const { ok } = await processTaskById(task.id);
+    // Pass task row so we don't re-claim (claim_tasks already set in_progress)
+    const { ok } = await processTaskById(task.id, {
+      alreadyClaimedTask: task,
+    });
     if (ok) completed++;
     else failed++;
   }
@@ -74,7 +78,7 @@ export async function GET(request: NextRequest) {
         status: "ok",
         endpoint: "/api/cron/process-tasks",
         description:
-          "Processes pending agent tasks (Daily / Ask AI). Runs every 1 min via Vercel Cron. Use POST with Authorization: Bearer CRON_SECRET to run manually.",
+          "Optional fallback: process pending tasks. Normal flow is trigger-driven (no CRON). Use POST with Authorization: Bearer CRON_SECRET to run manually.",
       },
       { status: 200 },
     );

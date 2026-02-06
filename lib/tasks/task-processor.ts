@@ -1,10 +1,10 @@
 import "@/lib/suppress-url-parse-deprecation";
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import type { TaskRow } from "@/lib/tasks/task-types";
 import {
   claimTaskById,
   enqueueTasks,
-  fetchTaskById,
   resolveRootTaskId,
   updateTaskFailure,
   updateTaskSuccess,
@@ -49,41 +49,54 @@ function buildJobPayload(params: {
 }
 
 /**
- * Trigger processing of a task. On serverless (base URL + CRON_SECRET), calls our
- * process API so a new invocation runs the task. Otherwise runs in-process (e.g. local dev).
+ * Trigger task execution. On serverless (VERCEL_URL + CRON_SECRET), calls
+ * POST /api/tasks/[taskId]/process so a new invocation runs the task.
+ * Otherwise runs in-process (e.g. local dev). Use for both the first task
+ * (from actions) and the next task in chain (trigger-driven, no CRON needed).
  */
-function triggerNextTask(taskId: string): void {
+export function triggerTask(taskId: string): void {
   const baseUrl = getProcessTaskBaseUrl();
   if (baseUrl) {
-    const cronSecret = process.env.CRON_SECRET;
+    const secret = process.env.CRON_SECRET;
     fetch(`${baseUrl}/api/tasks/${taskId}/process`, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${cronSecret}`,
+        Authorization: `Bearer ${secret}`,
       },
     }).catch((err) => {
-      console.error(`[triggerNextTask] Failed to trigger task ${taskId}:`, err);
+      console.error(`[triggerTask] Failed to trigger task ${taskId}:`, err);
     });
     return;
   }
   processTaskImmediately(taskId);
 }
 
+function triggerNextTask(taskId: string): void {
+  triggerTask(taskId);
+}
+
 /**
- * Process a single task by ID. Used for immediate processing after enqueueing.
+ * Process a single task by ID. Used for immediate processing after enqueueing,
+ * or by cron/worker when they already claimed the task via claim_tasks.
  * Returns true if successful, false if failed (and will be retried by cron).
  */
 export async function processTaskById(
   taskId: string,
+  options?: { alreadyClaimedTask?: TaskRow },
 ): Promise<{ ok: boolean; error?: string }> {
   process.env.TASK_WORKER = "true";
 
   const client = createAdminClient();
   const maxRetries = getNumberEnv("TASK_MAX_RETRIES", 3);
 
-  // Atomically claim the task (pending -> in_progress). Prevents double execution
-  // when both processTaskImmediately and the worker could pick the same task.
-  const task = await claimTaskById(client, taskId);
+  let task: TaskRow | null;
+  if (options?.alreadyClaimedTask) {
+    task = options.alreadyClaimedTask;
+  } else {
+    // Atomically claim the task (pending -> in_progress). Prevents double execution
+    // when both processTaskImmediately and the worker could pick the same task.
+    task = await claimTaskById(client, taskId);
+  }
   if (!task) {
     return { ok: true }; // Already claimed, completed, failed, or not found
   }
