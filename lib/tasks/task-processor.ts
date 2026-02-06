@@ -23,9 +23,10 @@ function getNumberEnv(name: string, fallback: number): number {
  * being killed when the current invocation ends).
  */
 function getProcessTaskBaseUrl(): string | null {
-  const url = process.env.VERCEL_URL
-    ? `https://${process.env.VERCEL_URL}`
-    : (process.env.APP_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? null);
+  const url =
+    process.env.APP_URL ??
+    process.env.NEXT_PUBLIC_APP_URL ??
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null);
   return url && process.env.CRON_SECRET ? url : null;
 }
 
