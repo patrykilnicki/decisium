@@ -68,7 +68,10 @@ export const memorySearchTool = new DynamicStructuredTool({
       });
       extraLimit = cap;
 
-      if (integrated.fragments.length < DEFAULT_ADAPTIVE_EXPAND_THRESHOLD && cap >= ADAPTIVE_EXPAND_LIMIT) {
+      if (
+        integrated.fragments.length < DEFAULT_ADAPTIVE_EXPAND_THRESHOLD &&
+        cap >= ADAPTIVE_EXPAND_LIMIT
+      ) {
         const expanded = await retrieveIntegratedMemory(query, userId, {
           threshold: 0.35,
           limitMemory: ADAPTIVE_EXPAND_LIMIT,
