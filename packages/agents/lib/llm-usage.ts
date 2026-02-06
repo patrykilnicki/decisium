@@ -48,10 +48,17 @@ function pickFirstObject(
 function extractUsageFromCandidate(candidate: unknown): ExtractedUsage | null {
   if (!isRecord(candidate)) return null;
 
+  const lcKwargs =
+    candidate.lc_kwargs && isRecord(candidate.lc_kwargs)
+      ? candidate.lc_kwargs
+      : undefined;
+  const lcResponseMeta =
+    lcKwargs?.response_metadata && isRecord(lcKwargs.response_metadata)
+      ? lcKwargs.response_metadata
+      : undefined;
   const responseMetadata = isRecord(candidate.response_metadata)
     ? candidate.response_metadata
-    : undefined;
-
+    : lcResponseMeta;
   const usageMetadata =
     pickFirstObject(
       candidate.usage_metadata,
@@ -65,6 +72,9 @@ function extractUsageFromCandidate(candidate: unknown): ExtractedUsage | null {
       candidate.kwargs && isRecord(candidate.kwargs)
         ? candidate.kwargs.usage_metadata
         : undefined,
+      lcKwargs?.usage_metadata,
+      lcResponseMeta?.usage,
+      lcResponseMeta?.usage_metadata,
     ) ?? {};
 
   if (Object.keys(usageMetadata).length === 0) return null;
@@ -94,12 +104,14 @@ function extractUsageFromCandidate(candidate: unknown): ExtractedUsage | null {
     toString(candidate.modelName) ??
     (candidate.kwargs && isRecord(candidate.kwargs)
       ? toString(candidate.kwargs.model)
-      : undefined);
+      : undefined) ??
+    (lcKwargs ? toString(lcKwargs.model ?? lcKwargs.model_name) : undefined);
 
   const provider =
     toString(responseMetadata?.provider) ??
     toString(responseMetadata?.llm_provider) ??
-    toString(candidate.provider);
+    toString(candidate.provider) ??
+    (lcKwargs ? toString(lcKwargs.provider) : undefined);
 
   return {
     inputTokens,
@@ -128,12 +140,38 @@ function extractUsageFromResponse(response: unknown): ExtractedUsage | null {
   return null;
 }
 
+/** Zwraca provider (z odpowiedzi lub env), znormalizowany do lowercase pod kątem zapytania do llm_model_prices */
 function resolveProvider(provider?: string): string | undefined {
-  if (provider) return provider;
-  const envProvider = process.env.LLM_PROVIDER;
-  return typeof envProvider === "string" && envProvider.trim() !== ""
-    ? envProvider
-    : undefined;
+  const raw =
+    (typeof provider === "string" && provider.trim() !== ""
+      ? provider
+      : null) ??
+    (typeof process.env.LLM_PROVIDER === "string" &&
+    process.env.LLM_PROVIDER.trim() !== ""
+      ? process.env.LLM_PROVIDER
+      : null);
+  return raw ? raw.toLowerCase().trim() : undefined;
+}
+
+/** Domyślne modele w llm_model_prices (zgodne z packages/agents/lib/llm.ts) */
+const DEFAULT_MODELS_BY_PROVIDER: Record<string, string> = {
+  openai: "gpt-4o",
+  anthropic: "claude-sonnet-4-20250514",
+  openrouter: "openai/gpt-4-turbo",
+};
+
+/** Zwraca model (z odpowiedzi, env lub domyślny dla providera) do dopasowania w llm_model_prices */
+function resolveModel(model?: string, provider?: string): string | undefined {
+  const raw =
+    (typeof model === "string" && model.trim() !== "" ? model : null) ??
+    (typeof process.env.LLM_MODEL === "string" &&
+    process.env.LLM_MODEL.trim() !== ""
+      ? process.env.LLM_MODEL
+      : null);
+  if (raw) return raw.trim();
+  if (provider)
+    return DEFAULT_MODELS_BY_PROVIDER[provider.toLowerCase()] ?? undefined;
+  return undefined;
 }
 
 async function fetchModelPrice(params: {
@@ -141,23 +179,45 @@ async function fetchModelPrice(params: {
   provider?: string;
   model?: string;
 }): Promise<LlmModelPrice | null> {
-  if (!params.provider || !params.model) return null;
+  if (!params.provider) return null;
 
-  const { data, error } = await params.client
+  // 1. Dokładne dopasowanie provider + model
+  if (params.model) {
+    const { data, error } = await params.client
+      .from("llm_model_prices")
+      .select("input_cost_per_1k, output_cost_per_1k, currency")
+      .eq("provider", params.provider)
+      .eq("model", params.model)
+      .eq("active", true)
+      .maybeSingle();
+
+    if (!error && data) {
+      return {
+        inputCostPer1k: Number(data.input_cost_per_1k),
+        outputCostPer1k: Number(data.output_cost_per_1k),
+        currency: data.currency,
+      };
+    }
+  }
+
+  // 2. Fallback: pierwsza aktywna cena dla providera (gdy model nie pasuje lub brak w odpowiedzi)
+  const { data: fallbackData, error: fallbackError } = await params.client
     .from("llm_model_prices")
-    .select("input_cost_per_1k, output_cost_per_1k, currency")
+    .select("input_cost_per_1k, output_cost_per_1k, currency, model")
     .eq("provider", params.provider)
-    .eq("model", params.model)
     .eq("active", true)
+    .limit(1)
     .maybeSingle();
 
-  if (error || !data) return null;
+  if (!fallbackError && fallbackData) {
+    return {
+      inputCostPer1k: Number(fallbackData.input_cost_per_1k),
+      outputCostPer1k: Number(fallbackData.output_cost_per_1k),
+      currency: fallbackData.currency,
+    };
+  }
 
-  return {
-    inputCostPer1k: Number(data.input_cost_per_1k),
-    outputCostPer1k: Number(data.output_cost_per_1k),
-    currency: data.currency,
-  };
+  return null;
 }
 
 /**
@@ -223,13 +283,15 @@ export async function logLlmUsage(params: {
     if (!userId) return;
 
     const client = params.client ?? createAdminClient();
+    // Provider i model z odpowiedzi lub z env / domyślne – żeby zawsze móc dopasować cenę w llm_model_prices
     const provider = resolveProvider(usage.provider);
+    const model = resolveModel(usage.model, provider);
 
-    // Pobierz cenę modelu z bazy danych
+    // Pobierz cenę modelu z bazy danych (provider/model znormalizowane)
     const price = await fetchModelPrice({
       client,
       provider,
-      model: usage.model,
+      model,
     });
 
     // Oblicz koszt przed zapisem (zalecane - Opcja A)
@@ -243,7 +305,7 @@ export async function logLlmUsage(params: {
     if (estimatedCostUsd === null) {
       if (!price) {
         console.warn(
-          `[logLlmUsage] No price found for provider="${provider}", model="${usage.model}". Cost will be null.`,
+          `[logLlmUsage] No price found for provider="${provider}", model="${model}". Cost will be null. Add row to llm_model_prices or set LLM_PROVIDER/LLM_MODEL.`,
         );
       } else if (price.currency !== "USD") {
         console.warn(
@@ -267,7 +329,7 @@ export async function logLlmUsage(params: {
       node_key: params.nodeKey ?? context?.nodeKey ?? null,
       agent_type: params.agentType,
       provider: provider ?? null,
-      model: usage.model ?? null,
+      model: model ?? usage.model ?? null,
       input_tokens: usage.inputTokens ?? null,
       output_tokens: usage.outputTokens ?? null,
       total_tokens: usage.totalTokens ?? null,
