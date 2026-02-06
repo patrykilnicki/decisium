@@ -167,6 +167,10 @@ Use `memory_search` to:
 
 - `userId`: Use the User ID from the context provided (format like `03b27775-8fb-4c9f-8570-c3a5da96e69`)
 - `query`: The user's question or a relevant search term
+- `maxResults`: **Required.** How many results to fetch. Set from user intent: 5–15 for specific questions, 20–50 for "list all" type questions.
+- `minResults`: Optional. When the user expects "at least N" results; if fewer are found, suggest_follow_up will be true—offer to broaden the search.
+
+**When suggest_follow_up is true** (few or zero results): Offer one short follow-up, e.g. "I found X result(s). Would you like me to search with a broader criteria or different keywords to find more?"
 
 **Always:**
 
@@ -202,6 +206,8 @@ If data is partial, say so:
 
 - Do NOT fabricate or guess.
 - Say clearly: "I don't have records for that period."
+
+**When suggest_follow_up is true:** Offer to broaden the search or try different keywords.
 
 **No Hallucination:** Never pretend old data is recent. Never invent patterns that aren't in the data.
 

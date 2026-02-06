@@ -41,12 +41,15 @@ export function buildConversationHistory(
 }
 
 /**
- * Build memory context from memory search results
+ * Build memory context from memory search results.
+ * When suggest_follow_up is true, appends a hint so the agent can offer to broaden the search.
  */
 export function buildMemoryContext(
   memoryResults: Array<{
     results?: Array<{ content?: string; text?: string; metadata?: unknown }>;
     total_found?: number;
+    query_used?: string;
+    suggest_follow_up?: boolean;
   }>,
 ): string {
   if (!memoryResults || memoryResults.length === 0) {
@@ -58,9 +61,16 @@ export function buildMemoryContext(
     (sum, result) => sum + (result.total_found || 0),
     0,
   );
+  const anySuggestFollowUp = memoryResults.some(
+    (r) => r.suggest_follow_up === true,
+  );
+  const queryUsed = memoryResults[0]?.query_used;
 
   if (allResults.length === 0) {
-    return "No relevant memory found.";
+    const followUpHint = anySuggestFollowUp
+      ? "\n\nSuggest follow-up: offer to broaden the search or try different keywords."
+      : "";
+    return `No relevant memory found for "${queryUsed ?? "query"}".${followUpHint}`;
   }
 
   const formattedResults = allResults
@@ -73,7 +83,12 @@ export function buildMemoryContext(
     })
     .join("\n\n---\n\n");
 
-  return `Found ${totalFound} relevant memory fragments:\n\n${formattedResults}`;
+  const followUpHint =
+    anySuggestFollowUp && totalFound > 0
+      ? `\n\nSuggest follow-up: you found ${totalFound} result(s) for "${queryUsed ?? "query"}". Offer the user to broaden the search or try different keywords to find more.`
+      : "";
+
+  return `Found ${totalFound} relevant memory fragments:\n\n${formattedResults}${followUpHint}`;
 }
 
 /**

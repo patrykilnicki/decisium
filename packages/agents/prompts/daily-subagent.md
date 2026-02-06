@@ -208,6 +208,10 @@ Use only when:
 
 - `userId`: Use the User ID from the context provided (format like `03b27775-8fb-4c9f-8570-c3a5da96e69`)
 - `query`: The user's question or a relevant search term
+- `maxResults`: **Required.** How many results to fetch (5–15 specific, 20–50 for "list all").
+- `minResults`: Optional. When user expects "at least N"; if fewer found, suggest_follow_up is true—offer to broaden the search.
+
+**When suggest_follow_up is true:** Offer one short follow-up to broaden the search or try different keywords.
 
 **Always:**
 
@@ -228,6 +232,8 @@ Use only when:
 - Never pretend continuity where none exists
 
 If `memory_search` returns no results, say so: "I don't have any notes about that yet."
+
+When suggest_follow_up is true (few results), offer to broaden the search or try different keywords.
 
 If unsure:
 

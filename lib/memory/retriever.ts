@@ -127,7 +127,7 @@ export async function retrieveHierarchicalMemory(
     limitPerLevel?: number;
   } = {},
 ): Promise<MemoryRetrievalResult[]> {
-  const { threshold = 0.5, limitPerLevel = 5 } = options;
+  const { threshold = 0.5, limitPerLevel = 10 } = options;
 
   const levels: Array<"monthly" | "weekly" | "daily" | "raw"> = [
     "monthly",
@@ -148,10 +148,8 @@ export async function retrieveHierarchicalMemory(
 
       if (result.fragments.length > 0) {
         results.push(result);
-        // If we found enough at a high level, we might not need lower levels
-        if (level !== "raw" && result.fragments.length >= limitPerLevel) {
-          break;
-        }
+        // Always query all levels (monthly → weekly → daily → raw) so that
+        // individual events (daily_event / raw) are included; do not break early.
       }
     } catch (error) {
       console.error(`Error retrieving ${level} memory:`, error);
@@ -185,7 +183,7 @@ export async function retrieveMemoryAllTypes(
   userId: string,
   options: { threshold?: number; limit?: number } = {},
 ): Promise<MemoryRetrievalResult> {
-  const { threshold = 0.25, limit = 15 } = options;
+  const { threshold = 0.25, limit = 30 } = options;
   const { embedding } = await generateEmbedding(query);
   // Convert number array to PostgreSQL array string format for pgvector
   const queryEmbeddingString = `[${embedding.join(",")}]`;
@@ -288,12 +286,13 @@ export async function retrieveIntegratedMemory(
 ): Promise<IntegrationMemoryResult> {
   const {
     threshold = 0.5,
-    limitMemory = 10,
+    limitMemory = 40,
     limitAtoms = 10,
     includeAtoms = true,
   } = options;
 
-  // Get hierarchical memory
+  // Get hierarchical memory (all levels: monthly, weekly, daily, raw) so
+  // individual events (daily_event) are included; limit per level = limitMemory/4
   const memoryResults = await retrieveHierarchicalMemory(query, userId, {
     threshold,
     limitPerLevel: Math.ceil(limitMemory / 4),
