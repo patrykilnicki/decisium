@@ -25,7 +25,7 @@ function getNumberEnv(name: string, fallback: number): number {
 function getProcessTaskBaseUrl(): string | null {
   const url = process.env.VERCEL_URL
     ? `https://${process.env.VERCEL_URL}`
-    : (process.env.APP_URL ?? null);
+    : (process.env.APP_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? null);
   return url && process.env.CRON_SECRET ? url : null;
 }
 
@@ -58,14 +58,24 @@ export function triggerTask(taskId: string): void {
   const baseUrl = getProcessTaskBaseUrl();
   if (baseUrl) {
     const secret = process.env.CRON_SECRET;
-    fetch(`${baseUrl}/api/tasks/${taskId}/process`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${secret}`,
-      },
-    }).catch((err) => {
-      console.error(`[triggerTask] Failed to trigger task ${taskId}:`, err);
-    });
+    void (async () => {
+      try {
+        const response = await fetch(`${baseUrl}/api/tasks/${taskId}/process`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${secret}`,
+          },
+        });
+        if (!response.ok) {
+          const body = await response.text().catch(() => "");
+          console.error(
+            `[triggerTask] Failed to trigger task ${taskId}: ${response.status} ${response.statusText} ${body}`,
+          );
+        }
+      } catch (err) {
+        console.error(`[triggerTask] Failed to trigger task ${taskId}:`, err);
+      }
+    })();
     return;
   }
   processTaskImmediately(taskId);
