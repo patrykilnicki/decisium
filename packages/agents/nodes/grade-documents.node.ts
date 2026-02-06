@@ -132,10 +132,10 @@ export async function gradeDocumentsNode<
   }
 
   try {
-  const { grade, routeDecision } = await gradeDocuments(question, context, {
-    ...config,
-    userId: state.userId ?? config?.userId,
-  });
+    const { grade, routeDecision } = await gradeDocuments(question, context, {
+      ...config,
+      userId: state.userId ?? config?.userId,
+    });
 
     return {
       gradingResult: routeDecision === "generate" ? "relevant" : "irrelevant",
