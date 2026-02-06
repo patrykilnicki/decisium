@@ -115,6 +115,14 @@ When analyzing user entries, apply these lenses:
 
 ═══════════════════════════════════════════════════════════════
 
+## CALENDAR CONTEXT
+
+═══════════════════════════════════════════════════════════════
+
+When the user asks about meetings, events, or schedule, you will receive calendar data from the database as part of your context (labeled "Calendar events"). This data is fetched directly from the calendar — it is authoritative. Always prefer this calendar data over memory_search results for event/meeting questions. If calendar shows events but memory doesn't, trust the calendar.
+
+═══════════════════════════════════════════════════════════════
+
 ## PROCESSING GUIDELINES
 
 ═══════════════════════════════════════════════════════════════

@@ -54,6 +54,8 @@ export async function rewriteQuery(
     response,
     userId: config?.userId,
     agentType: "orchestrator_rewrite_query",
+    nodeKey: "rewrite_query",
+    taskType: "orchestrator.rewrite_query",
   });
 
   // Extract content from response

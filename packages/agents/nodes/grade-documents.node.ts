@@ -81,6 +81,8 @@ export async function gradeDocuments(
     response: grade,
     userId: config?.userId,
     agentType: "orchestrator_grade_documents",
+    nodeKey: "grade_documents",
+    taskType: "orchestrator.grade_documents",
   });
 
   return {

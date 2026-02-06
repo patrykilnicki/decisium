@@ -9,11 +9,7 @@ import { getCurrentDate } from "../lib/date-utils";
 import { buildMemoryContext } from "../lib/context";
 import { handleAgentError } from "../lib/error-handler";
 import { logLlmUsage } from "../lib/llm-usage";
-import {
-  getTodayMeetingsForUser,
-  formatTodayMeetingsForContext,
-} from "@/lib/calendar/today-meetings";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { fetchCalendarContext } from "../lib/calendar-context";
 import type { DailyEvent as SchemaDailyEvent } from "../schemas/daily.schema";
 import {
   DAILY_WELCOME_SYSTEM_PROMPT,
@@ -158,6 +154,8 @@ async function dailyWelcomeAgentNode(
     response: result,
     userId: state.userId,
     agentType: "daily_welcome_agent",
+    nodeKey: "daily_welcome_agent",
+    taskType: "daily.welcome_agent",
   });
 
   const welcomeMessage =
@@ -218,6 +216,8 @@ async function classifierAgentNode(
     response: result,
     userId: state.userId,
     agentType: "daily_classifier_agent",
+    nodeKey: "classifier_agent",
+    taskType: "daily.classifier_agent",
   });
 
   const classificationText =
@@ -280,23 +280,21 @@ async function dailyResponseAgentNode(
     currentDate: state.currentDate,
   });
 
-  // Fetch today's calendar (same source as daily page) so the agent sees meetings
-  let todayCalendarContext = "";
+  // Fetch calendar events based on user's query intent (date-range aware)
+  let calendarContext = "";
   try {
-    const client = createAdminClient();
-    const meetings = await getTodayMeetingsForUser(
+    calendarContext = await fetchCalendarContext(
       state.userId,
       state.currentDate,
-      client,
+      state.userMessage,
     );
-    todayCalendarContext = formatTodayMeetingsForContext(meetings);
   } catch (err) {
-    console.error("[daily] Failed to fetch today's meetings for context:", err);
+    console.error("[daily] Failed to fetch calendar context:", err);
   }
 
   const contextParts: string[] = [];
-  if (todayCalendarContext) {
-    contextParts.push(todayCalendarContext);
+  if (calendarContext) {
+    contextParts.push(calendarContext);
   }
   if (state.memoryContext) {
     contextParts.push(`Memory context:\n${state.memoryContext}`);
@@ -319,6 +317,8 @@ async function dailyResponseAgentNode(
     response: result,
     userId: state.userId,
     agentType: "daily_response_agent",
+    nodeKey: "daily_response_agent",
+    taskType: "daily.response_agent",
   });
 
   const agentResponse =
