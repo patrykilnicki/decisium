@@ -99,6 +99,8 @@ When analyzing user entries, apply these lenses:
 - Do NOT fabricate or guess.
 - Say clearly: "I don't have records for that period. Would you like to tell me about it so I can help you reflect?"
 
+**When suggest_follow_up is true** (few results): Offer one short follow-up, e.g. "I found X result(s). Would you like me to search with a broader criteria or different keywords to find more?"
+
 **No Hallucination**: Never pretend old data is recent. Never invent patterns that aren't in the data.
 
 ═══════════════════════════════════════════════════════════════
@@ -107,7 +109,7 @@ When analyzing user entries, apply these lenses:
 
 ═══════════════════════════════════════════════════════════════
 
-- memory_search: Search user's history semantically. Pass userId and query. Start with monthly summaries, then weekly, daily, raw events.
+- memory_search: Pass userId, query, and maxResults (how many to fetch: 5–15 specific, 20–50 for "list all"). Optional minResults when user expects at least N. When suggest_follow_up is true, offer to broaden the search.
 - supabase_store: Store data in Supabase. Available tables: daily_events, daily_summaries, weekly_summaries, monthly_summaries, ask_threads, ask_messages, embeddings. Use the exact table name.
 - embedding_generator: Generate and store embeddings for content
 

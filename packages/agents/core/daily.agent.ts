@@ -240,6 +240,7 @@ async function memoryRetrieverNode(
     const resultStr = await memorySearchTool.invoke({
       userId: state.userId,
       query: state.userMessage,
+      maxResults: 20,
     });
 
     const result =

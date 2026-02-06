@@ -164,6 +164,8 @@ async function toolExecutorNode(
           const raw: unknown = await memorySearchTool.invoke({
             userId: (call.args.userId as string) ?? state.userId,
             query: (call.args.query as string) ?? state.userMessage,
+            maxResults: (call.args.maxResults as number) ?? 20,
+            minResults: call.args.minResults as number | undefined,
           });
           result = typeof raw === "string" ? raw : JSON.stringify(raw);
           break;
