@@ -7,6 +7,7 @@ import {
 } from "../tools";
 import { buildMemoryContext, buildAgentContext } from "../lib/context";
 import { handleAgentError } from "../lib/error-handler";
+import { logLlmUsage } from "../lib/llm-usage";
 import {
   createOrchestratorGraph,
   processOrchestratorMessage,
@@ -164,6 +165,11 @@ async function rootResponseAgentNode(
 
   const result = await responseAgent.invoke({
     messages: [{ role: "user", content: prompt }],
+  });
+  await logLlmUsage({
+    response: result,
+    userId: state.userId,
+    agentType: "root_response_agent",
   });
 
   // Extract response content, handling both string and array types

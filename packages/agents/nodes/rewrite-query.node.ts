@@ -1,5 +1,6 @@
 import { ChatPromptTemplate } from "@langchain/core/prompts";
 import { createLLM } from "../lib/llm";
+import { logLlmUsage } from "../lib/llm-usage";
 import { REWRITE_QUERY_PROMPT } from "../prompts";
 
 /**
@@ -11,6 +12,7 @@ export interface RewriteQueryConfig {
   llmProvider?: "openai" | "anthropic" | "openrouter";
   model?: string;
   temperature?: number;
+  userId?: string;
 }
 
 /**
@@ -48,6 +50,11 @@ export async function rewriteQuery(
   });
 
   const response = await rewriter.llm.invoke(formattedPrompt);
+  await logLlmUsage({
+    response,
+    userId: config?.userId,
+    agentType: "orchestrator_rewrite_query",
+  });
 
   // Extract content from response
   const rewrittenQuery =
@@ -74,6 +81,7 @@ export async function rewriteQueryNode<
     userMessage?: string;
     originalQuery?: string;
     rewriteCount?: number;
+    userId?: string;
   },
 >(
   state: TState,
@@ -95,7 +103,10 @@ export async function rewriteQueryNode<
   }
 
   try {
-    const rewrittenQuery = await rewriteQuery(originalQuery, config);
+    const rewrittenQuery = await rewriteQuery(originalQuery, {
+      ...config,
+      userId: state.userId ?? config?.userId,
+    });
 
     console.log(`[rewriteQueryNode] Rewrite #${currentRewriteCount + 1}:`);
     console.log(`  Original: "${originalQuery}"`);

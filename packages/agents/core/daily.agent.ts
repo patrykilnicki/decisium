@@ -8,6 +8,7 @@ import {
 import { getCurrentDate } from "../lib/date-utils";
 import { buildMemoryContext } from "../lib/context";
 import { handleAgentError } from "../lib/error-handler";
+import { logLlmUsage } from "../lib/llm-usage";
 import {
   getTodayMeetingsForUser,
   formatTodayMeetingsForContext,
@@ -153,6 +154,11 @@ async function dailyWelcomeAgentNode(
     },
     { recursionLimit: 10 },
   );
+  await logLlmUsage({
+    response: result,
+    userId: state.userId,
+    agentType: "daily_welcome_agent",
+  });
 
   const welcomeMessage =
     result.messages[result.messages.length - 1]?.content || "";
@@ -208,6 +214,11 @@ async function classifierAgentNode(
     },
     { recursionLimit: 10 },
   );
+  await logLlmUsage({
+    response: result,
+    userId: state.userId,
+    agentType: "daily_classifier_agent",
+  });
 
   const classificationText =
     result.messages[result.messages.length - 1]?.content
@@ -304,6 +315,11 @@ async function dailyResponseAgentNode(
     },
     { recursionLimit: 15 },
   );
+  await logLlmUsage({
+    response: result,
+    userId: state.userId,
+    agentType: "daily_response_agent",
+  });
 
   const agentResponse =
     result.messages[result.messages.length - 1]?.content || "";

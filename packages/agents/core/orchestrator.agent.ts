@@ -24,6 +24,7 @@ import {
 } from "../tools";
 import { buildMemoryContext } from "../lib/context";
 import { handleAgentError } from "../lib/error-handler";
+import { logLlmUsage } from "../lib/llm-usage";
 import { createLLM, type LLMProvider } from "../lib/llm";
 import {
   type OrchestratorState,
@@ -78,6 +79,11 @@ async function routerNode(
       new SystemMessage(systemPrompt),
       new HumanMessage(userContent),
     ]);
+    await logLlmUsage({
+      response,
+      userId: state.userId,
+      agentType: "orchestrator_router",
+    });
 
     // Check if the response contains tool calls
     if (hasToolCalls(response)) {
@@ -268,6 +274,7 @@ async function gradeDocsNode(
     userMessage: state.userMessage,
     retrievedContext: state.retrievedContext,
     memoryContext: state.memoryContext,
+    userId: state.userId,
   });
 
   const routeDecision = routeAfterGrading({
@@ -292,6 +299,7 @@ async function rewriteNode(
     userMessage: state.userMessage,
     originalQuery: state.originalQuery,
     rewriteCount: state.rewriteCount,
+    userId: state.userId,
   });
 
   return {
@@ -349,6 +357,11 @@ async function synthesizeNode(
       new SystemMessage(systemPrompt),
       new HumanMessage(userContent),
     ]);
+    await logLlmUsage({
+      response,
+      userId: state.userId,
+      agentType: "orchestrator_synthesize",
+    });
 
     const content =
       typeof response.content === "string"
