@@ -27,6 +27,22 @@ function transformEvent(event: DailyEvent): ChatMessageType {
   };
 }
 
+function getPayloadValue<T>(
+  payload: Record<string, unknown>,
+  key: string,
+): T | null {
+  if (!Object.prototype.hasOwnProperty.call(payload, key)) return null;
+  return payload[key] as T;
+}
+
+function getJobIdFromEvent(event: TaskEventRecord): string | null {
+  const payloadJobId = getPayloadValue<string>(event.payload, "jobId");
+  if (typeof payloadJobId === "string" && payloadJobId.length > 0) {
+    return payloadJobId;
+  }
+  return null;
+}
+
 export function DailyContent() {
   const [messages, setMessages] = useState<ChatMessageType[]>([]);
   const [loading, setLoading] = useState(true);
@@ -36,7 +52,7 @@ export function DailyContent() {
     steps: [],
   });
   const [error, setError] = useState<string | null>(null);
-  const [taskEvents, setTaskEvents] = useState<TaskEventRecord[]>([]);
+  const [_taskEvents, setTaskEvents] = useState<TaskEventRecord[]>([]);
   const [failedTaskIds, setFailedTaskIds] = useState<string[]>([]);
   const pollerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const meetingsPollerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -87,22 +103,6 @@ export function DailyContent() {
       setError("Failed to load messages");
     }
   }, [today]);
-
-  function getPayloadValue<T>(
-    payload: Record<string, unknown>,
-    key: string,
-  ): T | null {
-    if (!Object.prototype.hasOwnProperty.call(payload, key)) return null;
-    return payload[key] as T;
-  }
-
-  function getJobIdFromEvent(event: TaskEventRecord): string | null {
-    const payloadJobId = getPayloadValue<string>(event.payload, "jobId");
-    if (typeof payloadJobId === "string" && payloadJobId.length > 0) {
-      return payloadJobId;
-    }
-    return null;
-  }
 
   const getLatestJobId = useCallback(
     (events: TaskEventRecord[]): string | null => {

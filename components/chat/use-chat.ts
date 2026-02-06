@@ -19,6 +19,22 @@ const initialThinkingState: ThinkingState = {
   streamedContent: undefined,
 };
 
+function getPayloadValue<T>(
+  payload: Record<string, unknown>,
+  key: string,
+): T | null {
+  if (!Object.prototype.hasOwnProperty.call(payload, key)) return null;
+  return payload[key] as T;
+}
+
+function getJobIdFromEvent(event: TaskEventRecord): string | null {
+  const payloadJobId = getPayloadValue<string>(event.payload, "jobId");
+  if (typeof payloadJobId === "string" && payloadJobId.length > 0) {
+    return payloadJobId;
+  }
+  return null;
+}
+
 export function useChat({
   apiEndpoint,
   mode = "stream",
@@ -55,22 +71,6 @@ export function useChat({
   const startTaskStreamingRef = useRef<() => void>(() => {});
   const taskStreamOpenedAtRef = useRef<number>(0);
   const TASK_STREAM_GRACE_MS = 5000;
-
-  function getPayloadValue<T>(
-    payload: Record<string, unknown>,
-    key: string,
-  ): T | null {
-    if (!Object.prototype.hasOwnProperty.call(payload, key)) return null;
-    return payload[key] as T;
-  }
-
-  function getJobIdFromEvent(event: TaskEventRecord): string | null {
-    const payloadJobId = getPayloadValue<string>(event.payload, "jobId");
-    if (typeof payloadJobId === "string" && payloadJobId.length > 0) {
-      return payloadJobId;
-    }
-    return null;
-  }
 
   const getLatestJobId = useCallback(
     (events: TaskEventRecord[]): string | null => {

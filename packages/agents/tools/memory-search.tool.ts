@@ -12,7 +12,7 @@ interface MemorySearchResultItem {
   hierarchy_level?: string;
 }
 
-const DEFAULT_ADAPTIVE_FIRST_LIMIT = 15;
+const _DEFAULT_ADAPTIVE_FIRST_LIMIT = 15;
 const DEFAULT_ADAPTIVE_EXPAND_THRESHOLD = 5;
 const ADAPTIVE_EXPAND_LIMIT = 40;
 const MAX_RESULTS_CAP = 60;
@@ -57,16 +57,13 @@ export const memorySearchTool = new DynamicStructuredTool({
       const fragmentIds = new Set<string>();
       const fragmentResults: MemorySearchResultItem[] = [];
       const cap = clampLimit(maxResults);
-      let integrated: Awaited<ReturnType<typeof retrieveIntegratedMemory>>;
-      let extraLimit: number;
-
-      integrated = await retrieveIntegratedMemory(query, userId, {
+      const integrated = await retrieveIntegratedMemory(query, userId, {
         threshold: 0.5,
         limitMemory: cap,
         limitAtoms: 10,
         includeAtoms: true,
       });
-      extraLimit = cap;
+      let extraLimit: number = cap;
 
       if (
         integrated.fragments.length < DEFAULT_ADAPTIVE_EXPAND_THRESHOLD &&
