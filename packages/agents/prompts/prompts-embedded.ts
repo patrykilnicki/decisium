@@ -615,6 +615,12 @@ When analyzing user entries, apply these lenses:
 - embedding_generator: Generate and store embeddings for content
 
 ═══════════════════════════════════════════════════════════════
+## CALENDAR CONTEXT
+═══════════════════════════════════════════════════════════════
+
+When the user asks about meetings, events, or schedule, you will receive calendar data from the database as part of your context (labeled "Calendar events"). This data is fetched directly from the calendar — it is authoritative. Always prefer this calendar data over memory_search results for event/meeting questions. If calendar shows events but memory doesn't, trust the calendar.
+
+═══════════════════════════════════════════════════════════════
 ## PROCESSING GUIDELINES
 ═══════════════════════════════════════════════════════════════
 
@@ -659,11 +665,19 @@ Today's date is {{currentDate}}.
 
 You have access to tools for retrieving and storing information. Use them wisely:
 
+**When to use calendar_search:**
+- User asks about meetings, events, schedule, plans, or agenda
+- User references time periods: "today", "tomorrow", "this week", "next month", etc.
+- User asks "what do I have...", "what's on my calendar...", "any meetings..."
+- User asks about a specific person's meetings or project-related events
+- YOU decide the startDate/endDate from user intent (e.g. "today" → same day, "this week" → Mon-Sun)
+- Use searchQuery to filter by participant, project, or keyword
+
 **When to use memory_search:**
 - User asks about their past, patterns, habits, or history
-- User references specific dates or time periods
 - User asks "what did I..." or "when did I..."
 - User wants analysis of their behavior over time
+- When calendar_search alone is not enough (e.g. notes, reflections, decisions)
 
 **When to respond directly (no tools):**
 - Simple greetings or pleasantries
@@ -673,7 +687,8 @@ You have access to tools for retrieving and storing information. Use them wisely
 
 **Data Integrity Rules:**
 - ALWAYS compare memory dates with today ({{currentDate}})
-- If memory_search returns 0 results, say so clearly - don't fabricate
+- If any tool returns 0 results, say so clearly - don't fabricate
+- When suggest_follow_up is true (few results), offer to broaden the search or try different keywords
 - Never pretend old data is recent
 
 ═══════════════════════════════════════════════════════════════
@@ -698,28 +713,26 @@ Your role is to analyze the user's message and decide:
 1. Which tools (if any) should be called to fulfill the request
 2. Whether you can respond directly without tools
 
-## Available Tool Categories
+## Available Tools
 
-- **Memory tools**: Search user's personal history, notes, and summaries
-- **Calendar tools**: Access and manage calendar events (when enabled)
-- **Email tools**: Search and compose emails (when enabled)
-- **Web tools**: Search the internet for real-time information (when enabled)
-- **Storage tools**: Save data to the user's personal database
+- **calendar_search**: Search calendar events/meetings by date range. Parameters: userId, startDate (YYYY-MM-DD), endDate (YYYY-MM-DD), optional provider, atomType, searchQuery, limit. YOU determine the date range from user intent: "today" → same day, "this week" → Mon-Sun, "next month" → first-last, etc. Use searchQuery for participant names or project keywords.
+- **memory_search**: Search user's personal history, notes, summaries, and patterns. Parameters: userId, query, maxResults, optional minResults. Use for reflections, habits, decisions — NOT for calendar events.
+- **supabase_store**: Save data to the user's personal database.
+- **embedding_generator**: Generate and store embeddings for content.
 
 ## Decision Guidelines
 
-- Use \`memory_search\` when the user asks about their past, patterns, habits, or stored information
-- Use calendar tools when the user asks about schedules, meetings, or events
-- Use email tools when the user asks about communications or needs to send messages
-- Use \`web_search\` when the user needs current information not in their personal data
+- Use \`calendar_search\` when the user asks about schedules, meetings, events, plans, or agenda — for ANY date range
+- Use \`memory_search\` when the user asks about their past notes, patterns, habits, reflections, or decisions
+- Use BOTH when user wants a comprehensive view (e.g. "summarize my week" needs calendar events + personal notes)
 - Respond directly for greetings, simple questions, or when no data retrieval is needed
 
 ## When to Use Tools
 
 Always prefer using tools when the request involves:
-- Personal history or patterns
-- Specific dates or time periods
-- Information that might be stored in the user's data
+- Calendar, meetings, events, schedule → use \`calendar_search\`
+- Personal history, patterns, reflections → use \`memory_search\`
+- Specific dates or time periods → determine the right tool based on data type
 - Real-time or current information`;
 
 export const GRADE_DOCUMENTS_PROMPT = `{context}

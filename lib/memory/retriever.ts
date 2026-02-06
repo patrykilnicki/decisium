@@ -235,7 +235,7 @@ export async function retrieveActivityAtoms(
     atomType?: string;
   } = {},
 ): Promise<ActivityAtomFragment[]> {
-  const { threshold = 0.5, limit = 10, provider, atomType } = options;
+  const { threshold = 0.4, limit = 20, provider, atomType } = options;
 
   // Generate embedding for query
   const { embedding } = await generateEmbedding(query);
@@ -285,9 +285,9 @@ export async function retrieveIntegratedMemory(
   } = {},
 ): Promise<IntegrationMemoryResult> {
   const {
-    threshold = 0.5,
+    threshold = 0.4,
     limitMemory = 40,
-    limitAtoms = 10,
+    limitAtoms = 25,
     includeAtoms = true,
   } = options;
 

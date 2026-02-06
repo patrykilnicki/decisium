@@ -2,6 +2,7 @@ import { z } from "zod";
 import { ChatPromptTemplate } from "@langchain/core/prompts";
 import { createLLM } from "../lib/llm";
 import { GRADE_DOCUMENTS_PROMPT } from "../prompts";
+import { logLlmUsage } from "../lib/llm-usage";
 
 /**
  * Schema for document grading result
@@ -29,6 +30,7 @@ export interface GradeDocumentsConfig {
   llmProvider?: "openai" | "anthropic" | "openrouter";
   model?: string;
   temperature?: number;
+  userId?: string;
 }
 
 /**
@@ -75,6 +77,13 @@ export async function gradeDocuments(
   });
 
   const grade = await grader.llm.invoke(formattedPrompt);
+  await logLlmUsage({
+    response: grade,
+    userId: config?.userId,
+    agentType: "orchestrator_grade_documents",
+    nodeKey: "grade_documents",
+    taskType: "orchestrator.grade_documents",
+  });
 
   return {
     grade,
@@ -92,6 +101,7 @@ export async function gradeDocumentsNode<
     messages?: Array<{ content: string }>;
     retrievedContext?: string;
     memoryContext?: string;
+    userId?: string;
   },
 >(
   state: TState,
@@ -124,11 +134,10 @@ export async function gradeDocumentsNode<
   }
 
   try {
-    const { grade, routeDecision } = await gradeDocuments(
-      question,
-      context,
-      config,
-    );
+    const { grade, routeDecision } = await gradeDocuments(question, context, {
+      ...config,
+      userId: state.userId ?? config?.userId,
+    });
 
     return {
       gradingResult: routeDecision === "generate" ? "relevant" : "irrelevant",

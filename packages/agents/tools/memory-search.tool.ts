@@ -58,21 +58,21 @@ export const memorySearchTool = new DynamicStructuredTool({
       const fragmentResults: MemorySearchResultItem[] = [];
       const cap = clampLimit(maxResults);
       const integrated = await retrieveIntegratedMemory(query, userId, {
-        threshold: 0.5,
-        limitMemory: cap,
-        limitAtoms: 10,
+        threshold: 0.4,
+        limitMemory: Math.max(cap, 30),
+        limitAtoms: 25,
         includeAtoms: true,
       });
-      let extraLimit: number = cap;
+      let extraLimit: number = Math.max(cap, 50);
 
       if (
         integrated.fragments.length < DEFAULT_ADAPTIVE_EXPAND_THRESHOLD &&
         cap >= ADAPTIVE_EXPAND_LIMIT
       ) {
         const expanded = await retrieveIntegratedMemory(query, userId, {
-          threshold: 0.35,
+          threshold: 0.3,
           limitMemory: ADAPTIVE_EXPAND_LIMIT,
-          limitAtoms: 10,
+          limitAtoms: 25,
           includeAtoms: true,
         });
         for (const f of expanded.fragments) {
@@ -101,7 +101,7 @@ export const memorySearchTool = new DynamicStructuredTool({
 
       const extra = await retrieveMemoryAllTypes(query, userId, {
         threshold: 0.25,
-        limit: extraLimit,
+        limit: Math.max(extraLimit, 50),
       });
 
       for (const fragment of extra.fragments) {

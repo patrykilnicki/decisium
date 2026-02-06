@@ -37,6 +37,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/supabase";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createTaskEvent } from "@/lib/tasks/task-events";
+import { runWithTaskContext } from "@/packages/agents/lib/task-context";
 
 function buildNextTask(params: {
   parentTaskId: string;
@@ -416,43 +417,55 @@ async function runNodeWithEvents<T>(params: {
   nodeKey: string;
   handler: () => Promise<T> | T;
 }): Promise<T> {
-  const payloadBase = {
-    jobId: params.jobId,
-    taskId: params.task.id,
-    taskType: params.task.task_type,
-    sessionId: params.task.session_id,
-  };
-
-  await createTaskEvent(params.client, {
-    taskId: params.task.id,
-    sessionId: params.task.session_id,
-    userId: params.task.user_id,
-    eventType: "node_started",
-    nodeKey: params.nodeKey,
-    payload: payloadBase,
-  });
-
-  try {
-    const result = await params.handler();
-    await createTaskEvent(params.client, {
-      taskId: params.task.id,
-      sessionId: params.task.session_id,
+  return runWithTaskContext(
+    {
       userId: params.task.user_id,
-      eventType: "node_completed",
-      nodeKey: params.nodeKey,
-      payload: payloadBase,
-    });
-    return result;
-  } catch (error) {
-    const message = getErrorMessage(error);
-    await createTaskEvent(params.client, {
-      taskId: params.task.id,
       sessionId: params.task.session_id,
-      userId: params.task.user_id,
-      eventType: "node_failed",
+      taskId: params.task.id,
+      taskType: params.task.task_type,
       nodeKey: params.nodeKey,
-      payload: { ...payloadBase, error: message },
-    });
-    throw error;
-  }
+      jobId: params.jobId,
+    },
+    async () => {
+      const payloadBase = {
+        jobId: params.jobId,
+        taskId: params.task.id,
+        taskType: params.task.task_type,
+        sessionId: params.task.session_id,
+      };
+
+      await createTaskEvent(params.client, {
+        taskId: params.task.id,
+        sessionId: params.task.session_id,
+        userId: params.task.user_id,
+        eventType: "node_started",
+        nodeKey: params.nodeKey,
+        payload: payloadBase,
+      });
+
+      try {
+        const result = await params.handler();
+        await createTaskEvent(params.client, {
+          taskId: params.task.id,
+          sessionId: params.task.session_id,
+          userId: params.task.user_id,
+          eventType: "node_completed",
+          nodeKey: params.nodeKey,
+          payload: payloadBase,
+        });
+        return result;
+      } catch (error) {
+        const message = getErrorMessage(error);
+        await createTaskEvent(params.client, {
+          taskId: params.task.id,
+          sessionId: params.task.session_id,
+          userId: params.task.user_id,
+          eventType: "node_failed",
+          nodeKey: params.nodeKey,
+          payload: { ...payloadBase, error: message },
+        });
+        throw error;
+      }
+    },
+  );
 }

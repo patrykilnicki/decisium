@@ -3,6 +3,7 @@ import {
   memorySearchTool,
   supabaseStoreTool,
   embeddingGeneratorTool,
+  calendarSearchTool,
 } from "./index";
 
 // ═══════════════════════════════════════════════════════════════
@@ -74,18 +75,6 @@ const toolRegistry: Map<string, ToolRegistryEntry> = new Map();
  */
 const externalToolConfigs: Map<string, ExternalToolConfig> = new Map([
   [
-    "calendar_search",
-    {
-      name: "calendar_search",
-      category: "calendar",
-      description: "Search Google Calendar for events",
-      requiresAuth: true,
-      enabled: false,
-      authProvider: "google",
-      scopes: ["https://www.googleapis.com/auth/calendar.readonly"],
-    },
-  ],
-  [
     "calendar_create",
     {
       name: "calendar_create",
@@ -156,6 +145,13 @@ function initializeRegistry(): void {
   toolRegistry.set("embedding_generator", {
     tool: embeddingGeneratorTool,
     category: "utility",
+    isExternal: false,
+  });
+
+  // Calendar search — direct DB query for activity_atoms (events, meetings, etc.)
+  toolRegistry.set("calendar_search", {
+    tool: calendarSearchTool,
+    category: "calendar",
     isExternal: false,
   });
 }

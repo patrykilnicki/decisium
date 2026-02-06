@@ -172,6 +172,108 @@ export type Database = {
           },
         ]
       }
+      agent_llm_usage: {
+        Row: {
+          agent_type: string | null
+          created_at: string | null
+          estimated_cost_usd: number | null
+          id: string
+          input_tokens: number | null
+          model: string | null
+          node_key: string | null
+          output_tokens: number | null
+          provider: string | null
+          session_id: string | null
+          task_id: string | null
+          task_type: string | null
+          total_tokens: number | null
+          usage_metadata: Json
+          user_id: string
+        }
+        Insert: {
+          agent_type?: string | null
+          created_at?: string | null
+          estimated_cost_usd?: number | null
+          id?: string
+          input_tokens?: number | null
+          model?: string | null
+          node_key?: string | null
+          output_tokens?: number | null
+          provider?: string | null
+          session_id?: string | null
+          task_id?: string | null
+          task_type?: string | null
+          total_tokens?: number | null
+          usage_metadata?: Json
+          user_id: string
+        }
+        Update: {
+          agent_type?: string | null
+          created_at?: string | null
+          estimated_cost_usd?: number | null
+          id?: string
+          input_tokens?: number | null
+          model?: string | null
+          node_key?: string | null
+          output_tokens?: number | null
+          provider?: string | null
+          session_id?: string | null
+          task_id?: string | null
+          task_type?: string | null
+          total_tokens?: number | null
+          usage_metadata?: Json
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_llm_usage_task_id_fkey"
+            columns: ["task_id"]
+            isOneToOne: false
+            referencedRelation: "tasks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agent_llm_usage_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      llm_model_prices: {
+        Row: {
+          active: boolean
+          created_at: string | null
+          currency: string
+          id: string
+          input_cost_per_1k: number
+          model: string
+          output_cost_per_1k: number
+          provider: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string | null
+          currency?: string
+          id?: string
+          input_cost_per_1k: number
+          model: string
+          output_cost_per_1k: number
+          provider: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string | null
+          currency?: string
+          id?: string
+          input_cost_per_1k?: number
+          model?: string
+          output_cost_per_1k?: number
+          provider?: string
+        }
+        Relationships: []
+      }
       calendar_watches: {
         Row: {
           calendar_id: string
