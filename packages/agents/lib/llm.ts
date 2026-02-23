@@ -14,6 +14,8 @@ export type ChatModel = ChatOpenAI;
  * Create LLM client using OpenRouter only (https://openrouter.ai/docs/quickstart).
  * All chat/completions go through OpenRouter; model is OpenRouter model id (e.g. openai/gpt-4o).
  */
+const OPENROUTER_API_KEY_ENV = "OPENROUTER_API_KEY";
+
 export function createLLM(config: LLMConfig = {}): ChatModel {
   const {
     model = process.env.LLM_MODEL || DEFAULT_MODEL,
@@ -21,10 +23,17 @@ export function createLLM(config: LLMConfig = {}): ChatModel {
     apiKey,
   } = config;
 
+  const resolvedKey = apiKey ?? process.env[OPENROUTER_API_KEY_ENV];
+  if (!resolvedKey || resolvedKey.trim() === "") {
+    throw new Error(
+      `Missing API key for LLM: set ${OPENROUTER_API_KEY_ENV} in the environment where the agent runs (e.g. .env.local for Next.js, or worker/cron env). See https://docs.langchain.com/oss/javascript/langchain/errors/MODEL_AUTHENTICATION/`,
+    );
+  }
+
   return new ChatOpenAI({
     modelName: model,
     temperature,
-    openAIApiKey: apiKey || process.env.OPENROUTER_API_KEY,
+    openAIApiKey: resolvedKey,
     configuration: {
       baseURL: "https://openrouter.ai/api/v1",
       defaultHeaders: {
