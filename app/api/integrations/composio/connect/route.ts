@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { getAppUrl } from "@/lib/utils/app-url";
 import {
   getComposioConnectUrl,
   isComposioEnabled,
@@ -54,7 +55,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const redirectUrl = await getComposioConnectUrl(user.id, toolkit);
+    const baseUrl = getAppUrl(request);
+    const callbackUrl = `${baseUrl}/api/integrations/composio/callback`;
+    const redirectUrl = await getComposioConnectUrl(user.id, toolkit, {
+      callbackUrl,
+    });
 
     if (!redirectUrl) {
       return NextResponse.json(

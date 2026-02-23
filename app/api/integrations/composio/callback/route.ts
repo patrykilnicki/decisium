@@ -17,9 +17,9 @@ const TOOLKIT_TO_PROVIDER: Record<string, string> = {
  * Composio redirects here after user completes OAuth.
  * Query params: provider (e.g. google_calendar)
  *
- * IMPORTANT: Add this URL to your Composio project's redirect URLs:
- *   https://your-domain.com/api/integrations/composio/callback
- * (Settings → Redirect URLs in platform.composio.dev)
+ * Composio does not have a "Redirect URL" setting in the dashboard. The callback
+ * URL is passed when starting the connection (getComposioConnectUrl with
+ * options.callbackUrl), so no manual configuration in Composio is needed.
  */
 export async function GET(request: NextRequest) {
   const baseUrl = getAppUrl(request);

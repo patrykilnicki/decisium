@@ -93,7 +93,11 @@ export async function POST(request: NextRequest) {
       provider === "google_calendar" &&
       isComposioEnabled()
     ) {
-      const redirectUrl = await getComposioConnectUrl(user.id, "GOOGLECALENDAR");
+      const baseUrl = getAppUrl(request);
+      const callbackUrl = `${baseUrl}/api/integrations/composio/callback`;
+      const redirectUrl = await getComposioConnectUrl(user.id, "GOOGLECALENDAR", {
+        callbackUrl,
+      });
       if (redirectUrl) {
         const response = NextResponse.json({
           authorizationUrl: redirectUrl,

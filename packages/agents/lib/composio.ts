@@ -108,21 +108,41 @@ export const COMPOSIO_TOOLKIT = {
  * Get Composio Connect Link URL for a user to connect a toolkit.
  * User is redirected to this URL to complete OAuth.
  *
+ * Composio does not have a "Redirect URL" setting in the dashboard. The URL
+ * where users land after OAuth is passed here as callbackUrl when provided.
+ *
  * @param userId - Supabase user ID
  * @param toolkit - Composio toolkit slug (e.g. GOOGLECALENDAR)
+ * @param options.callbackUrl - Full URL Composio will redirect to after OAuth (e.g. https://yourapp.com/api/integrations/composio/callback)
  * @returns redirectUrl to send user to, or null if Composio not configured
  */
 export async function getComposioConnectUrl(
   userId: string,
   toolkit: keyof typeof COMPOSIO_TOOLKIT,
+  options?: { callbackUrl?: string },
 ): Promise<string | null> {
   const client = getComposioServerClient();
   if (!client) return null;
 
+  const toolkitSlug = COMPOSIO_TOOLKIT[toolkit];
+  const callbackUrl = options?.callbackUrl;
+
   try {
+    if (callbackUrl) {
+      const list = await client.authConfigs.list({ toolkit: toolkitSlug });
+      const authConfigId = list.items?.[0]?.id;
+      if (authConfigId) {
+        const connectionRequest = await client.connectedAccounts.link(
+          userId,
+          authConfigId,
+          { callbackUrl },
+        );
+        return connectionRequest.redirectUrl ?? null;
+      }
+    }
     const connectionRequest = await client.toolkits.authorize(
       userId,
-      COMPOSIO_TOOLKIT[toolkit],
+      toolkitSlug,
     );
     return connectionRequest.redirectUrl ?? null;
   } catch (err) {
