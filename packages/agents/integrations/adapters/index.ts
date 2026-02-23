@@ -37,7 +37,6 @@ export type {
 } from "./base.adapter";
 
 // Adapter implementations
-export { GoogleCalendarAdapter } from "./google-calendar.adapter";
 export { GmailAdapter } from "./gmail.adapter";
 export { NotionAdapter } from "./notion.adapter";
 export { LinearAdapter } from "./linear.adapter";

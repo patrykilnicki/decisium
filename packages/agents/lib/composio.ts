@@ -290,3 +290,184 @@ export async function deleteComposioConnectedAccount(
     return false;
   }
 }
+
+// ============================================
+// Trigger Management
+// ============================================
+
+/** Trigger slugs used for real-time event sync */
+export const COMPOSIO_TRIGGER = {
+  CALENDAR_EVENT_SYNC:
+    "GOOGLECALENDAR_GOOGLE_CALENDAR_EVENT_SYNC_TRIGGER" as const,
+  CALENDAR_EVENT_CREATED:
+    "GOOGLECALENDAR_GOOGLE_CALENDAR_EVENT_CREATED_TRIGGER" as const,
+  CALENDAR_EVENT_DELETED:
+    "GOOGLECALENDAR_EVENT_CANCELED_DELETED_TRIGGER" as const,
+};
+
+/**
+ * Create a Composio trigger for real-time event notifications.
+ *
+ * @param userId - Supabase user ID (used as Composio user_id)
+ * @param triggerSlug - Trigger type slug
+ * @param triggerConfig - Trigger-specific configuration
+ * @returns trigger ID, or null on failure
+ */
+export async function createComposioTrigger(
+  userId: string,
+  triggerSlug: string,
+  triggerConfig: Record<string, unknown> = {},
+): Promise<string | null> {
+  const client = getComposioServerClient();
+  if (!client) return null;
+
+  try {
+    const trigger = await client.triggers.create(
+      userId,
+      triggerSlug,
+      { triggerConfig },
+    );
+    const triggerId =
+      (trigger as Record<string, unknown>).triggerId as string | undefined;
+    console.log(
+      `[composio] Created trigger ${triggerSlug} for user ${userId.slice(0, 8)}...: ${triggerId}`,
+    );
+    return triggerId ?? null;
+  } catch (err) {
+    console.warn(
+      `[composio] Failed to create trigger ${triggerSlug}:`,
+      err instanceof Error ? err.message : err,
+    );
+    return null;
+  }
+}
+
+/**
+ * Delete a Composio trigger by ID.
+ */
+export async function deleteComposioTrigger(
+  triggerId: string,
+): Promise<boolean> {
+  const client = getComposioServerClient();
+  if (!client) return false;
+
+  try {
+    await client.triggers.delete(triggerId);
+    console.log(`[composio] Deleted trigger ${triggerId}`);
+    return true;
+  } catch (err) {
+    console.warn(
+      `[composio] Failed to delete trigger ${triggerId}:`,
+      err instanceof Error ? err.message : err,
+    );
+    return false;
+  }
+}
+
+/**
+ * Set up a Composio webhook subscription so trigger payloads
+ * are delivered to our endpoint.
+ *
+ * Composio only needs one global webhook subscription per API key.
+ * If one already exists, this is a no-op.
+ *
+ * @param webhookUrl - Full URL to our webhook handler (e.g. https://app.com/api/webhooks/composio)
+ * @returns webhook subscription ID, or null on failure
+ */
+export async function ensureComposioWebhookSubscription(
+  webhookUrl: string,
+): Promise<string | null> {
+  const apiKey = process.env.COMPOSIO_API_KEY;
+  if (!apiKey) return null;
+
+  try {
+    const listRes = await fetch(
+      "https://backend.composio.dev/api/v3/webhook_subscriptions",
+      {
+        headers: {
+          "X-API-KEY": apiKey,
+          "Content-Type": "application/json",
+        },
+      },
+    );
+
+    if (listRes.ok) {
+      const listData = (await listRes.json()) as {
+        items?: Array<{ id: string; webhookUrl?: string; webhook_url?: string }>;
+      };
+      const existing = (listData.items ?? []).find(
+        (s) => (s.webhookUrl ?? s.webhook_url) === webhookUrl,
+      );
+      if (existing) {
+        console.log(
+          `[composio] Webhook subscription already exists: ${existing.id}`,
+        );
+        return existing.id;
+      }
+    }
+
+    const createRes = await fetch(
+      "https://backend.composio.dev/api/v3/webhook_subscriptions",
+      {
+        method: "POST",
+        headers: {
+          "X-API-KEY": apiKey,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          webhook_url: webhookUrl,
+          enabled_events: ["composio.trigger.message"],
+        }),
+      },
+    );
+
+    if (!createRes.ok) {
+      const errText = await createRes.text();
+      console.warn(
+        `[composio] Failed to create webhook subscription (${createRes.status}):`,
+        errText,
+      );
+      return null;
+    }
+
+    const data = (await createRes.json()) as {
+      id?: string;
+      secret?: string;
+    };
+    console.log(`[composio] Created webhook subscription: ${data.id}`);
+    if (data.secret) {
+      console.log(
+        `[composio] Webhook secret received — store as COMPOSIO_WEBHOOK_SECRET env var`,
+      );
+    }
+    return data.id ?? null;
+  } catch (err) {
+    console.warn(
+      `[composio] Failed to ensure webhook subscription:`,
+      err instanceof Error ? err.message : err,
+    );
+    return null;
+  }
+}
+
+/**
+ * Set up the full trigger pipeline for a Google Calendar integration:
+ * 1. Ensure webhook subscription exists
+ * 2. Create the CALENDAR_EVENT_SYNC trigger
+ *
+ * @returns trigger ID, or null on failure
+ */
+export async function setupCalendarTrigger(
+  userId: string,
+  webhookUrl: string,
+): Promise<string | null> {
+  await ensureComposioWebhookSubscription(webhookUrl);
+
+  const triggerId = await createComposioTrigger(
+    userId,
+    COMPOSIO_TRIGGER.CALENDAR_EVENT_SYNC,
+    { calendarId: "primary", interval: 3 },
+  );
+
+  return triggerId;
+}

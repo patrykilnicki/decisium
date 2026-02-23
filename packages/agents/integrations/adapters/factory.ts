@@ -4,7 +4,6 @@ import {
   IntegrationAdapter,
   ADAPTER_REGISTRY,
 } from "./base.adapter";
-import { GoogleCalendarAdapter } from "./google-calendar.adapter";
 import { GmailAdapter } from "./gmail.adapter";
 import { NotionAdapter } from "./notion.adapter";
 import { LinearAdapter } from "./linear.adapter";
@@ -83,8 +82,6 @@ export function createAdapter(
   const adapterConfig = config ?? getAdapterConfig(provider);
 
   switch (provider) {
-    case "google_calendar":
-      return new GoogleCalendarAdapter(adapterConfig);
     case "gmail":
       return new GmailAdapter(adapterConfig);
     case "notion":

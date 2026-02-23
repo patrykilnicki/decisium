@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import {
-  createOAuthManager,
-  createCalendarWatchService,
-} from "@/lib/integrations";
+import { createOAuthManager } from "@/lib/integrations";
 import { Provider } from "@agents/integrations";
-import { deleteComposioConnectedAccount } from "@agents/lib/composio";
+import {
+  deleteComposioConnectedAccount,
+  deleteComposioTrigger,
+} from "@agents/lib/composio";
 
 /**
  * GET /api/integrations/[provider]
@@ -130,11 +130,13 @@ export async function DELETE(
       | undefined;
 
     if (composioAccountId) {
+      const composioTriggerId = metadata?.composio_trigger_id as
+        | string
+        | undefined;
+      if (composioTriggerId) {
+        await deleteComposioTrigger(composioTriggerId);
+      }
       await deleteComposioConnectedAccount(composioAccountId);
-    } else if (provider === "google_calendar") {
-      // Custom OAuth: stop calendar watch
-      const watchService = createCalendarWatchService(supabase);
-      await watchService.stopWatch(integration.id);
     }
 
     // Disconnect (delete local integration)

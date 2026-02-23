@@ -5,6 +5,7 @@ import { getAppUrl } from "@/lib/utils/app-url";
 import {
   listComposioConnectedAccounts,
   isComposioEnabled,
+  setupCalendarTrigger,
 } from "@agents/lib/composio";
 
 const TOOLKIT_TO_PROVIDER: Record<string, string> = {
@@ -125,6 +126,35 @@ export async function GET(request: NextRequest) {
         .select("id")
         .single();
       integrationId = inserted?.id;
+    }
+
+    // Set up real-time trigger for Google Calendar
+    if (resolvedProvider === "google_calendar" && integrationId) {
+      try {
+        const webhookUrl = `${baseUrl}/api/webhooks/composio`;
+        const triggerId = await setupCalendarTrigger(user.id, webhookUrl);
+
+        if (triggerId) {
+          await typedSupabase
+            .from("integrations")
+            .update({
+              metadata: {
+                composio_connected_account_id: connectedAccount.id,
+                composio_trigger_id: triggerId,
+              } as import("@/types/supabase").Json,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", integrationId);
+          console.log(
+            `[composio/callback] Created trigger ${triggerId} for integration ${integrationId}`,
+          );
+        }
+      } catch (triggerErr) {
+        console.warn(
+          "[composio/callback] Failed to set up trigger (non-blocking):",
+          triggerErr instanceof Error ? triggerErr.message : triggerErr,
+        );
+      }
     }
 
     settingsUrl.searchParams.set("connected", resolvedProvider);
