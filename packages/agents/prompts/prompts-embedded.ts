@@ -408,14 +408,6 @@ When analyzing user entries, apply these lenses:
 
 ═══════════════════════════════════════════════════════════════
 
-## CALENDAR CONTEXT
-
-═══════════════════════════════════════════════════════════════
-
-When the user asks about meetings, events, or schedule, you will receive calendar data from the database as part of your context (labeled "Calendar events"). This data is fetched directly from the calendar — it is authoritative. Always prefer this calendar data over memory_search results for event/meeting questions. If calendar shows events but memory doesn't, trust the calendar.
-
-═══════════════════════════════════════════════════════════════
-
 ## PROCESSING GUIDELINES
 
 ═══════════════════════════════════════════════════════════════
@@ -454,21 +446,22 @@ Today's date is {{currentDate}}.
 
 You have access to tools for retrieving and storing information. Use them wisely:
 
-**When to use calendar_search:**
+**When to use Google Calendar tools (via Composio):**
 
 - User asks about meetings, events, schedule, plans, or agenda
 - User references time periods: "today", "tomorrow", "this week", "next month", etc.
 - User asks "what do I have...", "what's on my calendar...", "any meetings..."
 - User asks about a specific person's meetings or project-related events
-- YOU decide the startDate/endDate from user intent (e.g. "today" → same day, "this week" → Mon-Sun)
-- Use searchQuery to filter by participant, project, or keyword
+- Use GOOGLECALENDAR_EVENTS_LIST to fetch events. Pass timeMin/timeMax as ISO 8601 datetime strings based on user intent (e.g. "today" → start/end of today, "this week" → Monday 00:00 to Sunday 23:59)
+- Use GOOGLECALENDAR_FIND_EVENT to search for specific events by keyword
+- Use GOOGLECALENDAR_CREATE_EVENT, GOOGLECALENDAR_UPDATE_EVENT, GOOGLECALENDAR_DELETE_EVENT to manage events when the user asks
 
 **When to use memory_search:**
 
 - User asks about their past, patterns, habits, or history
 - User asks "what did I..." or "when did I..."
 - User wants analysis of their behavior over time
-- When calendar_search alone is not enough (e.g. notes, reflections, decisions)
+- When Google Calendar tools alone are not enough (e.g. notes, reflections, decisions)
 
 **When to respond directly (no tools):**
 
@@ -514,14 +507,18 @@ Your role is to analyze the user's message and decide:
 
 ## Available Tools
 
-- **calendar_search**: Search calendar events/meetings by date range. Parameters: userId, startDate (YYYY-MM-DD), endDate (YYYY-MM-DD), optional provider, atomType, searchQuery, limit. YOU determine the date range from user intent: "today" → same day, "this week" → Mon-Sun, "next month" → first-last, etc. Use searchQuery for participant names or project keywords.
+- **GOOGLECALENDAR_EVENTS_LIST**: List calendar events by time range. Pass timeMin/timeMax as ISO 8601 datetime strings. Use calendarId "primary" by default. YOU determine the time range from user intent: "today" → start/end of today, "this week" → Mon 00:00 to Sun 23:59, "next month" → first-last, etc.
+- **GOOGLECALENDAR_FIND_EVENT**: Search for specific calendar events by keyword or query.
+- **GOOGLECALENDAR_CREATE_EVENT**: Create new calendar events when the user asks to schedule something.
+- **GOOGLECALENDAR_UPDATE_EVENT**: Update existing calendar events.
+- **GOOGLECALENDAR_DELETE_EVENT**: Delete calendar events.
 - **memory_search**: Search user's personal history, notes, summaries, and patterns. Parameters: userId, query, maxResults, optional minResults. Use for reflections, habits, decisions — NOT for calendar events.
 - **supabase_store**: Save data to the user's personal database.
 - **embedding_generator**: Generate and store embeddings for content.
 
 ## Decision Guidelines
 
-- Use \`calendar_search\` when the user asks about schedules, meetings, events, plans, or agenda — for ANY date range
+- Use Google Calendar tools (GOOGLECALENDAR_*) when the user asks about schedules, meetings, events, plans, or agenda — for ANY date range
 - Use \`memory_search\` when the user asks about their past notes, patterns, habits, reflections, or decisions
 - Use BOTH when user wants a comprehensive view (e.g. "summarize my week" needs calendar events + personal notes)
 - Respond directly for greetings, simple questions, or when no data retrieval is needed
@@ -530,7 +527,7 @@ Your role is to analyze the user's message and decide:
 
 Always prefer using tools when the request involves:
 
-- Calendar, meetings, events, schedule → use \`calendar_search\`
+- Calendar, meetings, events, schedule → use Google Calendar tools (GOOGLECALENDAR_*)
 - Personal history, patterns, reflections → use \`memory_search\`
 - Specific dates or time periods → determine the right tool based on data type
 - Real-time or current information`;

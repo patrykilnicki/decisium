@@ -322,13 +322,12 @@ export async function createComposioTrigger(
   if (!client) return null;
 
   try {
-    const trigger = await client.triggers.create(
-      userId,
-      triggerSlug,
-      { triggerConfig },
-    );
-    const triggerId =
-      (trigger as Record<string, unknown>).triggerId as string | undefined;
+    const trigger = await client.triggers.create(userId, triggerSlug, {
+      triggerConfig,
+    });
+    const triggerId = (trigger as Record<string, unknown>).triggerId as
+      | string
+      | undefined;
     console.log(
       `[composio] Created trigger ${triggerSlug} for user ${userId.slice(0, 8)}...: ${triggerId}`,
     );
@@ -393,7 +392,11 @@ export async function ensureComposioWebhookSubscription(
 
     if (listRes.ok) {
       const listData = (await listRes.json()) as {
-        items?: Array<{ id: string; webhookUrl?: string; webhook_url?: string }>;
+        items?: Array<{
+          id: string;
+          webhookUrl?: string;
+          webhook_url?: string;
+        }>;
       };
       const existing = (listData.items ?? []).find(
         (s) => (s.webhookUrl ?? s.webhook_url) === webhookUrl,

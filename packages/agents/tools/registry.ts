@@ -3,7 +3,6 @@ import {
   memorySearchTool,
   supabaseStoreTool,
   embeddingGeneratorTool,
-  calendarSearchTool,
 } from "./index";
 import { getComposioToolsForUser } from "../lib/composio";
 
@@ -140,13 +139,6 @@ function initializeRegistry(): void {
   toolRegistry.set("embedding_generator", {
     tool: embeddingGeneratorTool,
     category: "utility",
-    isExternal: false,
-  });
-
-  // Calendar search — direct DB query for activity_atoms (events, meetings, etc.)
-  toolRegistry.set("calendar_search", {
-    tool: calendarSearchTool,
-    category: "calendar",
     isExternal: false,
   });
 }

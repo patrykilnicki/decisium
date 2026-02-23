@@ -101,8 +101,7 @@ function triggerEventToAtom(
     .filter(Boolean);
 
   const conferenceUri =
-    event.hangout_link ??
-    event.conference_data?.entryPoints?.[0]?.uri;
+    event.hangout_link ?? event.conference_data?.entryPoints?.[0]?.uri;
 
   const contentParts = [
     event.summary ?? "Untitled Event",
@@ -282,9 +281,7 @@ export async function POST(request: NextRequest) {
 
   const triggerSlug = payload.metadata?.trigger_slug;
   if (!triggerSlug || !CALENDAR_TRIGGER_SLUGS.has(triggerSlug)) {
-    console.log(
-      `[composio/webhook] Unhandled trigger slug: ${triggerSlug}`,
-    );
+    console.log(`[composio/webhook] Unhandled trigger slug: ${triggerSlug}`);
     return NextResponse.json({ status: "ignored", trigger: triggerSlug });
   }
 
