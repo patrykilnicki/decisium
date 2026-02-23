@@ -8,9 +8,7 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
-import { ProtectedRoute } from "@/components/auth/protected-route";
-import { AppLayout } from "@/components/layout/app-layout";
-import { DailyContent } from "@/components/daily/daily-content";
+import { redirect } from "next/navigation";
 
 export default async function HomePage() {
   const supabase = await createClient();
@@ -19,28 +17,22 @@ export default async function HomePage() {
   } = await supabase.auth.getUser();
 
   if (user) {
-    return (
-      <ProtectedRoute>
-        <AppLayout>
-          <DailyContent />
-        </AppLayout>
-      </ProtectedRoute>
-    );
+    redirect("/ask");
   }
 
   return (
     <div className="flex min-h-screen items-center justify-center p-4">
       <Card className="w-full max-w-lg">
         <CardHeader>
-          <CardTitle className="text-3xl">Daily Intelligence</CardTitle>
+          <CardTitle className="text-3xl">Decisium</CardTitle>
           <CardDescription className="text-lg">
-            Your personal daily journaling and AI-powered reflection assistant
+            Your personal AI-powered reflection assistant
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-muted-foreground">
-            Track your daily thoughts, plans, and observations. Ask AI questions
-            about your patterns and get insights from your personal history.
+            Ask AI questions about your patterns and get insights from your
+            personal history.
           </p>
           <div className="flex gap-4">
             <Button asChild className="flex-1">

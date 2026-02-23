@@ -34,32 +34,14 @@ function escapeForTemplateLiteral(str: string): string {
 }
 
 function main() {
-  const dailyAgentContent = readFileSync(
-    join(PROMPTS_DIR, "daily-agent.md"),
-    "utf-8",
-  );
-
   const output = `/**
  * AUTO-GENERATED - Do not edit. Run: pnpm exec tsx scripts/embed-prompts.ts
  * Embeds prompts for serverless deployment (Vercel).
  */
 ${[
   ["MAIN_AGENT_SYSTEM_PROMPT", loadPrompt("main-agent.md")],
-  ["DAILY_SUBAGENT_SYSTEM_PROMPT", loadPrompt("daily-subagent.md")],
   ["ASK_SUBAGENT_SYSTEM_PROMPT", loadPrompt("ask-subagent.md")],
   ["ROOT_AGENT_SYSTEM_PROMPT", loadPrompt("root-agent.md")],
-  [
-    "DAILY_WELCOME_SYSTEM_PROMPT",
-    extractSection(dailyAgentContent, "Welcome System Prompt"),
-  ],
-  [
-    "DAILY_CLASSIFIER_SYSTEM_PROMPT",
-    extractSection(dailyAgentContent, "Classifier System Prompt"),
-  ],
-  [
-    "DAILY_RESPONSE_SYSTEM_PROMPT",
-    extractSection(dailyAgentContent, "Response System Prompt"),
-  ],
   ["ORCHESTRATOR_SYSTEM_PROMPT", loadPrompt("orchestrator-agent.md")],
   ["ROUTER_SYSTEM_PROMPT", loadPrompt("router-agent.md")],
   ["GRADE_DOCUMENTS_PROMPT", loadPrompt("grade-documents.md")],

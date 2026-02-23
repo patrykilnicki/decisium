@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createOAuthManager } from "@/lib/integrations";
 import { getAppUrl } from "@/lib/utils/app-url";
+import {
+  getComposioConnectUrl,
+  isComposioEnabled,
+} from "@agents/lib/composio";
 
 /**
  * GET /api/integrations
@@ -84,7 +88,28 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Start OAuth flow with correct redirect URI for current environment
+    // Google Calendar: use Composio when configured
+    if (
+      provider === "google_calendar" &&
+      isComposioEnabled()
+    ) {
+      const redirectUrl = await getComposioConnectUrl(user.id, "GOOGLECALENDAR");
+      if (redirectUrl) {
+        const response = NextResponse.json({
+          authorizationUrl: redirectUrl,
+        });
+        response.cookies.set("composio_connect_provider", provider, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: "lax",
+          maxAge: 60 * 10,
+          path: "/",
+        });
+        return response;
+      }
+    }
+
+    // Fall back to custom OAuth flow
     const baseUrl = getAppUrl(request);
     const redirectUri = `${baseUrl}/api/integrations/${provider}/callback`;
     const oauthManager = createOAuthManager(supabase);

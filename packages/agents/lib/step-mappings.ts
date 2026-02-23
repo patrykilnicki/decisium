@@ -20,15 +20,6 @@ export const ORCHESTRATOR_STEPS: StepMapping[] = [
   { nodeId: "saveMessages", label: "Saving conversation", order: 6 },
 ];
 
-export const DAILY_STEPS: StepMapping[] = [
-  { nodeId: "classifierAgent", label: "Understanding your note", order: 1 },
-  { nodeId: "memoryRetriever", label: "Searching memories", order: 2 },
-  { nodeId: "dailyResponseAgent", label: "Generating response", order: 3 },
-  { nodeId: "noteAcknowledgment", label: "Acknowledging note", order: 3 },
-  { nodeId: "suggestAskAi", label: "Suggesting deeper analysis", order: 3 },
-  { nodeId: "saveEvents", label: "Saving updates", order: 4 },
-];
-
 export function getStepLabel(
   nodeId: string,
   mode: "linear" | "agentic",
@@ -45,10 +36,6 @@ export function getOrderedSteps(mode: "linear" | "agentic"): StepMapping[] {
 export function getTaskStepLabel(taskType: TaskType): string {
   const graph = getTaskGraph(taskType);
   const nodeId = getTaskNodeId(taskType);
-
-  if (graph === "daily") {
-    return DAILY_STEPS.find((step) => step.nodeId === nodeId)?.label ?? nodeId;
-  }
 
   if (graph === "orchestrator") {
     return (

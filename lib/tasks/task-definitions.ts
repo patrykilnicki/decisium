@@ -8,20 +8,13 @@ export type TaskType =
   | "orchestrator.grade_documents"
   | "orchestrator.rewrite_query"
   | "orchestrator.synthesize"
-  | "orchestrator.save_messages"
-  | "daily.classifier_agent"
-  | "daily.memory_retriever"
-  | "daily.response_agent"
-  | "daily.note_acknowledgment"
-  | "daily.suggest_ask_ai"
-  | "daily.save_events";
+  | "orchestrator.save_messages";
 
-export type TaskGraph = "root" | "orchestrator" | "daily";
+export type TaskGraph = "root" | "orchestrator";
 
 export function getTaskGraph(taskType: TaskType): TaskGraph {
   if (taskType.startsWith("root.")) return "root";
-  if (taskType.startsWith("orchestrator.")) return "orchestrator";
-  return "daily";
+  return "orchestrator";
 }
 
 export function getTaskNodeId(taskType: TaskType): string {
@@ -46,17 +39,5 @@ export function getTaskNodeId(taskType: TaskType): string {
       return "synthesize";
     case "orchestrator.save_messages":
       return "saveMessages";
-    case "daily.classifier_agent":
-      return "classifierAgent";
-    case "daily.memory_retriever":
-      return "memoryRetriever";
-    case "daily.response_agent":
-      return "dailyResponseAgent";
-    case "daily.note_acknowledgment":
-      return "noteAcknowledgment";
-    case "daily.suggest_ask_ai":
-      return "suggestAskAi";
-    case "daily.save_events":
-      return "saveEvents";
   }
 }

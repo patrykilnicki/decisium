@@ -16,16 +16,6 @@ import {
   synthesizeNode,
   toolExecutorNode,
 } from "@/packages/agents/core/orchestrator.agent";
-import type { DailyGraphState } from "@/packages/agents/core/daily.agent";
-import {
-  classifierAgentNode,
-  dailyResponseAgentNode,
-  memoryRetrieverNode as dailyMemoryRetrieverNode,
-  noteAcknowledgmentNode,
-  routeAfterClassifier,
-  saveEventsNode,
-  suggestAskAiNode,
-} from "@/packages/agents/core/daily.agent";
 import type {
   TaskExecutionResult,
   TaskInsert,
@@ -97,19 +87,6 @@ function getOrchestratorNextTaskType(route: string): TaskType | null {
   }
 }
 
-function getDailyNextTaskType(route: string): TaskType | null {
-  switch (route) {
-    case "noteAcknowledgment":
-      return "daily.note_acknowledgment";
-    case "memoryRetriever":
-      return "daily.memory_retriever";
-    case "suggestAskAi":
-      return "daily.suggest_ask_ai";
-    default:
-      return null;
-  }
-}
-
 export async function handleTask(
   task: TaskRow,
   options?: { jobId?: string },
@@ -123,7 +100,7 @@ export async function handleTask(
   if (taskType.startsWith("orchestrator.")) {
     return handleOrchestratorTask(task, taskType, { client, jobId });
   }
-  return handleDailyTask(task, taskType, { client, jobId });
+  throw new Error(`Unknown task type: ${taskType}`);
 }
 
 async function handleRootTask(
@@ -279,130 +256,6 @@ async function handleOrchestratorTask(
       }),
     ],
   };
-}
-
-async function handleDailyTask(
-  task: TaskRow,
-  taskType: TaskType,
-  options: { client: SupabaseClient<Database>; jobId: string },
-): Promise<TaskExecutionResult> {
-  const state = getTaskState<DailyGraphState>(task);
-  let partialState: Partial<DailyGraphState> = {};
-
-  switch (taskType) {
-    case "daily.classifier_agent":
-      partialState = await runNodeWithEvents({
-        client: options.client,
-        task,
-        jobId: options.jobId,
-        nodeKey: taskType,
-        handler: () => classifierAgentNode(state),
-      });
-      break;
-    case "daily.memory_retriever":
-      partialState = await runNodeWithEvents({
-        client: options.client,
-        task,
-        jobId: options.jobId,
-        nodeKey: taskType,
-        handler: () => dailyMemoryRetrieverNode(state),
-      });
-      break;
-    case "daily.response_agent":
-      partialState = await runNodeWithEvents({
-        client: options.client,
-        task,
-        jobId: options.jobId,
-        nodeKey: taskType,
-        handler: () => dailyResponseAgentNode(state),
-      });
-      break;
-    case "daily.note_acknowledgment":
-      partialState = await runNodeWithEvents({
-        client: options.client,
-        task,
-        jobId: options.jobId,
-        nodeKey: taskType,
-        handler: () => noteAcknowledgmentNode(state),
-      });
-      break;
-    case "daily.suggest_ask_ai":
-      partialState = await runNodeWithEvents({
-        client: options.client,
-        task,
-        jobId: options.jobId,
-        nodeKey: taskType,
-        handler: () => suggestAskAiNode(state),
-      });
-      break;
-    case "daily.save_events":
-      partialState = await runNodeWithEvents({
-        client: options.client,
-        task,
-        jobId: options.jobId,
-        nodeKey: taskType,
-        handler: () => saveEventsNode(state),
-      });
-      break;
-  }
-
-  const nextState: DailyGraphState = { ...state, ...partialState };
-
-  if (taskType === "daily.classifier_agent") {
-    const nextRoute = routeAfterClassifier(nextState);
-    const nextTaskType = getDailyNextTaskType(nextRoute);
-    if (!nextTaskType) {
-      return { output: { state: nextState } };
-    }
-    return {
-      output: { state: nextState },
-      nextTasks: [
-        buildNextTask({
-          parentTaskId: task.id,
-          userId: task.user_id,
-          sessionId: task.session_id,
-          taskType: nextTaskType,
-          state: nextState,
-        }),
-      ],
-    };
-  }
-
-  if (taskType === "daily.memory_retriever") {
-    return {
-      output: { state: nextState },
-      nextTasks: [
-        buildNextTask({
-          parentTaskId: task.id,
-          userId: task.user_id,
-          sessionId: task.session_id,
-          taskType: "daily.response_agent",
-          state: nextState,
-        }),
-      ],
-    };
-  }
-
-  if (
-    taskType === "daily.response_agent" ||
-    taskType === "daily.note_acknowledgment" ||
-    taskType === "daily.suggest_ask_ai"
-  ) {
-    return {
-      output: { state: nextState },
-      nextTasks: [
-        buildNextTask({
-          parentTaskId: task.id,
-          userId: task.user_id,
-          sessionId: task.session_id,
-          taskType: "daily.save_events",
-          state: nextState,
-        }),
-      ],
-    };
-  }
-
-  return { output: { state: nextState } };
 }
 
 function getErrorMessage(error: unknown): string {

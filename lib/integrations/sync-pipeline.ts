@@ -12,6 +12,7 @@ import {
   SyncResult,
   FetchOptions,
 } from "@agents/integrations";
+import { syncComposioCalendarToSupabase } from "./composio-calendar-sync";
 
 // ============================================
 // Types
@@ -175,7 +176,50 @@ export class SyncPipeline {
         `[sync-pipeline] Integration found: ${integration.provider}, status: ${integration.status}`,
       );
 
-      // Get authenticated adapter
+      // Composio-backed integrations: use Composio sync path
+      const metadata = integration.metadata as Record<string, unknown> | undefined;
+      if (
+        metadata?.composio_connected_account_id &&
+        integration.provider === "google_calendar"
+      ) {
+        console.log(
+          `[sync-pipeline] Using Composio sync for integration ${integrationId}`,
+        );
+        const composioResult = await syncComposioCalendarToSupabase(
+          this.supabase,
+          integrationId,
+          {
+            fullSync: options.fullSync,
+            since: options.since,
+            until: options.until,
+            batchSize: options.batchSize,
+          },
+        );
+        progress.atomsProcessed = composioResult.atomsProcessed;
+        progress.atomsStored = composioResult.atomsStored;
+        progress.hasMore = composioResult.hasMore;
+        progress.status = composioResult.error ? "error" : "completed";
+        progress.error = composioResult.error;
+        progress.completedAt = new Date();
+
+        if (!composioResult.error) {
+          await this.oauthManager.updateSyncStatus(
+            integrationId,
+            "success",
+            undefined,
+          );
+        } else {
+          await this.oauthManager.updateSyncStatus(
+            integrationId,
+            "error",
+            undefined,
+            composioResult.error,
+          );
+        }
+        return progress;
+      }
+
+      // Get authenticated adapter (custom OAuth integrations)
       const adapterStart = Date.now();
       console.log(`[sync-pipeline] Getting authenticated adapter...`);
       const { adapter, accessToken } =

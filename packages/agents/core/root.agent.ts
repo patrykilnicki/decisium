@@ -387,7 +387,6 @@ export interface RootAgentInvokable {
 
 // Legacy function for backward compatibility
 export function createRootAgent(config?: {
-  llmProvider?: "openai" | "anthropic" | "openrouter";
   model?: string;
   temperature?: number;
   currentDate?: string;
@@ -397,7 +396,6 @@ export function createRootAgent(config?: {
     agentType: "root",
     currentDate: config?.currentDate,
     temperature: config?.temperature,
-    llmProvider: config?.llmProvider,
     model: config?.model,
   }) as RootAgentInvokable;
 }

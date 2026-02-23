@@ -35,3 +35,9 @@ export {
   createCalendarWatchService,
   type CalendarWatch,
 } from "./calendar-watch.service";
+
+export {
+  syncComposioCalendarToSupabase,
+  type ComposioCalendarSyncOptions,
+  type ComposioCalendarSyncResult,
+} from "./composio-calendar-sync";

@@ -1,5 +1,4 @@
 // Main exports
-export * from "./schemas/daily.schema";
 export * from "./schemas/summary.schema";
 export * from "./schemas/ask.schema";
 export * from "./schemas/memory.schema";
@@ -32,11 +31,3 @@ export * from "./core/root.agent";
 export * from "./core/orchestrator.agent";
 export * from "./core/main.agent";
 
-// Export daily agent types explicitly to avoid DailyEvent conflict
-// DailyEvent from schema is the canonical type, daily.agent extends it
-export type {
-  ClassificationResult,
-  DailyWelcomeResult,
-  DailyMessageResult,
-} from "./core/daily.agent";
-export { createDailyInitGraph } from "./core/daily.agent";

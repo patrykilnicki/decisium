@@ -7,7 +7,7 @@ import { z } from "zod";
 /**
  * Page types in the application
  */
-export const PageTypeSchema = z.enum(["daily", "ask"]);
+export const PageTypeSchema = z.enum(["ask"]);
 export type PageType = z.infer<typeof PageTypeSchema>;
 
 /**
@@ -55,7 +55,7 @@ export interface MainAgentResult {
   /** The agent's response to the user */
   agentResponse: string;
   /** Which subagent handled the request (if delegated) */
-  handledBy?: "main" | "daily-agent" | "ask-agent";
+  handledBy?: "main" | "ask-agent";
   /** ID of the saved user message (if applicable) */
   userMessageId?: string;
   /** ID of the saved assistant message (if applicable) */
@@ -64,31 +64,12 @@ export interface MainAgentResult {
   toolsUsed?: string[];
 }
 
-// Note: Daily and Ask specific types are imported from their respective schemas
-// See: ./daily.schema.ts and ./ask.schema.ts
+// Note: Ask specific types are imported from the ask schema
+// See: ./ask.schema.ts
 
 // ═══════════════════════════════════════════════════════════════
 // UTILITY FUNCTIONS
 // ═══════════════════════════════════════════════════════════════
-
-/**
- * Create initial context for daily page requests
- */
-export function createDailyContext(params: {
-  userId: string;
-  currentDate?: string;
-  userEmail?: string;
-}): MainAgentContext {
-  const currentDate =
-    params.currentDate || new Date().toISOString().split("T")[0];
-  return {
-    page: "daily",
-    userId: params.userId,
-    currentDate,
-    date: currentDate,
-    userEmail: params.userEmail,
-  };
-}
 
 /**
  * Create initial context for ask page requests

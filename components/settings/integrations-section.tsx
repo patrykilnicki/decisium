@@ -122,9 +122,18 @@ export function IntegrationsSection() {
       // Clear URL params
       router.replace("/settings");
     } else if (error) {
+      const messages: Record<string, string> = {
+        connection_not_found:
+          "Connection not found. Please try connecting again.",
+        composio_not_configured: "Composio is not configured. Contact support.",
+        callback_failed: "Connection callback failed. Please try again.",
+      };
       setNotification({
         type: "error",
-        message: errorDescription || `Connection failed: ${error}`,
+        message:
+          errorDescription ||
+          messages[error] ||
+          `Connection failed: ${error}`,
       });
       router.replace("/settings");
     }

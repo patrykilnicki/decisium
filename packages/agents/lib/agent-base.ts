@@ -5,7 +5,6 @@ import { getToolsForAgent, type AgentType } from "../tools/registry";
 import { getCurrentDate } from "./date-utils";
 
 export interface BaseAgentConfig {
-  llmProvider?: "openai" | "anthropic" | "openrouter";
   model?: string;
   temperature?: number;
   systemPrompt: string;
@@ -76,12 +75,11 @@ export interface SimpleAgentInvokable {
 /**
  * Create a simple agent without tools (for system messages, classifiers, etc.)
  *
- * @returns An agent instance with invoke() for use in daily graph nodes
+ * @returns An agent instance with invoke() for use in graph nodes
  */
 export function createSimpleAgent(config: {
   systemPrompt: string;
   temperature?: number;
-  llmProvider?: "openai" | "anthropic" | "openrouter";
   model?: string;
   currentDate?: string;
 }): SimpleAgentInvokable {
@@ -102,7 +100,6 @@ export function createAgentWithTools(
   tools: DynamicStructuredTool[],
   config?: {
     temperature?: number;
-    llmProvider?: "openai" | "anthropic" | "openrouter";
     model?: string;
     currentDate?: string;
   },

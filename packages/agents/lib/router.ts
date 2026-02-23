@@ -4,7 +4,6 @@ import { getCurrentDate } from "./date-utils";
 import { ROUTER_SYSTEM_PROMPT } from "../prompts";
 
 export interface RouterConfig {
-  llmProvider?: "openai" | "anthropic" | "openrouter";
   model?: string;
   temperature?: number;
   currentDate?: string;
@@ -24,11 +23,6 @@ export function createRouterAgent(
   tools: DynamicStructuredTool[],
   config?: RouterConfig,
 ): RouterAgent {
-  const provider =
-    config?.llmProvider ||
-    (process.env.LLM_PROVIDER as "openai" | "anthropic" | "openrouter") ||
-    "anthropic";
-
   const currentDate = config?.currentDate || getCurrentDate();
   const systemPrompt = ROUTER_SYSTEM_PROMPT.replace(
     /{{currentDate}}/g,
@@ -36,7 +30,6 @@ export function createRouterAgent(
   );
 
   const llm = createLLM({
-    provider,
     model: config?.model,
     temperature: config?.temperature ?? 0.1, // Lower temperature for routing decisions
   });

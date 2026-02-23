@@ -134,9 +134,12 @@ importers:
 
   packages/agents:
     dependencies:
-      '@langchain/anthropic':
-        specifier: ^1.3.11
-        version: 1.3.12(@langchain/core@1.1.17(openai@4.104.0(ws@8.19.0)(zod@3.25.76)))
+      '@composio/core':
+        specifier: ^0.6.0
+        version: 0.6.3(ws@8.19.0)(zod@3.25.76)
+      '@composio/langchain':
+        specifier: ^0.6.0
+        version: 0.6.3(@composio/core@0.6.3(ws@8.19.0)(zod@3.25.76))(@langchain/core@1.1.17(openai@4.104.0(ws@8.19.0)(zod@3.25.76)))
       '@langchain/core':
         specifier: ^1.1.17
         version: 1.1.17(openai@4.104.0(ws@8.19.0)(zod@3.25.76))
@@ -358,6 +361,25 @@ packages:
 
   '@cfworker/json-schema@4.1.1':
     resolution: {integrity: sha512-gAmrUZSGtKc3AiBL71iNWxDsyUC5uMaKKGdvzYsBoTW/xi42JQHl7eKV2OYzCUqvc+D2RCcf7EXY2iCyFIk6og==}
+
+  '@composio/client@0.1.0-alpha.56':
+    resolution: {integrity: sha512-hNgChB5uhdvT4QXNzzfUuvtG6vrfanQQFY2hPyKwbeR4x6mEmIGFiZ4y2qynErdUWldAZiB/7pY/MBMg6Q9E0g==}
+
+  '@composio/core@0.6.3':
+    resolution: {integrity: sha512-PZm4LQGMaaDFHWUouMHqKPg5fNfgjM2l0zF0Vw/vfWJ34KYyo1ne6YjhGvBDmOIKPByT6Dal4/ff7AHpjedL/w==}
+    peerDependencies:
+      zod: ^3.25 || ^4
+
+  '@composio/json-schema-to-zod@0.1.20':
+    resolution: {integrity: sha512-d4V34itLrUWG/VBh7ciznKcxF/T22MBLHmuEzHoX0zsBOHsUmjYz5qtDh20S2p3FE+HHvLZxpXiv8yfdd4yI+Q==}
+    peerDependencies:
+      zod: '>=3.25.76 <5'
+
+  '@composio/langchain@0.6.3':
+    resolution: {integrity: sha512-vVzzx+20h+6G6GzVyqECf4XnsitmTEwo5m3MUUU15ipmOZnHM4KAw5aUvrChZWXBFTymdGv0+nJmZWNRe5BqFw==}
+    peerDependencies:
+      '@composio/core': 0.6.3
+      '@langchain/core': ^1.1.17
 
   '@dotenvx/dotenvx@1.52.0':
     resolution: {integrity: sha512-CaQcc8JvtzQhUSm9877b6V4Tb7HCotkcyud9X2YwdqtQKwgljkMRwU96fVYKnzN3V0Hj74oP7Es+vZ0mS+Aa1w==}
@@ -4047,6 +4069,9 @@ packages:
     resolution: {integrity: sha512-vYt7UD1U9Wg6138shLtLOvdAu+8DsC/ilFtEVHcH+wydcSpNE20AfSOduf6MkRFahL5FY7X1oU7nKVZFtfq8Fg==}
     engines: {node: '>=6'}
 
+  pusher-js@8.4.0:
+    resolution: {integrity: sha512-wp3HqIIUc1GRyu1XrP6m2dgyE9MoCsXVsWNlohj0rjSkLf+a0jLvEyVubdg58oMk7bhjBWnFClgp8jfAa6Ak4Q==}
+
   qs@6.14.1:
     resolution: {integrity: sha512-4EK3+xJl8Ts67nLYNwqw/dsFVnCf+qR7RgXSK9jEEm9unao3njwMDdmsdvoKBKHzxd7tCYz5e5M+SnMjdtXGQQ==}
     engines: {node: '>=0.6'}
@@ -4520,6 +4545,9 @@ packages:
 
   tw-animate-css@1.4.0:
     resolution: {integrity: sha512-7bziOlRqH0hJx80h/3mbicLW7o8qLsH5+RaLR2t+OHM3D0JlWGODQKQ4cxbK7WlvmUxpcj6Kgu6EKqjrGFe3QQ==}
+
+  tweetnacl@1.0.3:
+    resolution: {integrity: sha512-6rt+RN7aOi1nGMyC4Xa5DdYiukl2UWCbcJft7YhxReBGQD7OAM8Pbxw6YMo4r2diNEA8FEmu32YOn9rhaiE5yw==}
 
   type-check@0.4.0:
     resolution: {integrity: sha512-XleUoc9uwGXqjWwXaUTZAmzMcFZ5858QA2vvx1Ur5xIcixXIP+8LnFDgRplU30us6teqdlskFfu+ae4K79Ooew==}
@@ -5034,6 +5062,31 @@ snapshots:
       react: 19.2.3
 
   '@cfworker/json-schema@4.1.1': {}
+
+  '@composio/client@0.1.0-alpha.56': {}
+
+  '@composio/core@0.6.3(ws@8.19.0)(zod@3.25.76)':
+    dependencies:
+      '@composio/client': 0.1.0-alpha.56
+      '@composio/json-schema-to-zod': 0.1.20(zod@3.25.76)
+      '@types/json-schema': 7.0.15
+      chalk: 4.1.2
+      openai: 6.16.0(ws@8.19.0)(zod@3.25.76)
+      pusher-js: 8.4.0
+      semver: 7.7.3
+      zod: 3.25.76
+      zod-to-json-schema: 3.25.1(zod@3.25.76)
+    transitivePeerDependencies:
+      - ws
+
+  '@composio/json-schema-to-zod@0.1.20(zod@3.25.76)':
+    dependencies:
+      zod: 3.25.76
+
+  '@composio/langchain@0.6.3(@composio/core@0.6.3(ws@8.19.0)(zod@3.25.76))(@langchain/core@1.1.17(openai@4.104.0(ws@8.19.0)(zod@3.25.76)))':
+    dependencies:
+      '@composio/core': 0.6.3(ws@8.19.0)(zod@3.25.76)
+      '@langchain/core': 1.1.17(openai@4.104.0(ws@8.19.0)(zod@3.25.76))
 
   '@dotenvx/dotenvx@1.52.0':
     dependencies:
@@ -9079,6 +9132,10 @@ snapshots:
 
   punycode@2.3.1: {}
 
+  pusher-js@8.4.0:
+    dependencies:
+      tweetnacl: 1.0.3
+
   qs@6.14.1:
     dependencies:
       side-channel: 1.1.0
@@ -9736,6 +9793,8 @@ snapshots:
       fsevents: 2.3.3
 
   tw-animate-css@1.4.0: {}
+
+  tweetnacl@1.0.3: {}
 
   type-check@0.4.0:
     dependencies:

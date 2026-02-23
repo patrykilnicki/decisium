@@ -100,15 +100,43 @@ export function StepConnectApps({ onComplete }: StepConnectAppsProps) {
 
   async function handleConnect(appId: string) {
     setIsLoading(appId);
-    // TODO: Implement actual OAuth connection
-    // For now, simulate connection
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    setApps((prev) =>
-      prev.map((app) =>
-        app.id === appId ? { ...app, connected: !app.connected } : app,
-      ),
-    );
-    setIsLoading(null);
+
+    const provider = appId === "google-calendar" ? "google_calendar" : appId;
+    if (provider !== "google_calendar") {
+      setApps((prev) =>
+        prev.map((app) =>
+          app.id === appId ? { ...app, connected: !app.connected } : app,
+        ),
+      );
+      setIsLoading(null);
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/integrations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Failed to start connection");
+      }
+
+      const data = await response.json();
+      if (data.authorizationUrl) {
+        window.location.href = data.authorizationUrl;
+      }
+    } catch {
+      setApps((prev) =>
+        prev.map((app) =>
+          app.id === appId ? { ...app, connected: false } : app,
+        ),
+      );
+    } finally {
+      setIsLoading(null);
+    }
   }
 
   function handleContinue() {
