@@ -21,7 +21,6 @@ import {
   memorySearchTool,
   supabaseStoreTool,
   embeddingGeneratorTool,
-  calendarSearchTool,
 } from "../tools";
 import { buildMemoryContext } from "../lib/context";
 import { handleAgentError } from "../lib/error-handler";
@@ -198,20 +197,6 @@ async function toolExecutorNode(
               : JSON.stringify(embeddingResult);
           break;
 
-        case "calendar_search": {
-          const calRaw: unknown = await calendarSearchTool.invoke({
-            userId: (call.args.userId as string) ?? state.userId,
-            startDate: call.args.startDate as string,
-            endDate: call.args.endDate as string,
-            provider: call.args.provider as string | undefined,
-            atomType: call.args.atomType as string | undefined,
-            searchQuery: call.args.searchQuery as string | undefined,
-            limit: call.args.limit as number | undefined,
-          });
-          result = typeof calRaw === "string" ? calRaw : JSON.stringify(calRaw);
-          break;
-        }
-
         default:
           // Try to find the tool in the registry (includes Composio tools)
           const tools = await getOrchestratorTools({ userId: state.userId });
@@ -261,40 +246,8 @@ async function toolExecutorNode(
     memoryContext = buildMemoryContext(parsedResults);
   }
 
-  // Build calendar context from calendar_search results
-  let calendarContext = "";
-  const calendarResults = toolResults.filter(
-    (r) => r.toolName === "calendar_search" && r.success,
-  );
-
-  if (calendarResults.length > 0) {
-    const calParts: string[] = [];
-    for (const cr of calendarResults) {
-      try {
-        const parsed = JSON.parse(cr.result);
-        if (parsed.total_found === 0) {
-          calParts.push(
-            `Calendar (${parsed.date_range?.startDate} to ${parsed.date_range?.endDate}): No events found.`,
-          );
-        } else {
-          const summaries = (parsed.results as Array<{ summary: string }>).map(
-            (r: { summary: string }) => r.summary,
-          );
-          calParts.push(
-            `Calendar events (${parsed.total_found} found, ${parsed.date_range?.startDate} to ${parsed.date_range?.endDate}):\n${summaries.join("\n")}`,
-          );
-        }
-      } catch {
-        /* skip unparseable */
-      }
-    }
-    calendarContext = calParts.join("\n\n");
-  }
-
   // Combine all retrieved context
-  const combinedContext = [calendarContext, memoryContext]
-    .filter(Boolean)
-    .join("\n\n");
+  const combinedContext = memoryContext;
 
   // Create tool messages for the conversation
   const toolMessages = toolResults.map(
@@ -383,9 +336,6 @@ async function synthesizeNode(
     state.currentDate,
   );
 
-  // Build context for synthesis
-  // NOTE: calendar data is fetched via the calendar_search tool in the
-  // tool-executor step and is already included in memoryContext / retrievedContext.
   const contextParts: string[] = [];
 
   if (state.conversationHistory) {

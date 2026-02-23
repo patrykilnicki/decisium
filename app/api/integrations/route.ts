@@ -85,33 +85,44 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Google Calendar: use Composio when configured
-    if (provider === "google_calendar" && isComposioEnabled()) {
+    // Google Calendar: exclusively via Composio
+    if (provider === "google_calendar") {
+      if (!isComposioEnabled()) {
+        return NextResponse.json(
+          { error: "Google Calendar requires Composio to be configured" },
+          { status: 503 },
+        );
+      }
+
       const baseUrl = getAppUrl(request);
       const callbackUrl = `${baseUrl}/api/integrations/composio/callback`;
       const redirectUrl = await getComposioConnectUrl(
         user.id,
         "GOOGLECALENDAR",
-        {
-          callbackUrl,
-        },
+        { callbackUrl },
       );
-      if (redirectUrl) {
-        const response = NextResponse.json({
-          authorizationUrl: redirectUrl,
-        });
-        response.cookies.set("composio_connect_provider", provider, {
-          httpOnly: true,
-          secure: process.env.NODE_ENV === "production",
-          sameSite: "lax",
-          maxAge: 60 * 10,
-          path: "/",
-        });
-        return response;
+
+      if (!redirectUrl) {
+        return NextResponse.json(
+          { error: "Failed to create Composio connect link" },
+          { status: 500 },
+        );
       }
+
+      const response = NextResponse.json({
+        authorizationUrl: redirectUrl,
+      });
+      response.cookies.set("composio_connect_provider", provider, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        maxAge: 60 * 10,
+        path: "/",
+      });
+      return response;
     }
 
-    // Fall back to custom OAuth flow
+    // Other providers: custom OAuth flow
     const baseUrl = getAppUrl(request);
     const redirectUri = `${baseUrl}/api/integrations/${provider}/callback`;
     const oauthManager = createOAuthManager(supabase);

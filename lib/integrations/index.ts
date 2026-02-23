@@ -31,12 +31,6 @@ export {
 } from "./insight-generator";
 
 export {
-  CalendarWatchService,
-  createCalendarWatchService,
-  type CalendarWatch,
-} from "./calendar-watch.service";
-
-export {
   syncComposioCalendarToSupabase,
   type ComposioCalendarSyncOptions,
   type ComposioCalendarSyncResult,

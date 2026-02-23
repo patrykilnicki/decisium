@@ -13,7 +13,6 @@ import {
   processOrchestratorMessage,
 } from "./orchestrator.agent";
 import { ROOT_AGENT_SYSTEM_PROMPT } from "../prompts";
-import { fetchCalendarContext } from "../lib/calendar-context";
 
 // ═══════════════════════════════════════════════════════════════
 // FEATURE FLAGS
@@ -147,19 +146,6 @@ async function rootResponseAgentNode(
     currentDate: state.currentDate,
   }) as RootAgentInvokable;
 
-  // Fetch calendar events for the date range implied by the user's query.
-  // Uses keyword-based date extraction (no LLM call) so it's fast.
-  let calendarContext = "";
-  try {
-    calendarContext = await fetchCalendarContext(
-      state.userId,
-      state.currentDate,
-      state.userMessage,
-    );
-  } catch (err) {
-    console.error("[root] Failed to fetch calendar context:", err);
-  }
-
   // Build conversation history including the new user message
   const fullConversationHistory = state.conversationHistory
     ? `${state.conversationHistory}\n\nUser: ${state.userMessage}`
@@ -172,7 +158,6 @@ async function rootResponseAgentNode(
     conversationHistory: fullConversationHistory,
     memoryContext: state.memoryContext,
     userEmail: state.userEmail,
-    additionalContext: calendarContext || undefined,
   });
 
   // Use the context as the prompt (it already includes the conversation history with the new message)

@@ -337,15 +337,13 @@ export class SyncPipeline {
         console.log(`[sync-pipeline] No atoms to store`);
       }
 
-      // Update sync status (sync_cursor for pageToken; syncToken stored in calendar_watches)
+      // Update sync status
       // If integration was in 'error' status, reactivate it on successful sync
       const wasError = integration.status === "error";
       await this.oauthManager.updateSyncStatus(
         integrationId,
         "success",
-        integration.provider === "google_calendar" && result.nextSyncToken
-          ? undefined
-          : result.nextCursor,
+        result.nextCursor,
       );
 
       // Reactivate integration if it was in error status and sync succeeded
@@ -356,31 +354,6 @@ export class SyncPipeline {
           .eq("id", integrationId);
         console.log(
           `[sync-pipeline] Reactivated integration ${integrationId} after successful sync`,
-        );
-      }
-
-      // Google Calendar: persist nextSyncToken to calendar_watches
-      if (integration.provider === "google_calendar" && result.nextSyncToken) {
-        console.log(`[sync-pipeline] Saving nextSyncToken to calendar_watches`);
-        const { error: updateError } = await this.supabase
-          .from("calendar_watches")
-          .update({
-            sync_token: result.nextSyncToken,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("integration_id", integrationId);
-
-        if (updateError) {
-          console.error(
-            `[sync-pipeline] Failed to save syncToken:`,
-            updateError,
-          );
-        } else {
-          console.log(`[sync-pipeline] Successfully saved syncToken`);
-        }
-      } else {
-        console.log(
-          `[sync-pipeline] No nextSyncToken to save (provider: ${integration.provider}, nextSyncToken: ${result.nextSyncToken ? "present" : "none"})`,
         );
       }
 
@@ -400,32 +373,6 @@ export class SyncPipeline {
         errorMessage,
         errorStack,
       );
-
-      // Google Calendar API 410 Gone = sync token invalid; retry with full sync (official sync guide)
-      const status =
-        (error as { response?: { status?: number }; code?: number })?.response
-          ?.status ?? (error as { code?: number })?.code;
-      console.log(`[sync-pipeline] Error status: ${status}`);
-
-      const integration = progress.provider
-        ? await this.oauthManager
-            .getIntegration(integrationId)
-            .then((i) => i ?? undefined)
-        : undefined;
-      if (status === 410 && integration?.provider === "google_calendar") {
-        console.log(
-          `[sync-pipeline] 410 Gone error - clearing syncToken and retrying with full sync`,
-        );
-        await this.supabase
-          .from("calendar_watches")
-          .update({ sync_token: null, updated_at: new Date().toISOString() })
-          .eq("integration_id", integrationId);
-        return this.sync(integrationId, {
-          ...options,
-          fullSync: true,
-          syncToken: undefined,
-        });
-      }
 
       progress.status = "error";
       progress.error = errorMessage;

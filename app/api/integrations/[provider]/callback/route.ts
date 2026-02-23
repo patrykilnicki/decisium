@@ -2,11 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/supabase";
-import {
-  createOAuthManager,
-  createCalendarWatchService,
-} from "@/lib/integrations";
-import { getAppUrl, getGoogleCalendarWebhookUrl } from "@/lib/utils/app-url";
+import { createOAuthManager } from "@/lib/integrations";
+import { getAppUrl } from "@/lib/utils/app-url";
 
 /**
  * GET /api/integrations/[provider]/callback
@@ -64,21 +61,6 @@ export async function GET(
     const integration = await oauthManager.completeOAuthFlow(code, state, {
       redirectUri,
     });
-
-    // Google Calendar: setup watch for real-time updates (HTTPS only)
-    if (provider === "google_calendar") {
-      const webhookUrl = getGoogleCalendarWebhookUrl(baseUrl);
-      const isHttps = webhookUrl.startsWith("https://");
-
-      if (isHttps) {
-        // Setup watch in background (fire-and-forget)
-        createCalendarWatchService(typedSupabase)
-          .setupWatch(integration.id, webhookUrl)
-          .catch((err) => {
-            console.error("[OAuth] Google Calendar watch setup failed:", err);
-          });
-      }
-    }
 
     // Redirect to settings with success - the UI will show sync modal
     // The modal handles the initial sync and shows progress to the user
