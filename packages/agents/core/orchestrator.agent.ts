@@ -26,7 +26,7 @@ import {
 import { buildMemoryContext } from "../lib/context";
 import { handleAgentError } from "../lib/error-handler";
 import { logLlmUsage } from "../lib/llm-usage";
-import { createLLM, type LLMProvider } from "../lib/llm";
+import { createLLM } from "../lib/llm";
 import {
   type OrchestratorState,
   orchestratorChannels,
@@ -44,7 +44,7 @@ import { ORCHESTRATOR_SYSTEM_PROMPT } from "../prompts";
 async function routerNode(
   state: OrchestratorState,
 ): Promise<Partial<OrchestratorState>> {
-  const tools = getOrchestratorTools();
+  const tools = await getOrchestratorTools({ userId: state.userId });
   const router = createRouterAgent(tools, {
     currentDate: state.currentDate,
   });
@@ -213,8 +213,8 @@ async function toolExecutorNode(
         }
 
         default:
-          // Try to find the tool in the registry
-          const tools = getOrchestratorTools();
+          // Try to find the tool in the registry (includes Composio tools)
+          const tools = await getOrchestratorTools({ userId: state.userId });
           const tool = tools.find((t) => t.name === call.name);
           if (tool) {
             result = await tool.invoke(
@@ -374,7 +374,7 @@ async function synthesizeNode(
   state: OrchestratorState,
 ): Promise<Partial<OrchestratorState>> {
   const llm = createLLM({
-    provider: (process.env.LLM_PROVIDER as LLMProvider) || "anthropic",
+    model: process.env.LLM_MODEL,
     temperature: 0.7,
   });
 

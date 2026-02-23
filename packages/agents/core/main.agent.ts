@@ -1,12 +1,11 @@
 import { createDeepAgent, type SubAgent } from "deepagents";
-import { createLLM, type LLMProvider } from "../lib/llm";
+import { createLLM } from "../lib/llm";
 import { getCurrentDate, getCurrentDateWithDay } from "../lib/date-utils";
 import { handleAgentError } from "../lib/error-handler";
 import { createSafeAgentInvoker } from "../lib/agent-invocation";
 import { memorySearchTool } from "../tools";
 import {
   MAIN_AGENT_SYSTEM_PROMPT,
-  DAILY_SUBAGENT_SYSTEM_PROMPT,
   ASK_SUBAGENT_SYSTEM_PROMPT,
 } from "../prompts";
 import {
@@ -20,7 +19,6 @@ import {
 // ═══════════════════════════════════════════════════════════════
 
 interface MainAgentConfig {
-  llmProvider?: LLMProvider;
   model?: string;
   temperature?: number;
   /**
@@ -33,28 +31,6 @@ interface MainAgentConfig {
 // ═══════════════════════════════════════════════════════════════
 // SUBAGENT DEFINITIONS
 // ═══════════════════════════════════════════════════════════════
-
-/**
- * Daily subagent - handles notes, quick questions, and daily check-ins
- * Note: Storage is handled by the calling code, subagents only read via memory_search
- */
-function createDailySubagent(currentDate: string): SubAgent {
-  const systemPrompt = DAILY_SUBAGENT_SYSTEM_PROMPT.replace(
-    /{{currentDate}}/g,
-    currentDate,
-  );
-
-  return {
-    name: "daily-agent",
-    description:
-      "Handles daily check-ins, notes, quick thoughts, tasks, and simple questions about today. " +
-      "Use this agent when the user is logging something, making a note, or asking a quick question. " +
-      "Best for: notes, tasks, reminders, brief reflections, casual daily interactions.",
-    systemPrompt,
-    // Only memory search - storage is handled by calling code
-    tools: [memorySearchTool],
-  };
-}
 
 /**
  * Ask subagent - handles complex questions, research, and pattern analysis
@@ -87,17 +63,11 @@ function createAskSubagent(currentDate: string): SubAgent {
  * @returns A deepagent instance (typed as unknown to avoid deep type inference issues with LangChain)
  */
 export function createMainAgent(config?: MainAgentConfig): unknown {
-  const provider =
-    config?.llmProvider ||
-    (process.env.LLM_PROVIDER as LLMProvider) ||
-    "anthropic";
-
   const currentDate = getCurrentDate();
   const currentDateWithDay = getCurrentDateWithDay();
 
-  // Create the LLM
+  // Create the LLM (OpenRouter only)
   const llm = createLLM({
-    provider,
     model: config?.model,
     temperature: config?.temperature ?? 0.7,
   });
@@ -109,7 +79,6 @@ export function createMainAgent(config?: MainAgentConfig): unknown {
     MAIN_AGENT_SYSTEM_PROMPT.replace(/{{currentDate}}/g, currentDate);
 
   // Create subagents
-  const dailySubagent = createDailySubagent(currentDate);
   const askSubagent = createAskSubagent(currentDate);
 
   // Create the main agent with subagents
@@ -118,7 +87,7 @@ export function createMainAgent(config?: MainAgentConfig): unknown {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- deepagents expects LangChain model type
     model: llm as any,
     systemPrompt,
-    subagents: [dailySubagent, askSubagent],
+    subagents: [askSubagent],
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- deepagents expects LangChain tools type
     tools: [memorySearchTool] as any,
   });
@@ -217,31 +186,6 @@ User message: ${input.userMessage}
     // This won't be reached due to handleAgentError throwing, but TypeScript needs it
     throw error;
   }
-}
-
-/**
- * Process a daily page message
- * Convenience wrapper that sets up daily context
- */
-export async function processDailyPageMessage(params: {
-  userId: string;
-  userMessage: string;
-  currentDate?: string;
-  userEmail?: string;
-}): Promise<MainAgentResult> {
-  const currentDate =
-    params.currentDate || new Date().toISOString().split("T")[0];
-
-  return processMainAgentMessage({
-    userMessage: params.userMessage,
-    context: {
-      page: "daily",
-      userId: params.userId,
-      currentDate,
-      date: currentDate,
-      userEmail: params.userEmail,
-    },
-  });
 }
 
 /**

@@ -27,23 +27,16 @@ export type GradeDocumentsResult = z.infer<typeof GradeDocumentsSchema>;
 const GRADE_PROMPT = ChatPromptTemplate.fromTemplate(GRADE_DOCUMENTS_PROMPT);
 
 export interface GradeDocumentsConfig {
-  llmProvider?: "openai" | "anthropic" | "openrouter";
   model?: string;
   temperature?: number;
   userId?: string;
 }
 
 /**
- * Create a document grader with structured output
+ * Create a document grader with structured output (uses OpenRouter)
  */
 export function createDocumentGrader(config?: GradeDocumentsConfig) {
-  const provider =
-    config?.llmProvider ||
-    (process.env.LLM_PROVIDER as "openai" | "anthropic" | "openrouter") ||
-    "anthropic";
-
   const llm = createLLM({
-    provider,
     model: config?.model,
     temperature: config?.temperature ?? 0.1, // Low temperature for consistent grading
   });

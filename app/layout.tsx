@@ -20,9 +20,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Daily Intelligence",
-  description:
-    "Your personal daily journaling and AI-powered reflection assistant",
+  title: "Decisium",
+  description: "Your personal AI-powered reflection assistant",
   verification: {
     google: "9B93rQYjxzvTPxuG7NK7QKObNkFV2uhhiC8K8A1fy1M",
   },

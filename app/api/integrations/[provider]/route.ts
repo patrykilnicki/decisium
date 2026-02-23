@@ -5,6 +5,7 @@ import {
   createCalendarWatchService,
 } from "@/lib/integrations";
 import { Provider } from "@agents/integrations";
+import { deleteComposioConnectedAccount } from "@agents/lib/composio";
 
 /**
  * GET /api/integrations/[provider]
@@ -120,13 +121,23 @@ export async function DELETE(
       );
     }
 
-    // Stop calendar watch before disconnect (Google Calendar)
-    if (provider === "google_calendar") {
+    // Composio-backed: delete connected account in Composio
+    const metadata = integration.metadata as
+      | Record<string, unknown>
+      | undefined;
+    const composioAccountId = metadata?.composio_connected_account_id as
+      | string
+      | undefined;
+
+    if (composioAccountId) {
+      await deleteComposioConnectedAccount(composioAccountId);
+    } else if (provider === "google_calendar") {
+      // Custom OAuth: stop calendar watch
       const watchService = createCalendarWatchService(supabase);
       await watchService.stopWatch(integration.id);
     }
 
-    // Disconnect
+    // Disconnect (delete local integration)
     await oauthManager.disconnect(integration.id);
 
     return NextResponse.json({

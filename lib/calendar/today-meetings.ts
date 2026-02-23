@@ -12,8 +12,7 @@ export interface TodayMeetingRow {
 
 /**
  * Fetch today's calendar events (meetings) from activity_atoms for a given user and date.
- * Uses the same 3-day window + date filter as the daily page so agent and UI see the same data.
- * Call with admin client from task worker; use getTodayMeetings() from app/actions/daily for request context (user session).
+ * Uses a 3-day window + date filter. Call with admin client from task worker.
  */
 export async function getTodayMeetingsForUser(
   userId: string,
@@ -46,7 +45,7 @@ export async function getTodayMeetingsForUser(
 }
 
 /**
- * Format today's meetings for injection into the daily agent context.
+ * Format today's meetings for injection into agent context.
  */
 export function formatTodayMeetingsForContext(
   meetings: TodayMeetingRow[],

@@ -87,13 +87,6 @@ export async function proxy(request: NextRequest) {
     }
   }
 
-  // Redirect /daily to / (daily is the home page)
-  if (pathname === "/daily") {
-    const url = request.nextUrl.clone();
-    url.pathname = "/";
-    return NextResponse.redirect(url);
-  }
-
   return supabaseResponse;
 }
 

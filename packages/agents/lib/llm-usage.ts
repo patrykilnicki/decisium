@@ -140,28 +140,15 @@ function extractUsageFromResponse(response: unknown): ExtractedUsage | null {
   return null;
 }
 
-/** Zwraca provider (z odpowiedzi lub env), znormalizowany do lowercase pod kątem zapytania do llm_model_prices */
-function resolveProvider(provider?: string): string | undefined {
-  const raw =
-    (typeof provider === "string" && provider.trim() !== ""
-      ? provider
-      : null) ??
-    (typeof process.env.LLM_PROVIDER === "string" &&
-    process.env.LLM_PROVIDER.trim() !== ""
-      ? process.env.LLM_PROVIDER
-      : null);
-  return raw ? raw.toLowerCase().trim() : undefined;
+const DEFAULT_OPENROUTER_MODEL = "openai/gpt-4o";
+
+/** Chat używa wyłącznie OpenRouter – provider zawsze openrouter dla llm_model_prices */
+function resolveProvider(_provider?: string): string {
+  return "openrouter";
 }
 
-/** Domyślne modele w llm_model_prices (zgodne z packages/agents/lib/llm.ts) */
-const DEFAULT_MODELS_BY_PROVIDER: Record<string, string> = {
-  openai: "gpt-4o",
-  anthropic: "claude-sonnet-4-20250514",
-  openrouter: "openai/gpt-4-turbo",
-};
-
-/** Zwraca model (z odpowiedzi, env lub domyślny dla providera) do dopasowania w llm_model_prices */
-function resolveModel(model?: string, provider?: string): string | undefined {
+/** Zwraca model (z odpowiedzi, env lub domyślny OpenRouter) do dopasowania w llm_model_prices */
+function resolveModel(model?: string): string | undefined {
   const raw =
     (typeof model === "string" && model.trim() !== "" ? model : null) ??
     (typeof process.env.LLM_MODEL === "string" &&
@@ -169,9 +156,7 @@ function resolveModel(model?: string, provider?: string): string | undefined {
       ? process.env.LLM_MODEL
       : null);
   if (raw) return raw.trim();
-  if (provider)
-    return DEFAULT_MODELS_BY_PROVIDER[provider.toLowerCase()] ?? undefined;
-  return undefined;
+  return DEFAULT_OPENROUTER_MODEL;
 }
 
 async function fetchModelPrice(params: {
@@ -283,9 +268,9 @@ export async function logLlmUsage(params: {
     if (!userId) return;
 
     const client = params.client ?? createAdminClient();
-    // Provider i model z odpowiedzi lub z env / domyślne – żeby zawsze móc dopasować cenę w llm_model_prices
+    // Chat używa tylko OpenRouter – provider openrouter, model z odpowiedzi lub env
     const provider = resolveProvider(usage.provider);
-    const model = resolveModel(usage.model, provider);
+    const model = resolveModel(usage.model);
 
     // Pobierz cenę modelu z bazy danych (provider/model znormalizowane)
     const price = await fetchModelPrice({
@@ -305,7 +290,7 @@ export async function logLlmUsage(params: {
     if (estimatedCostUsd === null) {
       if (!price) {
         console.warn(
-          `[logLlmUsage] No price found for provider="${provider}", model="${model}". Cost will be null. Add row to llm_model_prices or set LLM_PROVIDER/LLM_MODEL.`,
+          `[logLlmUsage] No price found for provider="${provider}", model="${model}". Cost will be null. Add row to llm_model_prices or set LLM_MODEL.`,
         );
       } else if (price.currency !== "USD") {
         console.warn(

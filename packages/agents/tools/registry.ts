@@ -5,18 +5,13 @@ import {
   embeddingGeneratorTool,
   calendarSearchTool,
 } from "./index";
+import { getComposioToolsForUser } from "../lib/composio";
 
 // ═══════════════════════════════════════════════════════════════
 // TYPE DEFINITIONS
 // ═══════════════════════════════════════════════════════════════
 
-export type AgentType =
-  | "daily"
-  | "root"
-  | "ask"
-  | "summary"
-  | "system"
-  | "orchestrator";
+export type AgentType = "root" | "ask" | "summary" | "system" | "orchestrator";
 
 /**
  * Tool categories for organization and routing decisions
@@ -345,13 +340,6 @@ export function getToolsForAgent(
 
   // Agent-specific tool configurations
   switch (agentType) {
-    case "daily":
-      // Daily agent needs all tools for memory search and storage
-      config.includeMemorySearch = true;
-      config.includeSupabaseStore = true;
-      config.includeEmbeddingGenerator = true;
-      break;
-
     case "root":
     case "ask":
       // Root/Ask agents need all tools
@@ -398,17 +386,29 @@ export function getToolsForAgent(
 }
 
 /**
- * Get all tools for the orchestrator (includes all enabled external tools)
+ * Get all tools for the orchestrator (includes all enabled external tools).
+ * When userId is provided and Composio is configured, merges Composio session
+ * tools so the agent can use Gmail, GitHub, etc. per [Composio Users & Sessions](https://docs.composio.dev/docs/users-and-sessions).
+ *
+ * @param options.userId - Supabase user ID; when set, Composio tools are included (user-scoped)
  */
-export function getOrchestratorTools(options?: {
+export async function getOrchestratorTools(options?: {
+  userId?: string;
   excludeTools?: string[];
   enabledCategories?: ToolCategory[];
-}): DynamicStructuredTool[] {
-  return getToolsForAgent("orchestrator", {
+}): Promise<DynamicStructuredTool[]> {
+  const baseTools = getToolsForAgent("orchestrator", {
     includeExternalTools: true,
     excludeTools: options?.excludeTools,
     enabledCategories: options?.enabledCategories,
   });
+
+  if (options?.userId) {
+    const composioTools = await getComposioToolsForUser(options.userId);
+    return [...baseTools, ...composioTools];
+  }
+
+  return baseTools;
 }
 
 /**

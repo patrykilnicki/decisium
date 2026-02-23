@@ -9,23 +9,16 @@ import { REWRITE_QUERY_PROMPT } from "../prompts";
 const REWRITE_PROMPT = ChatPromptTemplate.fromTemplate(REWRITE_QUERY_PROMPT);
 
 export interface RewriteQueryConfig {
-  llmProvider?: "openai" | "anthropic" | "openrouter";
   model?: string;
   temperature?: number;
   userId?: string;
 }
 
 /**
- * Create a query rewriter
+ * Create a query rewriter (uses OpenRouter)
  */
 export function createQueryRewriter(config?: RewriteQueryConfig) {
-  const provider =
-    config?.llmProvider ||
-    (process.env.LLM_PROVIDER as "openai" | "anthropic" | "openrouter") ||
-    "anthropic";
-
   const llm = createLLM({
-    provider,
     model: config?.model,
     temperature: config?.temperature ?? 0.5, // Moderate temperature for creative reformulation
   });
