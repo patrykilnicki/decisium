@@ -122,7 +122,9 @@ export async function DELETE(
     }
 
     // Composio-backed: delete connected account in Composio
-    const metadata = integration.metadata as Record<string, unknown> | undefined;
+    const metadata = integration.metadata as
+      | Record<string, unknown>
+      | undefined;
     const composioAccountId = metadata?.composio_connected_account_id as
       | string
       | undefined;

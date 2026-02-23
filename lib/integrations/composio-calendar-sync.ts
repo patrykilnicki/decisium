@@ -10,9 +10,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "@/types/supabase";
 import type { ActivityAtomInsert } from "@/types/database";
-import {
-  executeGoogleCalendarListEvents,
-} from "@agents/lib/composio";
+import { executeGoogleCalendarListEvents } from "@agents/lib/composio";
 
 // Google Calendar API event shape (from Composio GOOGLECALENDAR_EVENTS_LIST)
 interface GCalEvent {
@@ -43,7 +41,12 @@ function buildSemanticContent(parts: string[]): string {
   return parts.filter(Boolean).join("\n");
 }
 
-function eventToAtom(event: GCalEvent): Omit<ActivityAtomInsert, "user_id" | "integration_id" | "provider" | "synced_at"> | null {
+function eventToAtom(
+  event: GCalEvent,
+): Omit<
+  ActivityAtomInsert,
+  "user_id" | "integration_id" | "provider" | "synced_at"
+> | null {
   if (!event.id || (!event.start?.dateTime && !event.start?.date)) {
     return null;
   }
@@ -96,7 +99,8 @@ function eventToAtom(event: GCalEvent): Omit<ActivityAtomInsert, "user_id" | "in
       organizer: event.organizer?.email,
       organizerName: event.organizer?.displayName,
       isAllDay: !event.start?.dateTime,
-      isMeeting: participants.length > 0 || !!event.conferenceData?.entryPoints?.length,
+      isMeeting:
+        participants.length > 0 || !!event.conferenceData?.entryPoints?.length,
       eventType: event.eventType,
       visibility: event.visibility,
       calendarId: "primary",
@@ -177,7 +181,10 @@ export async function syncComposioCalendarToSupabase(
   const maxResults = options.batchSize ?? 250;
 
   let pageToken: string | undefined;
-  const allAtoms: Omit<ActivityAtomInsert, "user_id" | "integration_id" | "provider" | "synced_at">[] = [];
+  const allAtoms: Omit<
+    ActivityAtomInsert,
+    "user_id" | "integration_id" | "provider" | "synced_at"
+  >[] = [];
 
   do {
     const response = await executeGoogleCalendarListEvents(
@@ -238,20 +245,18 @@ export async function syncComposioCalendarToSupabase(
   let stored = 0;
 
   for (const atom of allAtoms) {
-    const { error: upsertError } = await supabase
-      .from("activity_atoms")
-      .upsert(
-        {
-          user_id: userId,
-          integration_id: integrationId,
-          provider,
-          ...atom,
-          synced_at: syncedAt,
-        },
-        {
-          onConflict: "user_id,provider,external_id",
-        },
-      );
+    const { error: upsertError } = await supabase.from("activity_atoms").upsert(
+      {
+        user_id: userId,
+        integration_id: integrationId,
+        provider,
+        ...atom,
+        synced_at: syncedAt,
+      },
+      {
+        onConflict: "user_id,provider,external_id",
+      },
+    );
 
     if (!upsertError) {
       stored++;

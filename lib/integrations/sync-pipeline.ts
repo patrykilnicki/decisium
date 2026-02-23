@@ -177,7 +177,9 @@ export class SyncPipeline {
       );
 
       // Composio-backed integrations: use Composio sync path
-      const metadata = integration.metadata as Record<string, unknown> | undefined;
+      const metadata = integration.metadata as
+        | Record<string, unknown>
+        | undefined;
       if (
         metadata?.composio_connected_account_id &&
         integration.provider === "google_calendar"

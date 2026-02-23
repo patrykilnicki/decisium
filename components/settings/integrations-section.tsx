@@ -131,9 +131,7 @@ export function IntegrationsSection() {
       setNotification({
         type: "error",
         message:
-          errorDescription ||
-          messages[error] ||
-          `Connection failed: ${error}`,
+          errorDescription || messages[error] || `Connection failed: ${error}`,
       });
       router.replace("/settings");
     }

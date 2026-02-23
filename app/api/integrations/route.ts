@@ -2,10 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createOAuthManager } from "@/lib/integrations";
 import { getAppUrl } from "@/lib/utils/app-url";
-import {
-  getComposioConnectUrl,
-  isComposioEnabled,
-} from "@agents/lib/composio";
+import { getComposioConnectUrl, isComposioEnabled } from "@agents/lib/composio";
 
 /**
  * GET /api/integrations
@@ -89,15 +86,16 @@ export async function POST(request: NextRequest) {
     }
 
     // Google Calendar: use Composio when configured
-    if (
-      provider === "google_calendar" &&
-      isComposioEnabled()
-    ) {
+    if (provider === "google_calendar" && isComposioEnabled()) {
       const baseUrl = getAppUrl(request);
       const callbackUrl = `${baseUrl}/api/integrations/composio/callback`;
-      const redirectUrl = await getComposioConnectUrl(user.id, "GOOGLECALENDAR", {
-        callbackUrl,
-      });
+      const redirectUrl = await getComposioConnectUrl(
+        user.id,
+        "GOOGLECALENDAR",
+        {
+          callbackUrl,
+        },
+      );
       if (redirectUrl) {
         const response = NextResponse.json({
           authorizationUrl: redirectUrl,

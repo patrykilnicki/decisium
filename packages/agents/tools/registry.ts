@@ -11,12 +11,7 @@ import { getComposioToolsForUser } from "../lib/composio";
 // TYPE DEFINITIONS
 // ═══════════════════════════════════════════════════════════════
 
-export type AgentType =
-  | "root"
-  | "ask"
-  | "summary"
-  | "system"
-  | "orchestrator";
+export type AgentType = "root" | "ask" | "summary" | "system" | "orchestrator";
 
 /**
  * Tool categories for organization and routing decisions

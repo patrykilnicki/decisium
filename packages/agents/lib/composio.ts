@@ -50,7 +50,10 @@ function getComposioServerClient(): Composio | null {
     });
     return composioServerClient;
   } catch (err) {
-    console.warn("[composio] Failed to initialize Composio server client:", err);
+    console.warn(
+      "[composio] Failed to initialize Composio server client:",
+      err,
+    );
     return null;
   }
 }
@@ -177,12 +180,19 @@ export async function listComposioConnectedAccounts(
       statuses: ["ACTIVE"],
       ...(toolkit && { toolkitSlugs: [toolkit] }),
     });
-    return (result.items ?? []).map((item: { id: string; status: string; toolkit?: { slug?: string }; appName?: string }) => ({
-      id: item.id,
-      status: item.status,
-      toolkit: item.toolkit,
-      appName: item.appName,
-    }));
+    return (result.items ?? []).map(
+      (item: {
+        id: string;
+        status: string;
+        toolkit?: { slug?: string };
+        appName?: string;
+      }) => ({
+        id: item.id,
+        status: item.status,
+        toolkit: item.toolkit,
+        appName: item.appName,
+      }),
+    );
   } catch (err) {
     console.warn(
       `[composio] Failed to list connected accounts for user:`,

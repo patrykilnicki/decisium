@@ -70,8 +70,7 @@ export async function GET(request: NextRequest) {
     }
 
     const connectedAccount = accounts[0];
-    const resolvedProvider =
-      TOOLKIT_TO_PROVIDER[toolkit] ?? "google_calendar";
+    const resolvedProvider = TOOLKIT_TO_PROVIDER[toolkit] ?? "google_calendar";
 
     const typedSupabase =
       supabase as import("@supabase/supabase-js").SupabaseClient<Database>;
@@ -88,7 +87,8 @@ export async function GET(request: NextRequest) {
       metadata: {
         composio_connected_account_id: connectedAccount.id,
       },
-      external_email: (connectedAccount as { appName?: string }).appName ?? null,
+      external_email:
+        (connectedAccount as { appName?: string }).appName ?? null,
       connected_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     } as {
@@ -118,7 +118,8 @@ export async function GET(request: NextRequest) {
           provider: resolvedProvider,
           status: "active",
           metadata,
-          external_email: (connectedAccount as { appName?: string }).appName ?? null,
+          external_email:
+            (connectedAccount as { appName?: string }).appName ?? null,
           connected_at: new Date().toISOString(),
         })
         .select("id")

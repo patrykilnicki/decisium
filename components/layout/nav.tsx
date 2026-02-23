@@ -91,7 +91,8 @@ export function Nav() {
       {/* Nav items */}
       <nav className="flex flex-col gap-4" aria-label="Navigation links">
         {navItems.map((item) => {
-          const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
+          const isActive =
+            pathname === item.href || pathname.startsWith(`${item.href}/`);
           return (
             <Link
               key={item.name}
