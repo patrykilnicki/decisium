@@ -61,6 +61,24 @@ function getComposioServerClient(): Composio | null {
   }
 }
 
+/** Get base app URL for Composio callbacks (in-chat auth redirect). */
+function getBaseAppUrl(): string {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+  if (appUrl) return appUrl.replace(/\/$/, "");
+  const vercelBranch = process.env.VERCEL_BRANCH_URL;
+  if (vercelBranch) return `https://${vercelBranch}`;
+  const vercelUrl = process.env.VERCEL_URL;
+  if (vercelUrl) return `https://${vercelUrl}`;
+  return "http://localhost:3000";
+}
+
+export interface GetComposioToolsOptions {
+  /** Callback URL for in-chat auth (user redirect after OAuth). Default: {baseUrl}/ask */
+  callbackUrl?: string;
+  /** Restrict to specific toolkits. Default: GOOGLECALENDAR, GMAIL */
+  toolkits?: string[];
+}
+
 /**
  * Get Composio tools for a given user.
  *
@@ -68,19 +86,33 @@ function getComposioServerClient(): Composio | null {
  * Each user must connect their external accounts (Gmail, GitHub, etc.)
  * via Composio's Connect Link before tools can execute.
  *
+ * Per [In-chat authentication](https://docs.composio.dev/docs/authenticating-users/in-chat-authentication),
+ * pass manageConnections.callbackUrl so users land in chat after OAuth.
+ *
  * @param userId - Supabase auth user ID (user.id)
+ * @param options - Session options: callbackUrl, toolkits
  * @returns LangChain-compatible tools, or empty array if Composio is not configured
  */
 export async function getComposioToolsForUser(
   userId: string,
+  options?: GetComposioToolsOptions,
 ): Promise<DynamicStructuredTool[]> {
   const client = getComposioClient();
   if (!client) {
     return [];
   }
 
+  const baseUrl = getBaseAppUrl();
+  const callbackUrl = options?.callbackUrl ?? `${baseUrl}/ask`;
+  const toolkits = options?.toolkits ?? ["GOOGLECALENDAR", "GMAIL"];
+
   try {
-    const session = await client.create(userId);
+    const session = await client.create(userId, {
+      manageConnections: {
+        callbackUrl,
+      },
+      toolkits,
+    });
     const tools = await session.tools();
 
     if (!Array.isArray(tools)) {

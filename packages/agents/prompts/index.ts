@@ -8,8 +8,6 @@ export {
   ROOT_AGENT_SYSTEM_PROMPT,
   ORCHESTRATOR_SYSTEM_PROMPT,
   ROUTER_SYSTEM_PROMPT,
-  GRADE_DOCUMENTS_PROMPT,
-  REWRITE_QUERY_PROMPT,
   replacePromptVariables,
   getPromptWithDate,
 } from "./prompts-embedded";

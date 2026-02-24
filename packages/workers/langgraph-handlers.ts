@@ -1,4 +1,3 @@
-import { END } from "@langchain/langgraph";
 import type { RootGraphState } from "@/packages/agents/core/root.agent";
 import {
   memoryRetrieverNode,
@@ -6,16 +5,7 @@ import {
   saveAssistantMessageNode,
   saveUserMessageNode,
 } from "@/packages/agents/core/root.agent";
-import type { OrchestratorState } from "@/packages/agents/schemas/orchestrator.schema";
-import {
-  gradeDocsNode,
-  rewriteNode,
-  routeOrchestrator,
-  routerNode,
-  saveMessagesNode,
-  synthesizeNode,
-  toolExecutorNode,
-} from "@/packages/agents/core/orchestrator.agent";
+import { processOrchestratorMessage } from "@/packages/agents/core/orchestrator.agent";
 import type {
   TaskExecutionResult,
   TaskInsert,
@@ -66,27 +56,6 @@ function getRootNextTaskType(taskType: TaskType): TaskType | null {
   }
 }
 
-function getOrchestratorNextTaskType(route: string): TaskType | null {
-  switch (route) {
-    case "router":
-      return "orchestrator.router";
-    case "toolExecutor":
-      return "orchestrator.tool_executor";
-    case "gradeDocuments":
-      return "orchestrator.grade_documents";
-    case "rewriteQuery":
-      return "orchestrator.rewrite_query";
-    case "synthesize":
-      return "orchestrator.synthesize";
-    case "saveMessages":
-      return "orchestrator.save_messages";
-    case END:
-      return null;
-    default:
-      return null;
-  }
-}
-
 export async function handleTask(
   task: TaskRow,
   options?: { jobId?: string },
@@ -97,8 +66,8 @@ export async function handleTask(
   if (taskType.startsWith("root.")) {
     return handleRootTask(task, taskType, { client, jobId });
   }
-  if (taskType.startsWith("orchestrator.")) {
-    return handleOrchestratorTask(task, taskType, { client, jobId });
+  if (taskType === "orchestrator.invoke") {
+    return handleOrchestratorInvoke(task, { client, jobId });
   }
   throw new Error(`Unknown task type: ${taskType}`);
 }
@@ -171,90 +140,54 @@ async function handleRootTask(
   };
 }
 
-async function handleOrchestratorTask(
+/**
+ * Handle orchestrator.invoke: run the full Composio graph in one task.
+ * Uses official agent-tools-agent loop for multi-round tool execution.
+ */
+async function handleOrchestratorInvoke(
   task: TaskRow,
-  taskType: TaskType,
   options: { client: SupabaseClient<Database>; jobId: string },
 ): Promise<TaskExecutionResult> {
-  const state = getTaskState<OrchestratorState>(task);
-  let partialState: Partial<OrchestratorState> = {};
+  const state = getTaskState<{
+    userId: string;
+    threadId: string;
+    userMessage: string;
+    currentDate?: string;
+    userEmail?: string;
+    conversationHistory?: string;
+    userMessageId?: string;
+  }>(task);
 
-  switch (taskType) {
-    case "orchestrator.router":
-      partialState = await runNodeWithEvents({
-        client: options.client,
-        task,
-        jobId: options.jobId,
-        nodeKey: taskType,
-        handler: () => routerNode(state),
-      });
-      break;
-    case "orchestrator.tool_executor":
-      partialState = await runNodeWithEvents({
-        client: options.client,
-        task,
-        jobId: options.jobId,
-        nodeKey: taskType,
-        handler: () => toolExecutorNode(state),
-      });
-      break;
-    case "orchestrator.grade_documents":
-      partialState = await runNodeWithEvents({
-        client: options.client,
-        task,
-        jobId: options.jobId,
-        nodeKey: taskType,
-        handler: () => gradeDocsNode(state),
-      });
-      break;
-    case "orchestrator.rewrite_query":
-      partialState = await runNodeWithEvents({
-        client: options.client,
-        task,
-        jobId: options.jobId,
-        nodeKey: taskType,
-        handler: () => rewriteNode(state),
-      });
-      break;
-    case "orchestrator.synthesize":
-      partialState = await runNodeWithEvents({
-        client: options.client,
-        task,
-        jobId: options.jobId,
-        nodeKey: taskType,
-        handler: () => synthesizeNode(state),
-      });
-      break;
-    case "orchestrator.save_messages":
-      partialState = await runNodeWithEvents({
-        client: options.client,
-        task,
-        jobId: options.jobId,
-        nodeKey: taskType,
-        handler: () => saveMessagesNode(state),
-      });
-      break;
-  }
-
-  const nextState: OrchestratorState = { ...state, ...partialState };
-  const nextRoute = routeOrchestrator(nextState);
-  const nextTaskType = getOrchestratorNextTaskType(nextRoute);
-
-  if (!nextTaskType) {
-    return { output: { state: nextState } };
-  }
+  const result = await runNodeWithEvents({
+    client: options.client,
+    task,
+    jobId: options.jobId,
+    nodeKey: "orchestrator.invoke",
+    handler: () =>
+      processOrchestratorMessage({
+        userId: state.userId,
+        threadId: state.threadId,
+        userMessage: state.userMessage,
+        currentDate: state.currentDate,
+        userEmail: state.userEmail,
+        conversationHistory: state.conversationHistory,
+      }),
+  });
 
   return {
-    output: { state: nextState },
-    nextTasks: [
-      buildNextTask({
-        parentTaskId: task.id,
-        userId: task.user_id,
-        sessionId: task.session_id,
-        taskType: nextTaskType,
-        state: nextState,
-      }),
-    ],
+    output: {
+      state: {
+        ...state,
+        agentResponse: result.agentResponse,
+        userMessageId: result.userMessageId ?? state.userMessageId,
+        assistantMessageId: result.assistantMessageId,
+        toolsUsed: result.toolsUsed,
+      },
+      agentResponse: result.agentResponse,
+      userMessageId: result.userMessageId,
+      assistantMessageId: result.assistantMessageId,
+      toolsUsed: result.toolsUsed,
+    },
   };
 }
 

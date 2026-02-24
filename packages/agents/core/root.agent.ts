@@ -366,11 +366,13 @@ export const rootAgent: RootAgentInvokable = createRootAgent();
 // ═══════════════════════════════════════════════════════════════
 
 /**
- * Create the agentic root graph using the orchestrator
- * This uses autonomous tool selection and document grading
+ * Create the agentic root graph using the orchestrator (Composio official pattern).
+ * Requires userId to fetch user-scoped Composio tools.
  */
-export function createAgenticRootGraph() {
-  return createOrchestratorGraph();
+export async function createAgenticRootGraph(userId: string) {
+  const { getOrchestratorTools } = await import("../tools/registry");
+  const tools = await getOrchestratorTools({ userId });
+  return createOrchestratorGraph(tools);
 }
 
 /**
@@ -436,13 +438,14 @@ export async function processRootMessage(
 }
 
 /**
- * Get the appropriate graph based on current mode
+ * Get the appropriate graph based on current mode.
+ * For agentic mode, userId is required (Composio tools are user-scoped).
  */
-export function getRootGraph(mode?: AgentMode) {
+export async function getRootGraph(mode?: AgentMode, userId?: string) {
   const effectiveMode = mode || getAgentMode();
 
-  if (effectiveMode === "agentic") {
-    return createAgenticRootGraph();
+  if (effectiveMode === "agentic" && userId) {
+    return createAgenticRootGraph(userId);
   }
 
   return createRootMessageGraph();
