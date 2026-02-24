@@ -10,7 +10,10 @@ import type {
   UseChatReturn,
 } from "./types";
 import type { TaskType } from "@/lib/tasks/task-definitions";
-import { getTaskStepLabel } from "@/packages/agents/lib/step-mappings";
+import {
+  getDynamicStepLabel,
+  getTaskStepLabel,
+} from "@/packages/agents/lib/step-mappings";
 import type { TaskEventRecord } from "@/lib/tasks/task-events";
 
 const initialThinkingState: ThinkingState = {
@@ -111,7 +114,10 @@ export function useChat({
       >();
 
       latestEvents.forEach((event) => {
-        if (!event.eventType.startsWith("node_")) return;
+        const isNodeEvent = event.eventType.startsWith("node_");
+        const isToolEvent = event.eventType.startsWith("tool_");
+        if (!isNodeEvent && !isToolEvent) return;
+
         const payloadTaskType = getPayloadValue<string>(
           event.payload,
           "taskType",
@@ -121,14 +127,31 @@ export function useChat({
           (typeof payloadTaskType === "string" ? payloadTaskType : "");
         if (!nodeKey) return;
 
-        const stepId = nodeKey;
-        const label = getTaskStepLabel(nodeKey as TaskType);
+        const toolCallId = getPayloadValue<string>(event.payload, "toolCallId");
+        const toolCallKey = getPayloadValue<string>(
+          event.payload,
+          "toolCallKey",
+        );
+        const toolName = getPayloadValue<string>(event.payload, "toolName");
+        const stepId = isToolEvent
+          ? `tool:${toolCallId ?? toolCallKey ?? toolName ?? event.id}`
+          : nodeKey;
+        const fallbackLabel = isNodeEvent
+          ? getTaskStepLabel(nodeKey as TaskType)
+          : "Using tool";
+        const label = getDynamicStepLabel({
+          eventType: event.eventType,
+          fallbackLabel,
+          payload: event.payload,
+        });
         const timestamp = new Date(event.createdAt).getTime();
         const existing = stepsById.get(stepId);
         const status =
-          event.eventType === "node_started"
+          event.eventType === "node_started" ||
+          event.eventType === "tool_started"
             ? "running"
-            : event.eventType === "node_completed"
+            : event.eventType === "node_completed" ||
+                event.eventType === "tool_completed"
               ? "completed"
               : "error";
 
@@ -238,7 +261,9 @@ export function useChat({
 
       const latestJobEvents = getLatestJobEvents(latestEvents);
       const failedEvents = latestJobEvents.filter(
-        (event) => event.eventType === "node_failed",
+        (event) =>
+          event.eventType === "node_failed" ||
+          event.eventType === "tool_failed",
       );
       const failedIds = Array.from(
         new Set(failedEvents.map((event) => event.taskId)),
@@ -249,6 +274,7 @@ export function useChat({
         .reverse()
         .find(
           (event) =>
+            event.eventType === "tool_failed" ||
             event.eventType === "node_failed" ||
             event.eventType === "job_failed",
         );
