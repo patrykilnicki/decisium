@@ -16,6 +16,7 @@ export const GradeDocumentsSchema = z.object({
   reasoning: z
     .string()
     .optional()
+    .nullable()
     .describe("Brief explanation for the grading decision"),
 });
 
@@ -134,7 +135,7 @@ export async function gradeDocumentsNode<
 
     return {
       gradingResult: routeDecision === "generate" ? "relevant" : "irrelevant",
-      gradingReasoning: grade.reasoning,
+      gradingReasoning: grade.reasoning ?? undefined,
     };
   } catch (error) {
     console.error("[gradeDocumentsNode] Error during grading:", error);
