@@ -26,6 +26,10 @@ function getComposioClient(): Composio | null {
     composioClient = new Composio({
       apiKey,
       provider: new LangchainProvider(),
+      toolkitVersions: {
+        GOOGLECALENDAR: "20260217_00",
+        GMAIL: "20260223_00",
+      },
     }) as unknown as Composio;
     return composioClient;
   } catch (err) {

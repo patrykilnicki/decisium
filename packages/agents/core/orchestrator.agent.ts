@@ -20,6 +20,10 @@ import {
   createInitialOrchestratorState,
 } from "../schemas/orchestrator.schema";
 import { ORCHESTRATOR_SYSTEM_PROMPT } from "../prompts";
+import {
+  listComposioConnectedAccounts,
+  isComposioEnabled,
+} from "../lib/composio";
 
 // ═══════════════════════════════════════════════════════════════
 // NODE IMPLEMENTATIONS
@@ -40,10 +44,14 @@ async function agentNode(
   });
   const llmWithTools = llm.bindTools(tools);
 
+  const connectedServicesText =
+    state.connectedServices ??
+    "No external services connected. Use COMPOSIO_MANAGE_CONNECTIONS if the user asks about calendar or email.";
+
   const systemPrompt = ORCHESTRATOR_SYSTEM_PROMPT.replace(
     /{{currentDate}}/g,
     state.currentDate,
-  );
+  ).replace(/{{connectedServices}}/g, connectedServicesText);
 
   // Build messages: SystemMessage + conversation (Human, AI, Tool, ...)
   const messagesToSend: BaseMessage[] = [
@@ -331,9 +339,32 @@ export interface OrchestratorMessageResult {
 }
 
 /**
- * Process a message through the orchestrator.
- * Uses official Composio pattern: agent-tools-agent loop for multi-round tool execution.
+ * Build a human-readable summary of which Composio toolkits are connected.
+ * This is injected into the system prompt so the agent knows what's available
+ * without needing to call COMPOSIO_SEARCH_TOOLS (which burns iterations).
  */
+async function buildConnectedServicesText(userId: string): Promise<string> {
+  if (!isComposioEnabled()) return "Composio not configured.";
+
+  const TOOLKITS = [
+    { slug: "GOOGLECALENDAR", label: "Google Calendar" },
+    { slug: "GMAIL", label: "Gmail" },
+  ] as const;
+
+  const lines: string[] = [];
+  for (const { slug, label } of TOOLKITS) {
+    try {
+      const accounts = await listComposioConnectedAccounts(userId, slug);
+      const status = accounts.length > 0 ? "CONNECTED" : "NOT CONNECTED";
+      lines.push(`- ${label}: ${status}`);
+    } catch {
+      lines.push(`- ${label}: UNKNOWN`);
+    }
+  }
+
+  return lines.join("\n");
+}
+
 export async function processOrchestratorMessage(input: {
   userId: string;
   threadId: string;
@@ -343,13 +374,19 @@ export async function processOrchestratorMessage(input: {
   conversationHistory?: string;
   callbackUrl?: string;
 }): Promise<OrchestratorMessageResult> {
-  const tools = await getOrchestratorTools({
-    userId: input.userId,
-    callbackUrl: input.callbackUrl,
-  });
+  const [tools, connectedServices] = await Promise.all([
+    getOrchestratorTools({
+      userId: input.userId,
+      callbackUrl: input.callbackUrl,
+    }),
+    buildConnectedServicesText(input.userId),
+  ]);
 
   const graph = createOrchestratorGraph(tools);
-  const initialState = createInitialOrchestratorState(input);
+  const initialState = createInitialOrchestratorState({
+    ...input,
+    connectedServices,
+  });
 
   const result = await graph.invoke(initialState);
 

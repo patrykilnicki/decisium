@@ -176,49 +176,65 @@ export class SyncPipeline {
         `[sync-pipeline] Integration found: ${integration.provider}, status: ${integration.status}`,
       );
 
-      // Composio-backed integrations: use Composio sync path
+      // Composio-backed integrations: use Composio sync path (or no-op for Gmail)
       const metadata = integration.metadata as
         | Record<string, unknown>
         | undefined;
-      if (
-        metadata?.composio_connected_account_id &&
-        integration.provider === "google_calendar"
-      ) {
-        console.log(
-          `[sync-pipeline] Using Composio sync for integration ${integrationId}`,
-        );
-        const composioResult = await syncComposioCalendarToSupabase(
-          this.supabase,
-          integrationId,
-          {
-            fullSync: options.fullSync,
-            since: options.since,
-            until: options.until,
-            batchSize: options.batchSize,
-          },
-        );
-        progress.atomsProcessed = composioResult.atomsProcessed;
-        progress.atomsStored = composioResult.atomsStored;
-        progress.hasMore = composioResult.hasMore;
-        progress.status = composioResult.error ? "error" : "completed";
-        progress.error = composioResult.error;
-        progress.completedAt = new Date();
+      if (metadata?.composio_connected_account_id) {
+        if (integration.provider === "google_calendar") {
+          console.log(
+            `[sync-pipeline] Using Composio sync for integration ${integrationId}`,
+          );
+          const composioResult = await syncComposioCalendarToSupabase(
+            this.supabase,
+            integrationId,
+            {
+              fullSync: options.fullSync,
+              since: options.since,
+              until: options.until,
+              batchSize: options.batchSize,
+            },
+          );
+          progress.atomsProcessed = composioResult.atomsProcessed;
+          progress.atomsStored = composioResult.atomsStored;
+          progress.hasMore = composioResult.hasMore;
+          progress.status = composioResult.error ? "error" : "completed";
+          progress.error = composioResult.error;
+          progress.completedAt = new Date();
 
-        if (!composioResult.error) {
+          if (!composioResult.error) {
+            await this.oauthManager.updateSyncStatus(
+              integrationId,
+              "success",
+              undefined,
+            );
+          } else {
+            await this.oauthManager.updateSyncStatus(
+              integrationId,
+              "error",
+              undefined,
+              composioResult.error,
+            );
+          }
+          return progress;
+        }
+
+        // Composio-backed Gmail: tokens live in Composio, not in integration_credentials.
+        // Pipeline sync for Gmail (bulk import to atoms) is not implemented yet; agents use
+        // Composio tools in-chat. Mark sync success so connection does not show as failed.
+        if (integration.provider === "gmail") {
+          console.log(
+            `[sync-pipeline] Composio-backed Gmail ${integrationId}: no pipeline sync (use in-chat tools); marking success`,
+          );
+          progress.status = "completed";
+          progress.completedAt = new Date();
           await this.oauthManager.updateSyncStatus(
             integrationId,
             "success",
             undefined,
           );
-        } else {
-          await this.oauthManager.updateSyncStatus(
-            integrationId,
-            "error",
-            undefined,
-            composioResult.error,
-          );
+          return progress;
         }
-        return progress;
       }
 
       // Get authenticated adapter (custom OAuth integrations)
