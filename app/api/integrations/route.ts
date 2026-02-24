@@ -85,22 +85,23 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Google Calendar: exclusively via Composio
-    if (provider === "google_calendar") {
+    // Google Calendar & Gmail: exclusively via Composio
+    if (provider === "google_calendar" || provider === "gmail") {
       if (!isComposioEnabled()) {
         return NextResponse.json(
-          { error: "Google Calendar requires Composio to be configured" },
+          {
+            error: `${provider === "gmail" ? "Gmail" : "Google Calendar"} requires Composio to be configured`,
+          },
           { status: 503 },
         );
       }
 
+      const toolkit = provider === "gmail" ? "GMAIL" : "GOOGLECALENDAR";
       const baseUrl = getAppUrl(request);
       const callbackUrl = `${baseUrl}/api/integrations/composio/callback`;
-      const redirectUrl = await getComposioConnectUrl(
-        user.id,
-        "GOOGLECALENDAR",
-        { callbackUrl },
-      );
+      const redirectUrl = await getComposioConnectUrl(user.id, toolkit, {
+        callbackUrl,
+      });
 
       if (!redirectUrl) {
         return NextResponse.json(

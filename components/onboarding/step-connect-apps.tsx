@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -75,6 +75,11 @@ function GmailIcon() {
   );
 }
 
+interface IntegrationItem {
+  provider: string;
+  status?: string;
+}
+
 interface StepConnectAppsProps {
   onComplete: () => void;
 }
@@ -98,11 +103,34 @@ export function StepConnectApps({ onComplete }: StepConnectAppsProps) {
   ]);
   const [isLoading, setIsLoading] = useState<string | null>(null);
 
+  useEffect(() => {
+    fetch("/api/integrations")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!data?.integrations) return;
+        const integrations = data.integrations as IntegrationItem[];
+        const byProvider = new Map(integrations.map((i) => [i.provider, i]));
+        setApps((prev) =>
+          prev.map((app) => {
+            const provider =
+              app.id === "google-calendar" ? "google_calendar" : app.id;
+            const integration = byProvider.get(provider);
+            return {
+              ...app,
+              connected: integration?.status === "active",
+            };
+          }),
+        );
+      })
+      .catch(() => {});
+  }, []);
+
   async function handleConnect(appId: string) {
     setIsLoading(appId);
 
-    const provider = appId === "google-calendar" ? "google_calendar" : appId;
-    if (provider !== "google_calendar") {
+    const provider =
+      appId === "google-calendar" ? "google_calendar" : appId === "gmail" ? "gmail" : null;
+    if (!provider) {
       setApps((prev) =>
         prev.map((app) =>
           app.id === appId ? { ...app, connected: !app.connected } : app,

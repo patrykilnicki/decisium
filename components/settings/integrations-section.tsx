@@ -34,7 +34,6 @@ const INTEGRATIONS_CONFIG = [
     displayName: "Gmail",
     description: "Sync emails and communication history",
     icon: <Mail className="h-6 w-6" />,
-    disabled: true, // Coming soon
   },
   {
     provider: "notion",
