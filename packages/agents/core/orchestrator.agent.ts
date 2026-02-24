@@ -20,7 +20,10 @@ import {
   createInitialOrchestratorState,
 } from "../schemas/orchestrator.schema";
 import { ORCHESTRATOR_SYSTEM_PROMPT } from "../prompts";
-import { listComposioConnectedAccounts, isComposioEnabled } from "../lib/composio";
+import {
+  listComposioConnectedAccounts,
+  isComposioEnabled,
+} from "../lib/composio";
 
 // ═══════════════════════════════════════════════════════════════
 // NODE IMPLEMENTATIONS
