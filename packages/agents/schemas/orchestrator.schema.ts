@@ -90,6 +90,9 @@ export interface OrchestratorState {
   nextRoute?: RouteDecision;
   iterationCount: number;
   maxIterations: number;
+
+  // Connected external services (e.g. "Google Calendar: CONNECTED, Gmail: NOT CONNECTED")
+  connectedServices?: string;
 }
 
 /**
@@ -103,6 +106,7 @@ export function createInitialOrchestratorState(input: {
   currentDate?: string;
   userEmail?: string;
   conversationHistory?: string;
+  connectedServices?: string;
 }): OrchestratorState {
   const contextParts: string[] = [];
   if (input.conversationHistory) {
@@ -124,7 +128,8 @@ export function createInitialOrchestratorState(input: {
     rewriteCount: 0,
     maxRewrites: 2,
     iterationCount: 0,
-    maxIterations: 5,
+    maxIterations: 10,
+    connectedServices: input.connectedServices,
   };
 }
 
@@ -185,6 +190,7 @@ export const OrchestratorStateSchema = z.object({
   nextRoute: z.enum(["tools", "saveMessages", "end"]).optional(),
   iterationCount: z.number(),
   maxIterations: z.number(),
+  connectedServices: z.string().optional(),
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -275,7 +281,10 @@ export const orchestratorChannels = {
       y ?? x,
   },
   iterationCount: { reducer: (x: number, y: number) => y ?? x ?? 0 },
-  maxIterations: { reducer: (x: number, y: number) => y ?? x ?? 5 },
+  maxIterations: { reducer: (x: number, y: number) => y ?? x ?? 10 },
+  connectedServices: {
+    reducer: (x: string | undefined, y: string | undefined) => y ?? x,
+  },
 };
 
 export type OrchestratorChannels = typeof orchestratorChannels;
