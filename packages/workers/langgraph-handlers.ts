@@ -5,7 +5,10 @@ import {
   saveAssistantMessageNode,
   saveUserMessageNode,
 } from "@/packages/agents/core/root.agent";
-import { processOrchestratorMessage } from "@/packages/agents/core/orchestrator.agent";
+import {
+  processOrchestratorMessage,
+  type OrchestratorToolEvent,
+} from "@/packages/agents/core/orchestrator.agent";
 import type {
   TaskExecutionResult,
   TaskInsert,
@@ -159,6 +162,30 @@ async function handleOrchestratorInvoke(
     preferredModel?: string;
   }>(task);
 
+  async function onToolEvent(event: OrchestratorToolEvent): Promise<void> {
+    await createTaskEvent(options.client, {
+      taskId: task.id,
+      sessionId: task.session_id,
+      userId: task.user_id,
+      eventType: event.eventType,
+      nodeKey: "orchestrator.invoke",
+      eventKeySuffix: `${event.toolCallId}:${event.eventType}`,
+      payload: {
+        jobId: options.jobId,
+        taskId: task.id,
+        sessionId: task.session_id,
+        taskType: task.task_type,
+        toolName: event.toolName,
+        toolCallId: event.toolCallId,
+        toolCallKey: event.toolCallKey,
+        callIndex: event.callIndex,
+        action: event.action,
+        displayLabel: event.displayLabel,
+        ...(event.error ? { error: event.error } : {}),
+      },
+    });
+  }
+
   const result = await runNodeWithEvents({
     client: options.client,
     task,
@@ -173,6 +200,7 @@ async function handleOrchestratorInvoke(
         userEmail: state.userEmail,
         conversationHistory: state.conversationHistory,
         preferredModel: state.preferredModel,
+        onToolEvent,
       }),
   });
 
