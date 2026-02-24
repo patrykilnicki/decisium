@@ -154,7 +154,7 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
 
   useEffect(() => {
     if (!userId) {
-      setCalendarEvents([]);
+      queueMicrotask(() => setCalendarEvents([]));
       return;
     }
 
