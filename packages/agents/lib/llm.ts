@@ -33,10 +33,12 @@ export function createLLM(config: LLMConfig = {}): ChatModel {
   return new ChatOpenAI({
     modelName: model,
     temperature,
-    openAIApiKey: resolvedKey,
+    // ChatOpenAI reads apiKey from configuration (or fields.apiKey), not openAIApiKey when using custom baseURL
     configuration: {
+      apiKey: resolvedKey,
       baseURL: "https://openrouter.ai/api/v1",
       defaultHeaders: {
+        "Authorization": `Bearer ${resolvedKey}`,
         "HTTP-Referer": process.env.NEXT_PUBLIC_APP_URL || "",
         "X-Title": "Decisium",
       },
