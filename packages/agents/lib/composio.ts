@@ -419,7 +419,10 @@ export async function ensureComposioWebhookSubscription(
         },
         body: JSON.stringify({
           webhook_url: webhookUrl,
-          enabled_events: ["composio.trigger.message"],
+          enabled_events: [
+            "composio.trigger.message",
+            "composio.connected_account.expired",
+          ],
         }),
       },
     );

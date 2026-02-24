@@ -19,6 +19,14 @@ interface CalendarEvent {
   color: "indigo" | "green";
 }
 
+interface CalendarEventRow {
+  id: string;
+  title: string | null;
+  occurred_at: string;
+  duration_minutes: number | null;
+  categories: string[] | null;
+}
+
 const TASKS = [
   {
     id: "1",
@@ -151,6 +159,7 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
     }
 
     async function fetchCalendarEvents() {
+      if (!userId) return;
       setCalendarLoading(true);
       const supabase = createClient();
       const start = new Date(selectedDate);
@@ -172,7 +181,9 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
         console.error("[HomeContent] Failed to fetch calendar events:", error);
         setCalendarEvents([]);
       } else {
-        const events: CalendarEvent[] = (data ?? []).map((row) => ({
+        const events: CalendarEvent[] = (
+          (data ?? []) as CalendarEventRow[]
+        ).map((row) => ({
           id: row.id,
           title: row.title ?? "Untitled event",
           time: formatTimeRange(row.occurred_at, row.duration_minutes),
