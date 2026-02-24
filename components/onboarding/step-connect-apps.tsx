@@ -129,7 +129,11 @@ export function StepConnectApps({ onComplete }: StepConnectAppsProps) {
     setIsLoading(appId);
 
     const provider =
-      appId === "google-calendar" ? "google_calendar" : appId === "gmail" ? "gmail" : null;
+      appId === "google-calendar"
+        ? "google_calendar"
+        : appId === "gmail"
+          ? "gmail"
+          : null;
     if (!provider) {
       setApps((prev) =>
         prev.map((app) =>
