@@ -148,7 +148,11 @@ export async function GET(request: NextRequest) {
           );
         }
 
-        const triggerId = await setupCalendarTrigger(user.id, webhookUrl);
+        const triggerId = await setupCalendarTrigger(
+          user.id,
+          webhookUrl,
+          connectedAccount.id,
+        );
 
         if (triggerId) {
           await typedSupabase

@@ -4,6 +4,7 @@ import { supabaseStoreTool, embeddingGeneratorTool } from "../tools";
 import { buildAgentContext } from "../lib/context";
 import { handleAgentError } from "../lib/error-handler";
 import { logLlmUsage } from "../lib/llm-usage";
+import { logPromptPayload } from "../lib/prompt-logs";
 import {
   createOrchestratorGraph,
   processOrchestratorMessage,
@@ -47,6 +48,7 @@ export interface RootGraphState {
   memoryContext?: string;
   agentResponse?: string;
   userEmail?: string;
+  preferredModel?: string;
   userMessageId?: string;
   assistantMessageId?: string;
 }
@@ -118,6 +120,7 @@ async function rootResponseAgentNode(
     systemPrompt: ROOT_AGENT_SYSTEM_PROMPT,
     agentType: "root",
     currentDate: state.currentDate,
+    model: state.preferredModel,
   }) as RootAgentInvokable;
 
   // Build conversation history including the new user message
@@ -136,6 +139,21 @@ async function rootResponseAgentNode(
 
   // Use the context as the prompt (it already includes the conversation history with the new message)
   const prompt = context || `User: ${state.userMessage}`;
+  const systemPrompt = ROOT_AGENT_SYSTEM_PROMPT.replace(
+    /{{currentDate}}/g,
+    state.currentDate,
+  );
+
+  await logPromptPayload({
+    userId: state.userId,
+    agentType: "root_response_agent",
+    nodeKey: "root_response_agent",
+    taskType: "root.response_agent",
+    model: state.preferredModel || process.env.LLM_MODEL || "openai/gpt-4o",
+    temperature: 0.7,
+    systemPrompt,
+    messages: [{ role: "user", content: prompt }],
+  });
 
   const result = await responseAgent.invoke({
     messages: [{ role: "user", content: prompt }],
@@ -314,6 +332,9 @@ export function createRootMessageGraph() {
       userEmail: {
         reducer: (x: string | undefined, y: string | undefined) => y ?? x,
       },
+      preferredModel: {
+        reducer: (x: string | undefined, y: string | undefined) => y ?? x,
+      },
       userMessageId: {
         reducer: (x: string | undefined, y: string | undefined) => y ?? x,
       },
@@ -387,6 +408,7 @@ export async function processRootMessage(
     currentDate?: string;
     userEmail?: string;
     conversationHistory?: string;
+    preferredModel?: string;
   },
   options?: {
     forceMode?: AgentMode;
@@ -405,6 +427,7 @@ export async function processRootMessage(
       currentDate: input.currentDate,
       userEmail: input.userEmail,
       conversationHistory: input.conversationHistory,
+      preferredModel: input.preferredModel,
     });
 
     return {
@@ -426,6 +449,7 @@ export async function processRootMessage(
       currentDate: input.currentDate || new Date().toISOString().split("T")[0],
       userEmail: input.userEmail,
       conversationHistory: input.conversationHistory,
+      preferredModel: input.preferredModel,
     });
 
     return {

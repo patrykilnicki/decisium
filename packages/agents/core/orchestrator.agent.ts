@@ -13,6 +13,7 @@ import { getOrchestratorTools } from "../tools/registry";
 import { supabaseStoreTool, embeddingGeneratorTool } from "../tools";
 import { handleAgentError } from "../lib/error-handler";
 import { logLlmUsage } from "../lib/llm-usage";
+import { logPromptPayload } from "../lib/prompt-logs";
 import { createLLM } from "../lib/llm";
 import {
   type OrchestratorState,
@@ -24,6 +25,9 @@ import {
   listComposioConnectedAccounts,
   isComposioEnabled,
 } from "../lib/composio";
+import { getTaskContext } from "../lib/task-context";
+import { createTaskEvent } from "@/lib/tasks/task-events";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 // ═══════════════════════════════════════════════════════════════
 // NODE IMPLEMENTATIONS
@@ -39,7 +43,7 @@ async function agentNode(
   tools: DynamicStructuredTool[],
 ): Promise<Partial<OrchestratorState>> {
   const llm = createLLM({
-    model: process.env.LLM_MODEL,
+    model: state.preferredModel || process.env.LLM_MODEL,
     temperature: 0.1,
   });
   const llmWithTools = llm.bindTools(tools);
@@ -60,6 +64,20 @@ async function agentNode(
   ];
 
   try {
+    await logPromptPayload({
+      userId: state.userId,
+      agentType: "orchestrator_agent",
+      nodeKey: "agent",
+      taskType: "orchestrator.agent",
+      model: state.preferredModel || process.env.LLM_MODEL || "openai/gpt-4o",
+      temperature: 0.1,
+      systemPrompt,
+      messages: messagesToSend,
+      metadata: {
+        connectedServices: connectedServicesText,
+      },
+    });
+
     const response = await llmWithTools.invoke(messagesToSend);
     await logLlmUsage({
       response,
@@ -281,6 +299,90 @@ function routeAfterAgent(state: OrchestratorState): "tools" | "saveMessages" {
   return "saveMessages";
 }
 
+interface PendingToolCall {
+  toolName: string;
+  toolCallId: string;
+  toolCallKey: string;
+  callIndex: number;
+}
+
+function getPendingToolCalls(messages: BaseMessage[]): PendingToolCall[] {
+  const lastMessage = messages[messages.length - 1];
+  if (!(lastMessage instanceof AIMessage)) return [];
+
+  const toolCalls = Array.isArray(lastMessage.tool_calls)
+    ? lastMessage.tool_calls
+    : [];
+  return toolCalls
+    .map((toolCall, index) => {
+      const toolName =
+        typeof toolCall?.name === "string" ? toolCall.name.trim() : "";
+      if (!toolName) return null;
+
+      const fallbackId = `${toolName}:${index + 1}`;
+      const toolCallId =
+        typeof toolCall?.id === "string" && toolCall.id.trim().length > 0
+          ? toolCall.id
+          : fallbackId;
+
+      return {
+        toolName,
+        toolCallId,
+        toolCallKey: `${toolName}:${index + 1}`,
+        callIndex: index + 1,
+      };
+    })
+    .filter((tool): tool is PendingToolCall => tool !== null);
+}
+
+async function emitToolEvent(params: {
+  eventType: "tool_started" | "tool_completed" | "tool_failed";
+  tool: PendingToolCall;
+  error?: string;
+}): Promise<void> {
+  const context = getTaskContext();
+  if (!context) return;
+
+  const payload: Record<string, unknown> = {
+    jobId: context.jobId,
+    taskId: context.taskId,
+    sessionId: context.sessionId,
+    taskType: context.taskType,
+    toolName: params.tool.toolName,
+    toolCallId: params.tool.toolCallId,
+    toolCallKey: params.tool.toolCallKey,
+    callIndex: params.tool.callIndex,
+    action: "checking",
+    displayLabel: `Checking ${params.tool.toolName}`,
+  };
+
+  if (params.eventType === "tool_completed") {
+    payload.action = "completed";
+    payload.displayLabel = `Completed ${params.tool.toolName}`;
+  }
+
+  if (params.eventType === "tool_failed") {
+    payload.action = "failed";
+    payload.displayLabel = `Failed ${params.tool.toolName}`;
+    if (params.error) payload.error = params.error;
+  }
+
+  try {
+    const client = createAdminClient();
+    await createTaskEvent(client, {
+      taskId: context.taskId,
+      sessionId: context.sessionId,
+      userId: context.userId,
+      eventType: params.eventType,
+      nodeKey: context.nodeKey,
+      eventKeySuffix: `${params.tool.toolCallId}:${params.eventType}`,
+      payload,
+    });
+  } catch (error) {
+    console.error("[orchestrator] Failed to emit tool event:", error);
+  }
+}
+
 /**
  * ToolNode adapter: LangGraph ToolNode expects state.messages. Our state has it.
  * Wrap to pass through OrchestratorState.
@@ -288,11 +390,44 @@ function routeAfterAgent(state: OrchestratorState): "tools" | "saveMessages" {
 function createToolNode(tools: DynamicStructuredTool[]) {
   const toolNode = new ToolNode(tools);
   return async (state: OrchestratorState) => {
-    const result = await toolNode.invoke(
-      { messages: state.messages },
-      { configurable: {} },
+    const pendingTools = getPendingToolCalls(state.messages);
+    await Promise.all(
+      pendingTools.map((tool) =>
+        emitToolEvent({
+          eventType: "tool_started",
+          tool,
+        }),
+      ),
     );
-    return { messages: result.messages } as Partial<OrchestratorState>;
+
+    try {
+      const result = await toolNode.invoke(
+        { messages: state.messages },
+        { configurable: {} },
+      );
+      await Promise.all(
+        pendingTools.map((tool) =>
+          emitToolEvent({
+            eventType: "tool_completed",
+            tool,
+          }),
+        ),
+      );
+      return { messages: result.messages } as Partial<OrchestratorState>;
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      await Promise.all(
+        pendingTools.map((tool) =>
+          emitToolEvent({
+            eventType: "tool_failed",
+            tool,
+            error: errorMessage,
+          }),
+        ),
+      );
+      throw error;
+    }
   };
 }
 
@@ -373,6 +508,7 @@ export async function processOrchestratorMessage(input: {
   userEmail?: string;
   conversationHistory?: string;
   callbackUrl?: string;
+  preferredModel?: string;
 }): Promise<OrchestratorMessageResult> {
   const [tools, connectedServices] = await Promise.all([
     getOrchestratorTools({

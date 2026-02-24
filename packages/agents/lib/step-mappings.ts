@@ -43,3 +43,57 @@ export function getTaskStepLabel(taskType: TaskType): string {
     ROOT_AGENT_STEPS.find((step) => step.nodeId === nodeId)?.label ?? nodeId
   );
 }
+
+function humanizeToolName(toolName: string): string {
+  return toolName
+    .trim()
+    .replace(/^composio[_-]?/i, "")
+    .replace(/[_-]+/g, " ")
+    .toLowerCase();
+}
+
+function toTitleCase(value: string): string {
+  return value.replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function buildToolLabel(
+  eventType: string,
+  toolName: string,
+  action?: string,
+): string {
+  const normalizedTool = toTitleCase(humanizeToolName(toolName));
+  const normalizedAction = action?.trim().toLowerCase();
+
+  if (normalizedAction)
+    return `${toTitleCase(normalizedAction)} ${normalizedTool}`;
+
+  if (eventType === "tool_started") return `Checking ${normalizedTool}`;
+  if (eventType === "tool_completed") return `Completed ${normalizedTool}`;
+  if (eventType === "tool_failed") return `Failed ${normalizedTool}`;
+
+  return `Using ${normalizedTool}`;
+}
+
+export function getDynamicStepLabel(params: {
+  eventType: string;
+  fallbackLabel: string;
+  payload?: Record<string, unknown>;
+}): string {
+  const payload = params.payload ?? {};
+  const displayLabel = payload.displayLabel;
+  if (typeof displayLabel === "string" && displayLabel.trim().length > 0) {
+    return displayLabel;
+  }
+
+  const toolName = payload.toolName;
+  const action = payload.action;
+  if (typeof toolName === "string" && toolName.trim().length > 0) {
+    return buildToolLabel(
+      params.eventType,
+      toolName,
+      typeof action === "string" ? action : undefined,
+    );
+  }
+
+  return params.fallbackLabel;
+}

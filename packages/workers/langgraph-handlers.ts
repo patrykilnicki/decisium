@@ -156,6 +156,7 @@ async function handleOrchestratorInvoke(
     userEmail?: string;
     conversationHistory?: string;
     userMessageId?: string;
+    preferredModel?: string;
   }>(task);
 
   const result = await runNodeWithEvents({
@@ -171,6 +172,7 @@ async function handleOrchestratorInvoke(
         currentDate: state.currentDate,
         userEmail: state.userEmail,
         conversationHistory: state.conversationHistory,
+        preferredModel: state.preferredModel,
       }),
   });
 

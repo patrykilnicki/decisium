@@ -241,6 +241,69 @@ export type Database = {
           },
         ]
       }
+      agent_prompt_logs: {
+        Row: {
+          agent_type: string
+          created_at: string | null
+          id: string
+          messages: Json
+          metadata: Json
+          model: string | null
+          node_key: string | null
+          session_id: string | null
+          system_prompt: string
+          task_id: string | null
+          task_type: string | null
+          temperature: number | null
+          user_id: string
+        }
+        Insert: {
+          agent_type: string
+          created_at?: string | null
+          id?: string
+          messages?: Json
+          metadata?: Json
+          model?: string | null
+          node_key?: string | null
+          session_id?: string | null
+          system_prompt?: string
+          task_id?: string | null
+          task_type?: string | null
+          temperature?: number | null
+          user_id: string
+        }
+        Update: {
+          agent_type?: string
+          created_at?: string | null
+          id?: string
+          messages?: Json
+          metadata?: Json
+          model?: string | null
+          node_key?: string | null
+          session_id?: string | null
+          system_prompt?: string
+          task_id?: string | null
+          task_type?: string | null
+          temperature?: number | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_prompt_logs_task_id_fkey"
+            columns: ["task_id"]
+            isOneToOne: false
+            referencedRelation: "tasks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agent_prompt_logs_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       llm_model_prices: {
         Row: {
           active: boolean
@@ -883,6 +946,7 @@ export type Database = {
           id: string
           onboarding_completed: boolean | null
           onboarding_completed_at: string | null
+          preferred_llm_model: string | null
           timezone: string | null
           updated_at: string | null
         }
@@ -893,6 +957,7 @@ export type Database = {
           id: string
           onboarding_completed?: boolean | null
           onboarding_completed_at?: string | null
+          preferred_llm_model?: string | null
           timezone?: string | null
           updated_at?: string | null
         }
@@ -903,6 +968,7 @@ export type Database = {
           id?: string
           onboarding_completed?: boolean | null
           onboarding_completed_at?: string | null
+          preferred_llm_model?: string | null
           timezone?: string | null
           updated_at?: string | null
         }

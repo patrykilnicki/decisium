@@ -10,6 +10,8 @@ export type AskMessage = Database["public"]["Tables"]["ask_messages"]["Row"];
 export type AskThread = Database["public"]["Tables"]["ask_threads"]["Row"];
 export type AgentLlmUsage =
   Database["public"]["Tables"]["agent_llm_usage"]["Row"];
+export type AgentPromptLog =
+  Database["public"]["Tables"]["agent_prompt_logs"]["Row"];
 export type LlmModelPrice =
   Database["public"]["Tables"]["llm_model_prices"]["Row"];
 export type CalendarWatch =
@@ -48,6 +50,8 @@ export type AskThreadInsert =
   Database["public"]["Tables"]["ask_threads"]["Insert"];
 export type AgentLlmUsageInsert =
   Database["public"]["Tables"]["agent_llm_usage"]["Insert"];
+export type AgentPromptLogInsert =
+  Database["public"]["Tables"]["agent_prompt_logs"]["Insert"];
 export type LlmModelPriceInsert =
   Database["public"]["Tables"]["llm_model_prices"]["Insert"];
 export type CalendarWatchInsert =
@@ -91,6 +95,8 @@ export type AskThreadUpdate =
   Database["public"]["Tables"]["ask_threads"]["Update"];
 export type AgentLlmUsageUpdate =
   Database["public"]["Tables"]["agent_llm_usage"]["Update"];
+export type AgentPromptLogUpdate =
+  Database["public"]["Tables"]["agent_prompt_logs"]["Update"];
 export type LlmModelPriceUpdate =
   Database["public"]["Tables"]["llm_model_prices"]["Update"];
 export type CalendarWatchUpdate =

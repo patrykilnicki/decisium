@@ -350,20 +350,29 @@ export const COMPOSIO_TRIGGER = {
  * @param userId - Supabase user ID (used as Composio user_id)
  * @param triggerSlug - Trigger type slug
  * @param triggerConfig - Trigger-specific configuration
+ * @param connectedAccountId - Optional Composio connected account ID; pass to avoid "Multiple connected accounts" warning when user has more than one
  * @returns trigger ID, or null on failure
  */
 export async function createComposioTrigger(
   userId: string,
   triggerSlug: string,
   triggerConfig: Record<string, unknown> = {},
+  connectedAccountId?: string,
 ): Promise<string | null> {
   const client = getComposioServerClient();
   if (!client) return null;
 
   try {
-    const trigger = await client.triggers.create(userId, triggerSlug, {
+    const options: {
+      triggerConfig: Record<string, unknown>;
+      connectedAccountId?: string;
+    } = {
       triggerConfig,
-    });
+    };
+    if (connectedAccountId) {
+      options.connectedAccountId = connectedAccountId;
+    }
+    const trigger = await client.triggers.create(userId, triggerSlug, options);
     const triggerId = (trigger as Record<string, unknown>).triggerId as
       | string
       | undefined;
@@ -500,11 +509,15 @@ export async function ensureComposioWebhookSubscription(
  * 1. Ensure webhook subscription exists
  * 2. Create the CALENDAR_EVENT_SYNC trigger
  *
+ * @param userId - Supabase user ID (Composio user_id)
+ * @param webhookUrl - Webhook URL for Composio to send trigger events
+ * @param connectedAccountId - Optional Composio connected account ID; pass to scope the trigger to a specific account and avoid "Multiple connected accounts" warning
  * @returns trigger ID, or null on failure
  */
 export async function setupCalendarTrigger(
   userId: string,
   webhookUrl: string,
+  connectedAccountId?: string,
 ): Promise<string | null> {
   await ensureComposioWebhookSubscription(webhookUrl);
 
@@ -512,6 +525,7 @@ export async function setupCalendarTrigger(
     userId,
     COMPOSIO_TRIGGER.CALENDAR_EVENT_SYNC,
     { calendarId: "primary", interval: 3 },
+    connectedAccountId,
   );
 
   return triggerId;

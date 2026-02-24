@@ -19,9 +19,14 @@ export interface TaskEventRecord {
   createdAt: string;
 }
 
-function buildEventKey(eventType: string, nodeKey?: string | null): string {
+function buildEventKey(
+  eventType: string,
+  nodeKey?: string | null,
+  eventKeySuffix?: string,
+): string {
   const normalizedNodeKey = nodeKey ?? "job";
-  return `${eventType}:${normalizedNodeKey}`;
+  if (!eventKeySuffix) return `${eventType}:${normalizedNodeKey}`;
+  return `${eventType}:${normalizedNodeKey}:${eventKeySuffix}`;
 }
 
 function toTaskEventRecord(row: TaskEvent): TaskEventRecord {
@@ -46,9 +51,14 @@ export async function createTaskEvent(
     eventType: TaskEventType;
     nodeKey?: string | null;
     payload?: Record<string, unknown> | null;
+    eventKeySuffix?: string;
   },
 ): Promise<TaskEvent | null> {
-  const eventKey = buildEventKey(params.eventType, params.nodeKey);
+  const eventKey = buildEventKey(
+    params.eventType,
+    params.nodeKey,
+    params.eventKeySuffix,
+  );
   const payloadJson: Json = (params.payload ?? {}) as Json;
   const insert: TaskEventInsert = {
     task_id: params.taskId,
