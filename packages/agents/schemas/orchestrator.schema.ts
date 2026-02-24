@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { HumanMessage } from "@langchain/core/messages";
 import type { BaseMessage } from "@langchain/core/messages";
 
 // ═══════════════════════════════════════════════════════════════
@@ -6,20 +7,10 @@ import type { BaseMessage } from "@langchain/core/messages";
 // ═══════════════════════════════════════════════════════════════
 
 /**
- * Grading result for retrieved documents
- */
-export type GradingResult = "relevant" | "irrelevant" | "pending";
-
-/**
- * Routing decision for the orchestrator
+ * Routing decision for the orchestrator (Composio agent-tools-agent loop).
  */
 export type RouteDecision =
-  | "router" // Route to router for tool selection
-  | "toolExecutor" // Execute selected tools
-  | "gradeDocuments" // Grade retrieved documents
-  | "rewriteQuery" // Rewrite query for better retrieval
-  | "synthesize" // Generate final response
-  | "directResponse" // Respond without tools
+  | "tools" // Route to tool execution
   | "saveMessages" // Save conversation to database
   | "end"; // End the workflow
 
@@ -74,12 +65,7 @@ export interface OrchestratorState {
   retrievedContext?: string; // Formatted context string
   memoryContext?: string; // Legacy compatibility
 
-  // Grading state
-  gradingResult?: GradingResult;
-  gradingReasoning?: string;
-
-  // Query rewriting state
-  rewrittenQuery?: string;
+  // Iteration control
   rewriteCount: number;
   maxRewrites: number;
 
@@ -107,7 +93,8 @@ export interface OrchestratorState {
 }
 
 /**
- * Initial state factory for orchestrator
+ * Initial state factory for orchestrator.
+ * Builds initial HumanMessage with conversation context (official Composio pattern).
  */
 export function createInitialOrchestratorState(input: {
   userId: string;
@@ -117,6 +104,14 @@ export function createInitialOrchestratorState(input: {
   userEmail?: string;
   conversationHistory?: string;
 }): OrchestratorState {
+  const contextParts: string[] = [];
+  if (input.conversationHistory) {
+    contextParts.push(`Previous conversation:\n${input.conversationHistory}`);
+  }
+  const contextString =
+    contextParts.length > 0 ? contextParts.join("\n\n") + "\n\n" : "";
+  const userContent = `${contextString}User: ${input.userMessage}`;
+
   return {
     userId: input.userId,
     currentDate: input.currentDate || new Date().toISOString().split("T")[0],
@@ -125,7 +120,7 @@ export function createInitialOrchestratorState(input: {
     userMessage: input.userMessage,
     originalQuery: input.userMessage,
     conversationHistory: input.conversationHistory,
-    messages: [],
+    messages: [new HumanMessage(userContent)],
     rewriteCount: 0,
     maxRewrites: 2,
     iterationCount: 0,
@@ -170,9 +165,6 @@ export const OrchestratorStateSchema = z.object({
   retrievedDocs: z.array(RetrievedDocumentSchema).optional(),
   retrievedContext: z.string().optional(),
   memoryContext: z.string().optional(),
-  gradingResult: z.enum(["relevant", "irrelevant", "pending"]).optional(),
-  gradingReasoning: z.string().optional(),
-  rewrittenQuery: z.string().optional(),
   rewriteCount: z.number(),
   maxRewrites: z.number(),
   toolCalls: z
@@ -190,18 +182,7 @@ export const OrchestratorStateSchema = z.object({
   shouldRespond: z.boolean().optional(),
   userMessageId: z.string().optional(),
   assistantMessageId: z.string().optional(),
-  nextRoute: z
-    .enum([
-      "router",
-      "toolExecutor",
-      "gradeDocuments",
-      "rewriteQuery",
-      "synthesize",
-      "directResponse",
-      "saveMessages",
-      "end",
-    ])
-    .optional(),
+  nextRoute: z.enum(["tools", "saveMessages", "end"]).optional(),
   iterationCount: z.number(),
   maxIterations: z.number(),
 });
@@ -248,16 +229,6 @@ export const orchestratorChannels = {
     reducer: (x: string | undefined, y: string | undefined) => y ?? x,
   },
   memoryContext: {
-    reducer: (x: string | undefined, y: string | undefined) => y ?? x,
-  },
-  gradingResult: {
-    reducer: (x: GradingResult | undefined, y: GradingResult | undefined) =>
-      y ?? x,
-  },
-  gradingReasoning: {
-    reducer: (x: string | undefined, y: string | undefined) => y ?? x,
-  },
-  rewrittenQuery: {
     reducer: (x: string | undefined, y: string | undefined) => y ?? x,
   },
   rewriteCount: { reducer: (x: number, y: number) => y ?? x ?? 0 },

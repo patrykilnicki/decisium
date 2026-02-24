@@ -159,7 +159,7 @@ export async function sendMessage(
     let initialState: object;
 
     if (mode === "agentic") {
-      taskType = "orchestrator.router";
+      taskType = "orchestrator.invoke";
       initialState = {
         ...createInitialOrchestratorState({
           userId,

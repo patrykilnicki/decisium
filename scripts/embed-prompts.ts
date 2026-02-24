@@ -44,8 +44,6 @@ ${[
   ["ROOT_AGENT_SYSTEM_PROMPT", loadPrompt("root-agent.md")],
   ["ORCHESTRATOR_SYSTEM_PROMPT", loadPrompt("orchestrator-agent.md")],
   ["ROUTER_SYSTEM_PROMPT", loadPrompt("router-agent.md")],
-  ["GRADE_DOCUMENTS_PROMPT", loadPrompt("grade-documents.md")],
-  ["REWRITE_QUERY_PROMPT", loadPrompt("rewrite-query.md")],
 ]
   .map(
     ([name, content]) =>

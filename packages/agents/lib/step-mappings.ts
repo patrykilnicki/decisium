@@ -11,13 +11,9 @@ export const ROOT_AGENT_STEPS: StepMapping[] = [
 ];
 
 // Orchestrator agent (agentic mode) step mappings
+// Uses Composio agent-tools-agent loop: single orchestrator.invoke task
 export const ORCHESTRATOR_STEPS: StepMapping[] = [
-  { nodeId: "router", label: "Analyzing your request", order: 1 },
-  { nodeId: "toolExecutor", label: "Gathering information", order: 2 },
-  { nodeId: "gradeDocuments", label: "Evaluating results", order: 3 },
-  { nodeId: "rewriteQuery", label: "Refining search", order: 4 },
-  { nodeId: "synthesize", label: "Crafting response", order: 5 },
-  { nodeId: "saveMessages", label: "Saving conversation", order: 6 },
+  { nodeId: "orchestrator", label: "Processing with AI", order: 1 },
 ];
 
 export function getStepLabel(

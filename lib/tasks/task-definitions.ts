@@ -3,12 +3,7 @@ export type TaskType =
   | "root.memory_retriever"
   | "root.response_agent"
   | "root.save_assistant_message"
-  | "orchestrator.router"
-  | "orchestrator.tool_executor"
-  | "orchestrator.grade_documents"
-  | "orchestrator.rewrite_query"
-  | "orchestrator.synthesize"
-  | "orchestrator.save_messages";
+  | "orchestrator.invoke";
 
 export type TaskGraph = "root" | "orchestrator";
 
@@ -27,17 +22,7 @@ export function getTaskNodeId(taskType: TaskType): string {
       return "rootResponseAgent";
     case "root.save_assistant_message":
       return "saveAssistantMessage";
-    case "orchestrator.router":
-      return "router";
-    case "orchestrator.tool_executor":
-      return "toolExecutor";
-    case "orchestrator.grade_documents":
-      return "gradeDocuments";
-    case "orchestrator.rewrite_query":
-      return "rewriteQuery";
-    case "orchestrator.synthesize":
-      return "synthesize";
-    case "orchestrator.save_messages":
-      return "saveMessages";
+    case "orchestrator.invoke":
+      return "orchestrator";
   }
 }

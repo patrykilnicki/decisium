@@ -378,14 +378,17 @@ export function getToolsForAgent(
 }
 
 /**
- * Get all tools for the orchestrator (includes all enabled external tools).
+ * Get all tools for the orchestrator (includes Composio + internal tools).
  * When userId is provided and Composio is configured, merges Composio session
- * tools so the agent can use Gmail, GitHub, etc. per [Composio Users & Sessions](https://docs.composio.dev/docs/users-and-sessions).
+ * tools (meta-tools: SEARCH_TOOLS, MANAGE_CONNECTIONS, MULTI_EXECUTE_TOOL) per
+ * [Composio Users & Sessions](https://docs.composio.dev/docs/users-and-sessions).
  *
  * @param options.userId - Supabase user ID; when set, Composio tools are included (user-scoped)
+ * @param options.callbackUrl - Optional callback URL for Composio in-chat auth redirect
  */
 export async function getOrchestratorTools(options?: {
   userId?: string;
+  callbackUrl?: string;
   excludeTools?: string[];
   enabledCategories?: ToolCategory[];
 }): Promise<DynamicStructuredTool[]> {
@@ -396,7 +399,10 @@ export async function getOrchestratorTools(options?: {
   });
 
   if (options?.userId) {
-    const composioTools = await getComposioToolsForUser(options.userId);
+    const composioTools = await getComposioToolsForUser(options.userId, {
+      callbackUrl: options.callbackUrl,
+      toolkits: ["GOOGLECALENDAR", "GMAIL"],
+    });
     return [...baseTools, ...composioTools];
   }
 
