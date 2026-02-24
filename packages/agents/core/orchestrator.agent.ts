@@ -25,9 +25,6 @@ import {
   listComposioConnectedAccounts,
   isComposioEnabled,
 } from "../lib/composio";
-import { getTaskContext } from "../lib/task-context";
-import { createTaskEvent } from "@/lib/tasks/task-events";
-import { createAdminClient } from "@/lib/supabase/admin";
 
 // ═══════════════════════════════════════════════════════════════
 // NODE IMPLEMENTATIONS
@@ -306,6 +303,17 @@ interface PendingToolCall {
   callIndex: number;
 }
 
+export interface OrchestratorToolEvent {
+  eventType: "tool_started" | "tool_completed" | "tool_failed";
+  toolName: string;
+  toolCallId: string;
+  toolCallKey: string;
+  callIndex: number;
+  action: "checking" | "completed" | "failed";
+  displayLabel: string;
+  error?: string;
+}
+
 function getPendingToolCalls(messages: BaseMessage[]): PendingToolCall[] {
   const lastMessage = messages[messages.length - 1];
   if (!(lastMessage instanceof AIMessage)) return [];
@@ -336,18 +344,15 @@ function getPendingToolCalls(messages: BaseMessage[]): PendingToolCall[] {
 }
 
 async function emitToolEvent(params: {
-  eventType: "tool_started" | "tool_completed" | "tool_failed";
+  onToolEvent?: (event: OrchestratorToolEvent) => Promise<void> | void;
+  eventType: OrchestratorToolEvent["eventType"];
   tool: PendingToolCall;
   error?: string;
 }): Promise<void> {
-  const context = getTaskContext();
-  if (!context) return;
+  if (!params.onToolEvent) return;
 
-  const payload: Record<string, unknown> = {
-    jobId: context.jobId,
-    taskId: context.taskId,
-    sessionId: context.sessionId,
-    taskType: context.taskType,
+  const event: OrchestratorToolEvent = {
+    eventType: params.eventType,
     toolName: params.tool.toolName,
     toolCallId: params.tool.toolCallId,
     toolCallKey: params.tool.toolCallKey,
@@ -357,27 +362,18 @@ async function emitToolEvent(params: {
   };
 
   if (params.eventType === "tool_completed") {
-    payload.action = "completed";
-    payload.displayLabel = `Completed ${params.tool.toolName}`;
+    event.action = "completed";
+    event.displayLabel = `Completed ${params.tool.toolName}`;
   }
 
   if (params.eventType === "tool_failed") {
-    payload.action = "failed";
-    payload.displayLabel = `Failed ${params.tool.toolName}`;
-    if (params.error) payload.error = params.error;
+    event.action = "failed";
+    event.displayLabel = `Failed ${params.tool.toolName}`;
+    if (params.error) event.error = params.error;
   }
 
   try {
-    const client = createAdminClient();
-    await createTaskEvent(client, {
-      taskId: context.taskId,
-      sessionId: context.sessionId,
-      userId: context.userId,
-      eventType: params.eventType,
-      nodeKey: context.nodeKey,
-      eventKeySuffix: `${params.tool.toolCallId}:${params.eventType}`,
-      payload,
-    });
+    await params.onToolEvent(event);
   } catch (error) {
     console.error("[orchestrator] Failed to emit tool event:", error);
   }
@@ -387,13 +383,17 @@ async function emitToolEvent(params: {
  * ToolNode adapter: LangGraph ToolNode expects state.messages. Our state has it.
  * Wrap to pass through OrchestratorState.
  */
-function createToolNode(tools: DynamicStructuredTool[]) {
+function createToolNode(
+  tools: DynamicStructuredTool[],
+  onToolEvent?: (event: OrchestratorToolEvent) => Promise<void> | void,
+) {
   const toolNode = new ToolNode(tools);
   return async (state: OrchestratorState) => {
     const pendingTools = getPendingToolCalls(state.messages);
     await Promise.all(
       pendingTools.map((tool) =>
         emitToolEvent({
+          onToolEvent,
           eventType: "tool_started",
           tool,
         }),
@@ -408,6 +408,7 @@ function createToolNode(tools: DynamicStructuredTool[]) {
       await Promise.all(
         pendingTools.map((tool) =>
           emitToolEvent({
+            onToolEvent,
             eventType: "tool_completed",
             tool,
           }),
@@ -420,6 +421,7 @@ function createToolNode(tools: DynamicStructuredTool[]) {
       await Promise.all(
         pendingTools.map((tool) =>
           emitToolEvent({
+            onToolEvent,
             eventType: "tool_failed",
             tool,
             error: errorMessage,
@@ -439,8 +441,11 @@ function createToolNode(tools: DynamicStructuredTool[]) {
  * Create the agentic orchestrator graph (Composio official pattern).
  * Agent ↔ Tools loop: tools always route back to agent for multi-round tool use.
  */
-export function createOrchestratorGraph(tools: DynamicStructuredTool[]) {
-  const toolNode = createToolNode(tools);
+export function createOrchestratorGraph(
+  tools: DynamicStructuredTool[],
+  onToolEvent?: (event: OrchestratorToolEvent) => Promise<void> | void,
+) {
+  const toolNode = createToolNode(tools, onToolEvent);
 
   const workflow = new StateGraph<OrchestratorState>({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- LangGraph channels type
@@ -509,6 +514,7 @@ export async function processOrchestratorMessage(input: {
   conversationHistory?: string;
   callbackUrl?: string;
   preferredModel?: string;
+  onToolEvent?: (event: OrchestratorToolEvent) => Promise<void> | void;
 }): Promise<OrchestratorMessageResult> {
   const [tools, connectedServices] = await Promise.all([
     getOrchestratorTools({
@@ -518,7 +524,7 @@ export async function processOrchestratorMessage(input: {
     buildConnectedServicesText(input.userId),
   ]);
 
-  const graph = createOrchestratorGraph(tools);
+  const graph = createOrchestratorGraph(tools, input.onToolEvent);
   const initialState = createInitialOrchestratorState({
     ...input,
     connectedServices,
