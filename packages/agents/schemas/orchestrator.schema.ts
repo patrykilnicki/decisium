@@ -49,6 +49,7 @@ export interface OrchestratorState {
   currentDate: string;
   threadId: string;
   userEmail?: string;
+  preferredModel?: string;
 
   // Messages (LangChain format for tool binding)
   messages: BaseMessage[];
@@ -107,6 +108,7 @@ export function createInitialOrchestratorState(input: {
   userEmail?: string;
   conversationHistory?: string;
   connectedServices?: string;
+  preferredModel?: string;
 }): OrchestratorState {
   const contextParts: string[] = [];
   if (input.conversationHistory) {
@@ -121,6 +123,7 @@ export function createInitialOrchestratorState(input: {
     currentDate: input.currentDate || new Date().toISOString().split("T")[0],
     threadId: input.threadId,
     userEmail: input.userEmail,
+    preferredModel: input.preferredModel,
     userMessage: input.userMessage,
     originalQuery: input.userMessage,
     conversationHistory: input.conversationHistory,
@@ -163,6 +166,7 @@ export const OrchestratorStateSchema = z.object({
   currentDate: z.string(),
   threadId: z.string(),
   userEmail: z.string().optional(),
+  preferredModel: z.string().optional(),
   messages: z.array(z.any()), // BaseMessage is complex, use any
   userMessage: z.string().optional(),
   originalQuery: z.string().optional(),
@@ -206,6 +210,9 @@ export const orchestratorChannels = {
   currentDate: { reducer: (x: string, y: string) => y ?? x },
   threadId: { reducer: (x: string, y: string) => y ?? x },
   userEmail: {
+    reducer: (x: string | undefined, y: string | undefined) => y ?? x,
+  },
+  preferredModel: {
     reducer: (x: string | undefined, y: string | undefined) => y ?? x,
   },
   messages: {

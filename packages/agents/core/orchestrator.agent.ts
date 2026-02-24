@@ -13,6 +13,7 @@ import { getOrchestratorTools } from "../tools/registry";
 import { supabaseStoreTool, embeddingGeneratorTool } from "../tools";
 import { handleAgentError } from "../lib/error-handler";
 import { logLlmUsage } from "../lib/llm-usage";
+import { logPromptPayload } from "../lib/prompt-logs";
 import { createLLM } from "../lib/llm";
 import {
   type OrchestratorState,
@@ -39,7 +40,7 @@ async function agentNode(
   tools: DynamicStructuredTool[],
 ): Promise<Partial<OrchestratorState>> {
   const llm = createLLM({
-    model: process.env.LLM_MODEL,
+    model: state.preferredModel || process.env.LLM_MODEL,
     temperature: 0.1,
   });
   const llmWithTools = llm.bindTools(tools);
@@ -60,6 +61,20 @@ async function agentNode(
   ];
 
   try {
+    await logPromptPayload({
+      userId: state.userId,
+      agentType: "orchestrator_agent",
+      nodeKey: "agent",
+      taskType: "orchestrator.agent",
+      model: state.preferredModel || process.env.LLM_MODEL || "openai/gpt-4o",
+      temperature: 0.1,
+      systemPrompt,
+      messages: messagesToSend,
+      metadata: {
+        connectedServices: connectedServicesText,
+      },
+    });
+
     const response = await llmWithTools.invoke(messagesToSend);
     await logLlmUsage({
       response,
@@ -373,6 +388,7 @@ export async function processOrchestratorMessage(input: {
   userEmail?: string;
   conversationHistory?: string;
   callbackUrl?: string;
+  preferredModel?: string;
 }): Promise<OrchestratorMessageResult> {
   const [tools, connectedServices] = await Promise.all([
     getOrchestratorTools({

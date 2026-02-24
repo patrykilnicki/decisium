@@ -121,7 +121,8 @@ export async function sendMessage(
 ) {
   try {
     // Get authenticated user context
-    const { userId, currentDate, userEmail } = await getUserContext();
+    const { userId, currentDate, userEmail, preferredModel } =
+      await getUserContext();
 
     // Verify thread belongs to user
     const thread = await getThread(threadId, userId);
@@ -168,6 +169,7 @@ export async function sendMessage(
           currentDate,
           userEmail,
           conversationHistory,
+          preferredModel,
         }),
         userMessageId: savedUserMessage.id,
       };
@@ -180,6 +182,7 @@ export async function sendMessage(
         currentDate,
         userEmail,
         conversationHistory,
+        preferredModel,
         userMessageId: savedUserMessage.id,
       };
       initialState = rootState;

@@ -4,6 +4,7 @@ export interface UserContext {
   userId: string;
   currentDate: string;
   userEmail?: string;
+  preferredModel?: string;
 }
 
 /**
@@ -38,13 +39,20 @@ export async function requireAuth() {
  * This is the primary function for getting auth context in agents
  */
 export async function getUserContext(): Promise<UserContext> {
+  const supabase = await createClient();
   const user = await getAuthenticatedUser();
   const currentDate = new Date().toISOString().split("T")[0];
+  const { data: profile } = await supabase
+    .from("users")
+    .select("preferred_llm_model")
+    .eq("id", user.id)
+    .maybeSingle();
 
   return {
     userId: user.id,
     currentDate,
     userEmail: user.email,
+    preferredModel: profile?.preferred_llm_model ?? undefined,
   };
 }
 
@@ -54,11 +62,18 @@ export async function getUserContext(): Promise<UserContext> {
 export async function getUserContextWithDate(
   date: string,
 ): Promise<UserContext> {
+  const supabase = await createClient();
   const user = await getAuthenticatedUser();
+  const { data: profile } = await supabase
+    .from("users")
+    .select("preferred_llm_model")
+    .eq("id", user.id)
+    .maybeSingle();
 
   return {
     userId: user.id,
     currentDate: date,
     userEmail: user.email,
+    preferredModel: profile?.preferred_llm_model ?? undefined,
   };
 }

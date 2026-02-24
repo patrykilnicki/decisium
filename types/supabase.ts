@@ -883,6 +883,7 @@ export type Database = {
           id: string
           onboarding_completed: boolean | null
           onboarding_completed_at: string | null
+          preferred_llm_model: string | null
           timezone: string | null
           updated_at: string | null
         }
@@ -893,6 +894,7 @@ export type Database = {
           id: string
           onboarding_completed?: boolean | null
           onboarding_completed_at?: string | null
+          preferred_llm_model?: string | null
           timezone?: string | null
           updated_at?: string | null
         }
@@ -903,6 +905,7 @@ export type Database = {
           id?: string
           onboarding_completed?: boolean | null
           onboarding_completed_at?: string | null
+          preferred_llm_model?: string | null
           timezone?: string | null
           updated_at?: string | null
         }
