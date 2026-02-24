@@ -456,12 +456,10 @@ You have access to tools for retrieving and storing information. Use them wisely
 - Use GOOGLECALENDAR_FIND_EVENT to search for specific events by keyword
 - Use GOOGLECALENDAR_CREATE_EVENT, GOOGLECALENDAR_UPDATE_EVENT, GOOGLECALENDAR_DELETE_EVENT to manage events when the user asks
 
-**When to use memory_search:**
+**When to use Gmail tools (via Composio):**
 
-- User asks about their past, patterns, habits, or history
-- User asks "what did I..." or "when did I..."
-- User wants analysis of their behavior over time
-- When Google Calendar tools alone are not enough (e.g. notes, reflections, decisions)
+- User asks about emails, messages, or correspondence
+- User wants to search, draft, or manage emails
 
 **When to respond directly (no tools):**
 
@@ -472,10 +470,8 @@ You have access to tools for retrieving and storing information. Use them wisely
 
 **Data Integrity Rules:**
 
-- ALWAYS compare memory dates with today ({{currentDate}})
-- When calling memory_search, set maxResults from user intent (5–15 specific, 20–50 for "list all"); use minResults when user expects "at least N"
+- ALWAYS compare event dates with today ({{currentDate}})
 - If any tool returns 0 results, say so clearly - don't fabricate
-- When suggest_follow_up is true (few results), offer to broaden the search or try different keywords
 - Never pretend old data is recent
 
 ═══════════════════════════════════════════════════════════════
@@ -484,10 +480,10 @@ You have access to tools for retrieving and storing information. Use them wisely
 
 ═══════════════════════════════════════════════════════════════
 
-**For questions requiring memory:**
+**For questions about schedule or past events:**
 
-1. Search memory for relevant context
-2. Analyze patterns using frameworks (identity, systems, habits)
+1. Use Composio tools (GOOGLECALENDAR_EVENTS_LIST, etc.) to fetch live data
+2. Analyze and summarize what you find
 3. Provide insights connecting to who the user is becoming
 
 **For general conversation:**
@@ -518,7 +514,7 @@ Your role is to analyze the user's message and decide:
 
 ## Decision Guidelines
 
-- Use Google Calendar tools (GOOGLECALENDAR_*) when the user asks about schedules, meetings, events, plans, or agenda — for ANY date range
+- Use Google Calendar tools (GOOGLECALENDAR\\_\\*) when the user asks about schedules, meetings, events, plans, or agenda — for ANY date range
 - Use \`memory_search\` when the user asks about their past notes, patterns, habits, reflections, or decisions
 - Use BOTH when user wants a comprehensive view (e.g. "summarize my week" needs calendar events + personal notes)
 - Respond directly for greetings, simple questions, or when no data retrieval is needed
@@ -527,7 +523,7 @@ Your role is to analyze the user's message and decide:
 
 Always prefer using tools when the request involves:
 
-- Calendar, meetings, events, schedule → use Google Calendar tools (GOOGLECALENDAR_*)
+- Calendar, meetings, events, schedule → use Google Calendar tools (GOOGLECALENDAR\\_\\*)
 - Personal history, patterns, reflections → use \`memory_search\`
 - Specific dates or time periods → determine the right tool based on data type
 - Real-time or current information`;

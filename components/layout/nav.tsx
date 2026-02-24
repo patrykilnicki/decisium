@@ -20,6 +20,7 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
+  { href: "/home", name: "IconHome", label: "Home" },
   { href: "/ask", name: "IconStar", label: "Ask AI" },
   { href: "/summaries", name: "IconChart1", label: "Summaries" },
   { href: "/vault", name: "IconNote1", label: "Vault" },

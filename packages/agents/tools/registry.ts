@@ -341,8 +341,8 @@ export function getToolsForAgent(
       break;
 
     case "orchestrator":
-      // Orchestrator agent has access to ALL tools including external
-      config.includeMemorySearch = true;
+      // Orchestrator uses Composio for insights (calendar, etc.) - no DB memory search
+      config.includeMemorySearch = false;
       config.includeSupabaseStore = true;
       config.includeEmbeddingGenerator = true;
       config.includeExternalTools = true;

@@ -17,12 +17,7 @@ import {
 } from "../nodes/grade-documents.node";
 import { rewriteQueryNode } from "../nodes/rewrite-query.node";
 import { getOrchestratorTools } from "../tools/registry";
-import {
-  memorySearchTool,
-  supabaseStoreTool,
-  embeddingGeneratorTool,
-} from "../tools";
-import { buildMemoryContext } from "../lib/context";
+import { supabaseStoreTool, embeddingGeneratorTool } from "../tools";
 import { handleAgentError } from "../lib/error-handler";
 import { logLlmUsage } from "../lib/llm-usage";
 import { createLLM } from "../lib/llm";
@@ -168,17 +163,6 @@ async function toolExecutorNode(
 
       // Route to the appropriate tool
       switch (call.name) {
-        case "memory_search": {
-          const raw: unknown = await memorySearchTool.invoke({
-            userId: (call.args.userId as string) ?? state.userId,
-            query: (call.args.query as string) ?? state.userMessage,
-            maxResults: (call.args.maxResults as number) ?? 20,
-            minResults: call.args.minResults as number | undefined,
-          });
-          result = typeof raw === "string" ? raw : JSON.stringify(raw);
-          break;
-        }
-
         case "supabase_store": {
           const raw = await supabaseStoreTool.invoke(
             call.args as Parameters<typeof supabaseStoreTool.invoke>[0],
@@ -229,25 +213,11 @@ async function toolExecutorNode(
     }
   }
 
-  // Build memory context from memory_search results
-  let memoryContext = "";
-  const memoryResults = toolResults.filter(
-    (r) => r.toolName === "memory_search" && r.success,
-  );
-
-  if (memoryResults.length > 0) {
-    const parsedResults = memoryResults.map((r) => {
-      try {
-        return JSON.parse(r.result);
-      } catch {
-        return { results: [], total_found: 0 };
-      }
-    });
-    memoryContext = buildMemoryContext(parsedResults);
-  }
-
-  // Combine all retrieved context
-  const combinedContext = memoryContext;
+  // Build context from all tool results (Composio calendar, Gmail, etc.)
+  const combinedContext = toolResults
+    .filter((r) => r.success && r.result)
+    .map((r) => `[${r.toolName}]:\n${r.result}`)
+    .join("\n\n");
 
   // Create tool messages for the conversation
   const toolMessages = toolResults.map(
