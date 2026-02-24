@@ -1,11 +1,7 @@
 import { StateGraph, END, START } from "@langchain/langgraph";
 import { createBaseAgent } from "../lib/agent-base";
-import {
-  memorySearchTool,
-  supabaseStoreTool,
-  embeddingGeneratorTool,
-} from "../tools";
-import { buildMemoryContext, buildAgentContext } from "../lib/context";
+import { supabaseStoreTool, embeddingGeneratorTool } from "../tools";
+import { buildAgentContext } from "../lib/context";
 import { handleAgentError } from "../lib/error-handler";
 import { logLlmUsage } from "../lib/llm-usage";
 import {
@@ -104,33 +100,11 @@ async function storeAskEmbedding(params: {
 
 // Node Implementations
 
+/** No-op: memory now comes from Composio (calendar, etc.), not database */
 async function memoryRetrieverNode(
   state: RootGraphState,
 ): Promise<Partial<RootGraphState>> {
-  if (!state.userMessage) {
-    return {};
-  }
-
-  try {
-    const resultStr = await memorySearchTool.invoke({
-      userId: state.userId,
-      query: state.userMessage,
-      maxResults: 20,
-    });
-
-    const result =
-      typeof resultStr === "string" ? JSON.parse(resultStr) : resultStr;
-    const memoryContext = buildMemoryContext([result]);
-
-    return { memoryContext };
-  } catch (error) {
-    handleAgentError(error, {
-      agentType: "root",
-      userId: state.userId,
-      action: "memory_retrieval",
-    });
-    return { memoryContext: "" };
-  }
+  return { memoryContext: "" };
 }
 
 async function rootResponseAgentNode(

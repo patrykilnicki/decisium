@@ -129,9 +129,25 @@ export async function GET(request: NextRequest) {
     }
 
     // Set up real-time trigger for Google Calendar
+    // Composio webhooks must be publicly reachable - localhost won't work. Prefer
+    // NEXT_PUBLIC_APP_URL if it's a production URL (e.g. when developing against deployed app).
     if (resolvedProvider === "google_calendar" && integrationId) {
       try {
-        const webhookUrl = `${baseUrl}/api/webhooks/composio`;
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+        const isLocalhost = (url: string) =>
+          url.startsWith("http://localhost") ||
+          url.startsWith("https://localhost");
+        const webhookBase =
+          appUrl && !isLocalhost(appUrl) ? appUrl.replace(/\/$/, "") : baseUrl;
+        const webhookUrl = `${webhookBase}/api/webhooks/composio`;
+
+        if (isLocalhost(webhookUrl)) {
+          console.warn(
+            "[composio/callback] Webhook URL is localhost — Composio cannot reach it. " +
+              "Set NEXT_PUBLIC_APP_URL to a public URL (e.g. ngrok or deployed app) for real-time sync.",
+          );
+        }
+
         const triggerId = await setupCalendarTrigger(user.id, webhookUrl);
 
         if (triggerId) {

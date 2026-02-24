@@ -24,6 +24,14 @@ interface ComposioWebhookPayload {
   timestamp?: string;
 }
 
+/** composio.connected_account.expired event data */
+interface ComposioExpiredEventData {
+  id?: string;
+  toolkit?: { slug?: string };
+  status?: string;
+  status_reason?: string;
+}
+
 interface TriggerEventData {
   event_id?: string;
   event_type?: string;
@@ -51,23 +59,80 @@ interface TriggerEventData {
   created_at?: string;
 }
 
+/**
+ * Verify Composio webhook signature per official docs.
+ * @see https://docs.composio.dev/docs/webhook-verification
+ *
+ * Supports:
+ * - Official format: webhook-signature, webhook-id, webhook-timestamp
+ *   Signing string: {webhook_id}.{webhook_timestamp}.{body}
+ *   HMAC-SHA256 → base64. Signature format: "v1,<base64>"
+ * - Legacy format: x-composio-signature or x-webhook-signature
+ *   HMAC-SHA256(rawBody) → hex (for older Composio versions)
+ */
 function verifyWebhookSignature(
   rawBody: string,
-  signatureHeader: string | null,
+  request: NextRequest,
 ): boolean {
   const secret = process.env.COMPOSIO_WEBHOOK_SECRET;
-  if (!secret) return true;
-  if (!signatureHeader) return false;
+  if (!secret) return true; // Skip verification when secret not configured
 
-  const expected = crypto
-    .createHmac("sha256", secret)
-    .update(rawBody)
-    .digest("hex");
+  const webhookSignature = request.headers.get("webhook-signature");
+  const webhookId = request.headers.get("webhook-id");
+  const webhookTimestamp = request.headers.get("webhook-timestamp");
+  const legacySignature =
+    request.headers.get("x-composio-signature") ??
+    request.headers.get("x-webhook-signature");
 
-  return crypto.timingSafeEqual(
-    Buffer.from(signatureHeader),
-    Buffer.from(expected),
-  );
+  // Official format (per Composio docs)
+  if (webhookSignature && webhookId && webhookTimestamp) {
+    const signingString = `${webhookId}.${webhookTimestamp}.${rawBody}`;
+    const expected = crypto
+      .createHmac("sha256", secret)
+      .update(signingString)
+      .digest("base64");
+    const received = webhookSignature.includes(",")
+      ? (webhookSignature.split(",")[1]?.trim() ?? webhookSignature)
+      : webhookSignature;
+
+    // Reject if timestamp is too old (default tolerance 300s per docs)
+    const ts = parseInt(webhookTimestamp, 10);
+    if (!Number.isNaN(ts) && Date.now() / 1000 - ts > 300) {
+      console.warn("[composio/webhook] Webhook timestamp too old");
+      return false;
+    }
+
+    try {
+      const expectedBuf = Buffer.from(expected, "base64");
+      const receivedBuf = Buffer.from(received, "base64");
+      return (
+        expectedBuf.length === receivedBuf.length &&
+        crypto.timingSafeEqual(expectedBuf, receivedBuf)
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  // Legacy format: x-composio-signature or x-webhook-signature (HMAC-SHA256 hex)
+  if (legacySignature) {
+    const expectedHex = crypto
+      .createHmac("sha256", secret)
+      .update(rawBody)
+      .digest("hex");
+    try {
+      const expectedBuf = Buffer.from(expectedHex, "hex");
+      const receivedBuf = Buffer.from(legacySignature, "hex");
+      return (
+        expectedBuf.length === receivedBuf.length &&
+        crypto.timingSafeEqual(expectedBuf, receivedBuf)
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  return false;
 }
 
 function truncateContent(text: string, maxLen: number): string {
@@ -148,6 +213,32 @@ async function findIntegrationByComposioAccount(
     .eq("provider", "google_calendar")
     .eq("status", "active")
     .limit(5);
+
+  if (!data) return null;
+
+  for (const row of data) {
+    const meta = row.metadata as Record<string, unknown> | null;
+    if (meta?.composio_connected_account_id === connectedAccountId) {
+      return {
+        id: row.id,
+        user_id: row.user_id,
+        provider: row.provider,
+      };
+    }
+  }
+
+  return null;
+}
+
+/** Find integration by Composio connected account ID (for expiry events that lack user_id) */
+async function findIntegrationByConnectedAccountId(
+  connectedAccountId: string,
+): Promise<{ id: string; user_id: string; provider: string } | null> {
+  const { data } = await supabase
+    .from("integrations")
+    .select("id, user_id, provider, metadata")
+    .eq("provider", "google_calendar")
+    .limit(50);
 
   if (!data) return null;
 
@@ -259,11 +350,7 @@ const CALENDAR_TRIGGER_SLUGS = new Set([
 export async function POST(request: NextRequest) {
   const rawBody = await request.text();
 
-  const signature =
-    request.headers.get("x-composio-signature") ??
-    request.headers.get("x-webhook-signature");
-
-  if (!verifyWebhookSignature(rawBody, signature)) {
+  if (!verifyWebhookSignature(rawBody, request)) {
     console.warn("[composio/webhook] Invalid signature");
     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }
@@ -273,6 +360,34 @@ export async function POST(request: NextRequest) {
     payload = JSON.parse(rawBody) as ComposioWebhookPayload;
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  // composio.connected_account.expired - mark integration for re-auth
+  if (payload.type === "composio.connected_account.expired") {
+    const expiredData = payload.data as unknown as ComposioExpiredEventData;
+    const accountId = expiredData?.id;
+    if (accountId) {
+      const integration = await findIntegrationByConnectedAccountId(accountId);
+      if (integration) {
+        const reason = expiredData?.status_reason ?? "Token expired";
+        await supabase
+          .from("integrations")
+          .update({
+            status: "error",
+            last_sync_error: reason,
+            last_sync_status: "error",
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", integration.id);
+        console.log(
+          `[composio/webhook] Marked integration ${integration.id} expired: ${reason}`,
+        );
+      }
+    }
+    return NextResponse.json({
+      status: "ok",
+      type: "composio.connected_account.expired",
+    });
   }
 
   if (payload.type !== "composio.trigger.message") {
