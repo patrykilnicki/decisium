@@ -13,7 +13,7 @@ export const ROOT_AGENT_STEPS: StepMapping[] = [
 // Orchestrator agent (agentic mode) step mappings
 // Uses Composio agent-tools-agent loop: single orchestrator.invoke task
 export const ORCHESTRATOR_STEPS: StepMapping[] = [
-  { nodeId: "orchestrator", label: "Processing with AI", order: 1 },
+  { nodeId: "orchestrator", label: "Thinking...", order: 1 },
 ];
 
 export function getStepLabel(
@@ -44,34 +44,86 @@ export function getTaskStepLabel(taskType: TaskType): string {
   );
 }
 
-function humanizeToolName(toolName: string): string {
-  return toolName
-    .trim()
-    .replace(/^composio[_-]?/i, "")
-    .replace(/[_-]+/g, " ")
-    .toLowerCase();
+const FRIENDLY_TOOL_LABELS: Record<
+  string,
+  { started: string; completed: string; failed: string }
+> = {
+  COMPOSIO_SEARCH_TOOLS: {
+    started: "Preparing...",
+    completed: "Prepared",
+    failed: "Preparation failed",
+  },
+  COMPOSIO_MANAGE_CONNECTIONS: {
+    started: "Setting up connection...",
+    completed: "Connection ready",
+    failed: "Connection failed",
+  },
+  COMPOSIO_REMOTE_WORKBENCH: {
+    started: "Processing data...",
+    completed: "Data processed",
+    failed: "Data processing failed",
+  },
+  memory_search: {
+    started: "Checking memory...",
+    completed: "Memory checked",
+    failed: "Memory check failed",
+  },
+};
+
+const SERVICE_LABELS: Record<
+  string,
+  { started: string; completed: string; failed: string }
+> = {
+  GMAIL: {
+    started: "Checking Gmail...",
+    completed: "Gmail checked",
+    failed: "Gmail check failed",
+  },
+  GOOGLECALENDAR: {
+    started: "Checking Calendar...",
+    completed: "Calendar checked",
+    failed: "Calendar check failed",
+  },
+};
+
+function detectServiceFromInnerTools(innerToolSlugs: string[]): string | null {
+  for (const slug of innerToolSlugs) {
+    const upper = slug.toUpperCase();
+    if (upper.startsWith("GMAIL")) return "GMAIL";
+    if (upper.startsWith("GOOGLECALENDAR")) return "GOOGLECALENDAR";
+  }
+  return null;
 }
 
-function toTitleCase(value: string): string {
-  return value.replace(/\b\w/g, (char) => char.toUpperCase());
-}
-
-function buildToolLabel(
+export function getFriendlyToolLabel(
   eventType: string,
   toolName: string,
-  action?: string,
+  innerToolSlugs?: string[],
 ): string {
-  const normalizedTool = toTitleCase(humanizeToolName(toolName));
-  const normalizedAction = action?.trim().toLowerCase();
+  const stateKey =
+    eventType === "tool_started"
+      ? "started"
+      : eventType === "tool_completed"
+        ? "completed"
+        : eventType === "tool_failed"
+          ? "failed"
+          : "started";
 
-  if (normalizedAction)
-    return `${toTitleCase(normalizedAction)} ${normalizedTool}`;
+  if (toolName === "COMPOSIO_MULTI_EXECUTE_TOOL" && innerToolSlugs?.length) {
+    const service = detectServiceFromInnerTools(innerToolSlugs);
+    if (service && SERVICE_LABELS[service]) {
+      return SERVICE_LABELS[service][stateKey];
+    }
+  }
 
-  if (eventType === "tool_started") return `Checking ${normalizedTool}`;
-  if (eventType === "tool_completed") return `Completed ${normalizedTool}`;
-  if (eventType === "tool_failed") return `Failed ${normalizedTool}`;
+  const directMatch = FRIENDLY_TOOL_LABELS[toolName];
+  if (directMatch) return directMatch[stateKey];
 
-  return `Using ${normalizedTool}`;
+  return stateKey === "started"
+    ? "Checking..."
+    : stateKey === "completed"
+      ? "Done"
+      : "Failed";
 }
 
 export function getDynamicStepLabel(params: {
@@ -80,18 +132,19 @@ export function getDynamicStepLabel(params: {
   payload?: Record<string, unknown>;
 }): string {
   const payload = params.payload ?? {};
+
   const displayLabel = payload.displayLabel;
   if (typeof displayLabel === "string" && displayLabel.trim().length > 0) {
     return displayLabel;
   }
 
   const toolName = payload.toolName;
-  const action = payload.action;
   if (typeof toolName === "string" && toolName.trim().length > 0) {
-    return buildToolLabel(
+    const innerToolSlugs = payload.innerToolSlugs;
+    return getFriendlyToolLabel(
       params.eventType,
       toolName,
-      typeof action === "string" ? action : undefined,
+      Array.isArray(innerToolSlugs) ? (innerToolSlugs as string[]) : undefined,
     );
   }
 

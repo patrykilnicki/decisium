@@ -80,15 +80,16 @@ function ThinkingMessageComponent({
 
       {/* Thinking Content */}
       <div className="flex flex-col gap-2 max-w-[85%] sm:max-w-[75%]">
-        {/* Always show "Thinking..." */}
         <div className="rounded-2xl">
           <div className="flex flex-col gap-2">
-            <span className="text-sm font-medium text-muted-foreground">
-              Thinking...
-            </span>
-
-            {/* Show current step below "Thinking..." */}
-            {currentStep && <CurrentStep step={currentStep} />}
+            {/* Show tool step label when active, otherwise show "Thinking..." */}
+            {currentStep && currentStep.label !== "Thinking..." ? (
+              <CurrentStep step={currentStep} />
+            ) : (
+              <span className="text-sm font-medium text-muted-foreground">
+                Thinking...
+              </span>
+            )}
 
             {/* Loading indicator when no steps yet */}
             {!currentStep && steps.length === 0 && !streamedContent && (
