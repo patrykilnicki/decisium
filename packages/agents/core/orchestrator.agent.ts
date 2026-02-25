@@ -333,32 +333,31 @@ function getPendingToolCalls(messages: BaseMessage[]): PendingToolCall[] {
   const toolCalls = Array.isArray(lastMessage.tool_calls)
     ? lastMessage.tool_calls
     : [];
-  return toolCalls
-    .map((toolCall, index) => {
-      const toolName =
-        typeof toolCall?.name === "string" ? toolCall.name.trim() : "";
-      if (!toolName) return null;
+  return toolCalls.reduce<PendingToolCall[]>((acc, toolCall, index) => {
+    const toolName =
+      typeof toolCall?.name === "string" ? toolCall.name.trim() : "";
+    if (!toolName) return acc;
 
-      const fallbackId = `${toolName}:${index + 1}`;
-      const toolCallId =
-        typeof toolCall?.id === "string" && toolCall.id.trim().length > 0
-          ? toolCall.id
-          : fallbackId;
+    const fallbackId = `${toolName}:${index + 1}`;
+    const toolCallId =
+      typeof toolCall?.id === "string" && toolCall.id.trim().length > 0
+        ? toolCall.id
+        : fallbackId;
 
-      const innerToolSlugs =
-        toolCall?.args && typeof toolCall.args === "object"
-          ? extractInnerToolSlugs(toolCall.args as Record<string, unknown>)
-          : undefined;
+    const innerToolSlugs =
+      toolCall?.args && typeof toolCall.args === "object"
+        ? extractInnerToolSlugs(toolCall.args as Record<string, unknown>)
+        : undefined;
 
-      return {
-        toolName,
-        toolCallId,
-        toolCallKey: `${toolName}:${index + 1}`,
-        callIndex: index + 1,
-        innerToolSlugs: innerToolSlugs?.length ? innerToolSlugs : undefined,
-      };
-    })
-    .filter((tool): tool is PendingToolCall => tool !== null);
+    acc.push({
+      toolName,
+      toolCallId,
+      toolCallKey: `${toolName}:${index + 1}`,
+      callIndex: index + 1,
+      innerToolSlugs: innerToolSlugs?.length ? innerToolSlugs : undefined,
+    });
+    return acc;
+  }, []);
 }
 
 async function emitToolEvent(params: {
