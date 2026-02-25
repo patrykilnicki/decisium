@@ -21,6 +21,7 @@ import {
   createInitialOrchestratorState,
 } from "../schemas/orchestrator.schema";
 import { ORCHESTRATOR_SYSTEM_PROMPT } from "../prompts";
+import { getFriendlyToolLabel } from "../lib/step-mappings";
 import {
   listComposioConnectedAccounts,
   isComposioEnabled,
@@ -301,6 +302,7 @@ interface PendingToolCall {
   toolCallId: string;
   toolCallKey: string;
   callIndex: number;
+  innerToolSlugs?: string[];
 }
 
 export interface OrchestratorToolEvent {
@@ -312,6 +314,16 @@ export interface OrchestratorToolEvent {
   action: "checking" | "completed" | "failed";
   displayLabel: string;
   error?: string;
+}
+
+function extractInnerToolSlugs(args: Record<string, unknown>): string[] {
+  const tools = args?.tools;
+  if (!Array.isArray(tools)) return [];
+  return tools
+    .map((t) => (t as { tool_slug?: string })?.tool_slug)
+    .filter(
+      (slug): slug is string => typeof slug === "string" && slug.length > 0,
+    );
 }
 
 function getPendingToolCalls(messages: BaseMessage[]): PendingToolCall[] {
@@ -333,11 +345,17 @@ function getPendingToolCalls(messages: BaseMessage[]): PendingToolCall[] {
           ? toolCall.id
           : fallbackId;
 
+      const innerToolSlugs =
+        toolCall?.args && typeof toolCall.args === "object"
+          ? extractInnerToolSlugs(toolCall.args as Record<string, unknown>)
+          : undefined;
+
       return {
         toolName,
         toolCallId,
         toolCallKey: `${toolName}:${index + 1}`,
         callIndex: index + 1,
+        innerToolSlugs: innerToolSlugs?.length ? innerToolSlugs : undefined,
       };
     })
     .filter((tool): tool is PendingToolCall => tool !== null);
@@ -351,25 +369,31 @@ async function emitToolEvent(params: {
 }): Promise<void> {
   if (!params.onToolEvent) return;
 
+  const friendlyLabel = getFriendlyToolLabel(
+    params.eventType,
+    params.tool.toolName,
+    params.tool.innerToolSlugs,
+  );
+
+  const action =
+    params.eventType === "tool_completed"
+      ? "completed"
+      : params.eventType === "tool_failed"
+        ? "failed"
+        : "checking";
+
   const event: OrchestratorToolEvent = {
     eventType: params.eventType,
     toolName: params.tool.toolName,
     toolCallId: params.tool.toolCallId,
     toolCallKey: params.tool.toolCallKey,
     callIndex: params.tool.callIndex,
-    action: "checking",
-    displayLabel: `Checking ${params.tool.toolName}`,
+    action,
+    displayLabel: friendlyLabel,
   };
 
-  if (params.eventType === "tool_completed") {
-    event.action = "completed";
-    event.displayLabel = `Completed ${params.tool.toolName}`;
-  }
-
-  if (params.eventType === "tool_failed") {
-    event.action = "failed";
-    event.displayLabel = `Failed ${params.tool.toolName}`;
-    if (params.error) event.error = params.error;
+  if (params.eventType === "tool_failed" && params.error) {
+    event.error = params.error;
   }
 
   try {
