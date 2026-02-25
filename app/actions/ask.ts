@@ -170,8 +170,8 @@ export async function sendMessage(
           userEmail,
           conversationHistory,
           preferredModel,
+          userMessageId: savedUserMessage.id,
         }),
-        userMessageId: savedUserMessage.id,
       };
     } else {
       taskType = "root.save_user_message";

@@ -109,6 +109,7 @@ export function createInitialOrchestratorState(input: {
   conversationHistory?: string;
   connectedServices?: string;
   preferredModel?: string;
+  userMessageId?: string;
 }): OrchestratorState {
   const contextParts: string[] = [];
   if (input.conversationHistory) {
@@ -133,6 +134,7 @@ export function createInitialOrchestratorState(input: {
     iterationCount: 0,
     maxIterations: 10,
     connectedServices: input.connectedServices,
+    userMessageId: input.userMessageId,
   };
 }
 

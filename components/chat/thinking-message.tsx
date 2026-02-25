@@ -51,8 +51,10 @@ function ThinkingMessageComponent({
   const currentStep = useMemo(() => {
     if (steps.length === 0) return null;
 
-    // First, try to find a running step
-    const runningStep = steps.find((step) => step.status === "running");
+    // Prefer the most recent running step so tool-level updates override generic parent steps.
+    const runningStep = [...steps]
+      .reverse()
+      .find((step) => step.status === "running");
     if (runningStep) return runningStep;
 
     // If no running step, find the last completed step

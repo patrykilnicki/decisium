@@ -514,6 +514,7 @@ export async function processOrchestratorMessage(input: {
   conversationHistory?: string;
   callbackUrl?: string;
   preferredModel?: string;
+  userMessageId?: string;
   onToolEvent?: (event: OrchestratorToolEvent) => Promise<void> | void;
 }): Promise<OrchestratorMessageResult> {
   const [tools, connectedServices] = await Promise.all([
@@ -528,6 +529,7 @@ export async function processOrchestratorMessage(input: {
   const initialState = createInitialOrchestratorState({
     ...input,
     connectedServices,
+    userMessageId: input.userMessageId,
   });
 
   const result = await graph.invoke(initialState);

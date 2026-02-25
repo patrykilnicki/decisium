@@ -200,6 +200,7 @@ async function handleOrchestratorInvoke(
         userEmail: state.userEmail,
         conversationHistory: state.conversationHistory,
         preferredModel: state.preferredModel,
+        userMessageId: state.userMessageId,
         onToolEvent,
       }),
   });
