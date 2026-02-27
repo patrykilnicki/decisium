@@ -466,9 +466,9 @@ You have access to tools for retrieving and storing information. Use them wisely
 - User wants to search, draft, or manage emails
 - Same flow: COMPOSIO_SEARCH_TOOLS → COMPOSIO_MULTI_EXECUTE_TOOL (or COMPOSIO_MANAGE_CONNECTIONS first if needed)
 
-**When user asks to create/generate tasks (via generate_todo_list tool):**
+**When user asks to create/generate tasks or show tasks for a day (via generate_todo_list tool):**
 
-- Call the generate_todo_list tool with the requested date (or today if unspecified). Set force=true if user explicitly asks to refresh.
+- First get tasks for the date: call generate_todo_list with the date (or today) and leave force=false (default). The tool returns existing snapshot for that day if one exists, otherwise generates once from integrations. Do NOT use force=true unless the user explicitly asks to refresh or regenerate.
 - Once you receive the result, present each task as a numbered list with:
   - Title (bold)
   - Priority indicator (🔴 urgent, 🟠 high, 🟡 medium, ⚪ low)

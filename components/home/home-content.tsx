@@ -6,6 +6,7 @@ import { CentralIcon } from "@/components/ui/central-icon";
 import { Textarea } from "@/components/ui/textarea";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
+import { Calendar, Mail, FileText, CheckSquare, Circle } from "lucide-react";
 
 interface HomeContentProps {
   userName: string | null;
@@ -34,6 +35,22 @@ interface IntegrationTodoItem {
   priority: "low" | "medium" | "high" | "urgent";
   status: "open" | "in_progress" | "done";
   dueAt: string | null;
+  sourceProvider?: string;
+}
+
+const PRIORITY_ORDER: Record<IntegrationTodoItem["priority"], number> = {
+  urgent: 0,
+  high: 1,
+  medium: 2,
+  low: 3,
+};
+
+function sortTasksByPriority(
+  tasks: IntegrationTodoItem[],
+): IntegrationTodoItem[] {
+  return [...tasks].sort(
+    (a, b) => PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority],
+  );
 }
 
 interface IntegrationTodoListResponse {
@@ -111,6 +128,32 @@ function getEventColor(
     return "green";
   }
   return "indigo";
+}
+
+function SourceLogo({ provider }: { provider?: string }) {
+  const iconClass = "size-3";
+  const content = (() => {
+    switch (provider) {
+      case "google_calendar":
+        return <Calendar className={iconClass} />;
+      case "gmail":
+        return <Mail className={iconClass} />;
+      case "notion":
+        return <FileText className={iconClass} />;
+      case "linear":
+        return <CheckSquare className={iconClass} />;
+      default:
+        return <Circle className={iconClass} />;
+    }
+  })();
+  return (
+    <div
+      className="flex size-[18px] shrink-0 items-center justify-center rounded-[6px] border border-input text-muted-foreground"
+      title={provider ?? "Unknown source"}
+    >
+      {content}
+    </div>
+  );
 }
 
 export function HomeContent({ userName, userId }: HomeContentProps) {
@@ -282,16 +325,13 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
               No tasks for this day
             </p>
           ) : (
-            integrationTasks.map((task) => (
+            sortTasksByPriority(integrationTasks).map((task) => (
               <div
                 key={task.id}
                 className="flex items-center gap-5 border-b border-border px-5 py-4 last:border-b-0"
               >
                 <div className="flex min-w-0 flex-1 items-center gap-2">
-                  <div
-                    className="size-[18px] shrink-0 rounded-[6px] border-[1.5px] border-input"
-                    aria-hidden
-                  />
+                  <SourceLogo provider={task.sourceProvider} />
                   <span className="truncate text-sm font-medium text-foreground">
                     {task.title}
                   </span>
