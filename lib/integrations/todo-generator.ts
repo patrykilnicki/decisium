@@ -44,6 +44,13 @@ function toDateString(date: Date): string {
   return date.toISOString().split("T")[0];
 }
 
+/** Next calendar day in YYYY-MM-DD (for Gmail before: end-of-day range). */
+function nextDayDateString(date: string): string {
+  const d = new Date(date + "T12:00:00Z");
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().split("T")[0];
+}
+
 // ═══════════════════════════════════════════════════════════════
 // Live Composio data fetching
 // ═══════════════════════════════════════════════════════════════
@@ -131,8 +138,11 @@ async function fetchGmailSignals(
   const accounts = await listComposioConnectedAccounts(userId, "GMAIL");
   if (accounts.length === 0) return [];
 
+  // Single-day range: after start of day, before start of next day (same as Ask/adapters).
+  const gmailDate = date.replace(/-/g, "/");
+  const nextDay = nextDayDateString(date).replace(/-/g, "/");
   const result = await executeGmailFetchEmails(userId, accounts[0].id, {
-    query: `after:${date.replace(/-/g, "/")}`,
+    query: `after:${gmailDate} before:${nextDay}`,
     max_results: 50,
   });
 
@@ -444,6 +454,19 @@ export class TodoGenerator {
 
     await this.upsertSnapshot(userId, date, list, options?.generatedFromEvent);
     return list;
+  }
+
+  /**
+   * Lightweight check whether a snapshot exists for the given date (for UI labels).
+   */
+  async hasSnapshotForDate(userId: string, date: string): Promise<boolean> {
+    const { data, error } = await this.supabase
+      .from("todo_snapshots")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("date", date)
+      .maybeSingle();
+    return !error && !!data;
   }
 
   private async getSnapshotForDate(
