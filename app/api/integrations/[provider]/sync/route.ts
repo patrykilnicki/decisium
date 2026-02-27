@@ -83,8 +83,8 @@ export async function POST(
     // System trigger: keep integration-based todo snapshot fresh after sync.
     await dispatchTodoGenerationTask(user.id, {
       source: `system.integration_sync.${provider}`,
-      mode: "latest",
-      persist: true,
+      date: new Date().toISOString().split("T")[0],
+      force: true,
       cooldownMinutes: 10,
     });
 

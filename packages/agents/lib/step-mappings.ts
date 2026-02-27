@@ -68,6 +68,11 @@ const FRIENDLY_TOOL_LABELS: Record<
     completed: "Memory checked",
     failed: "Memory check failed",
   },
+  generate_todo_list: {
+    started: "Generating tasks from integrations...",
+    completed: "Tasks generated",
+    failed: "Task generation failed",
+  },
 };
 
 const SERVICE_LABELS: Record<

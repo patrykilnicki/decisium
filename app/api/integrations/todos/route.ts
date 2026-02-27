@@ -2,18 +2,21 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createTodoGenerator } from "@/lib/integrations";
-import { GenerateTodoListInputSchema } from "@/packages/agents/schemas/todo.schema";
 
-function parseBoolean(value: string | null, fallback: boolean): boolean {
-  if (value == null) return fallback;
-  if (value === "true") return true;
-  if (value === "false") return false;
-  return fallback;
+function todayDateString(): string {
+  return new Date().toISOString().split("T")[0];
 }
 
 /**
- * GET /api/integrations/todos
- * Returns latest to-do snapshot or regenerates when mode=regenerate.
+ * GET /api/integrations/todos?date=2026-02-27
+ *
+ * Returns tasks for the given date. If tasks already exist in the DB
+ * for that date, returns them immediately. If not, generates new ones
+ * from connected integrations (Composio) + LLM and persists them.
+ *
+ * Query params:
+ * - date (YYYY-MM-DD, defaults to today)
+ * - force=true to regenerate even if cached
  */
 export async function GET(request: NextRequest) {
   try {
@@ -28,48 +31,23 @@ export async function GET(request: NextRequest) {
     }
 
     const searchParams = request.nextUrl.searchParams;
-    const rawMode = searchParams.get("mode") ?? "smart";
-    const mode = rawMode === "smart" ? "regenerate" : rawMode;
-    const inputResult = GenerateTodoListInputSchema.safeParse({
-      userId: user.id,
-      mode,
-      persist: parseBoolean(searchParams.get("persist"), true),
-      maxItems: searchParams.get("maxItems")
-        ? Number(searchParams.get("maxItems"))
-        : undefined,
-      windowHours: searchParams.get("windowHours")
-        ? Number(searchParams.get("windowHours"))
-        : undefined,
-    });
-
-    if (!inputResult.success) {
-      return NextResponse.json(
-        {
-          error: "Invalid todo generation input",
-          details: inputResult.error.issues,
-        },
-        { status: 400 },
-      );
-    }
+    const date = searchParams.get("date") ?? todayDateString();
+    const force = searchParams.get("force") === "true";
 
     const generator = createTodoGenerator(createAdminClient());
-    const payload =
-      rawMode === "smart"
-        ? await generator.generateSmart(inputResult.data, {
-            generatedFromEvent: "api.integrations.todos.get.smart",
-          })
-        : await generator.generate(inputResult.data, {
-            generatedFromEvent: "api.integrations.todos.get",
-          });
+    const payload = force
+      ? await generator.regenerateForDate(user.id, date, {
+          generatedFromEvent: "api.todos.get.force",
+        })
+      : await generator.getOrGenerateForDate(user.id, date, {
+          generatedFromEvent: "api.todos.get",
+        });
 
     return NextResponse.json(payload);
   } catch (error) {
     return NextResponse.json(
       {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Failed to fetch integration to-dos",
+        error: error instanceof Error ? error.message : "Failed to fetch tasks",
       },
       { status: 500 },
     );
@@ -78,7 +56,8 @@ export async function GET(request: NextRequest) {
 
 /**
  * POST /api/integrations/todos
- * Explicitly regenerate and optionally persist a to-do snapshot.
+ * Force regenerate tasks for a given date.
+ * Body: { date?: "YYYY-MM-DD" }
  */
 export async function POST(request: NextRequest) {
   try {
@@ -96,36 +75,19 @@ export async function POST(request: NextRequest) {
       string,
       unknown
     >;
-    const inputResult = GenerateTodoListInputSchema.safeParse({
-      userId: user.id,
-      mode: body.mode ?? "regenerate",
-      persist: body.persist ?? true,
-      maxItems: body.maxItems,
-      windowHours: body.windowHours,
-    });
-
-    if (!inputResult.success) {
-      return NextResponse.json(
-        {
-          error: "Invalid todo generation input",
-          details: inputResult.error.issues,
-        },
-        { status: 400 },
-      );
-    }
+    const date = typeof body.date === "string" ? body.date : todayDateString();
 
     const generator = createTodoGenerator(createAdminClient());
-    const payload = await generator.generate(inputResult.data, {
-      generatedFromEvent: "api.integrations.todos.post",
+    const payload = await generator.regenerateForDate(user.id, date, {
+      generatedFromEvent: "api.todos.post",
     });
+
     return NextResponse.json(payload, { status: 201 });
   } catch (error) {
     return NextResponse.json(
       {
         error:
-          error instanceof Error
-            ? error.message
-            : "Failed to regenerate integration to-dos",
+          error instanceof Error ? error.message : "Failed to regenerate tasks",
       },
       { status: 500 },
     );

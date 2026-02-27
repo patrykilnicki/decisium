@@ -6,16 +6,15 @@ import type { Json } from "@/types/supabase";
 
 export interface DispatchTodoTaskOptions {
   source?: string;
-  mode?: "latest" | "regenerate";
-  persist?: boolean;
-  maxItems?: number;
-  windowHours?: number;
+  date?: string;
+  force?: boolean;
   sessionId?: string;
   cooldownMinutes?: number;
 }
 
 async function findRecentTodoTask(
   userId: string,
+  date: string,
   cooldownMinutes: number,
 ): Promise<TaskRow | null> {
   const client = createAdminClient();
@@ -34,15 +33,22 @@ async function findRecentTodoTask(
     .limit(1)
     .maybeSingle();
 
-  return (data as TaskRow | null) ?? null;
+  if (!data) return null;
+
+  const input = data.input as { state?: { date?: string } } | null;
+  if (input?.state?.date !== date) return null;
+
+  return data as TaskRow;
 }
 
 export async function dispatchTodoGenerationTask(
   userId: string,
   options: DispatchTodoTaskOptions = {},
 ): Promise<{ taskId: string; reused: boolean }> {
+  const date = options.date ?? new Date().toISOString().split("T")[0];
   const cooldownMinutes = options.cooldownMinutes ?? 5;
-  const existing = await findRecentTodoTask(userId, cooldownMinutes);
+
+  const existing = await findRecentTodoTask(userId, date, cooldownMinutes);
   if (existing) {
     return { taskId: existing.id, reused: true };
   }
@@ -56,16 +62,13 @@ export async function dispatchTodoGenerationTask(
     input: {
       state: {
         userId,
-        mode: options.mode ?? "latest",
-        persist: options.persist ?? true,
-        maxItems: options.maxItems,
-        windowHours: options.windowHours,
+        date,
+        force: options.force ?? true,
         generatedFromEvent: options.source ?? "system.unknown",
       },
     } as Json,
   });
 
-  // Fire-and-forget: task is processed asynchronously by the worker.
   triggerTask(task.id);
   return { taskId: task.id, reused: false };
 }

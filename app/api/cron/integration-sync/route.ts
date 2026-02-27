@@ -93,8 +93,8 @@ export async function POST(request: NextRequest) {
         await insightGenerator.generateDailyDigest(userId, new Date());
         await dispatchTodoGenerationTask(userId, {
           source: "system.cron.integration_sync",
-          mode: "latest",
-          persist: true,
+          date: new Date().toISOString().split("T")[0],
+          force: true,
           cooldownMinutes: 30,
         });
       } catch (error) {
