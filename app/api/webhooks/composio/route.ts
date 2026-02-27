@@ -231,15 +231,15 @@ async function findIntegrationByComposioAccount(
   return null;
 }
 
-/** Find integration by Composio connected account ID (for expiry events that lack user_id) */
+/** Find integration by Composio connected account ID (any provider: calendar, gmail, etc.) */
 async function findIntegrationByConnectedAccountId(
   connectedAccountId: string,
 ): Promise<{ id: string; user_id: string; provider: string } | null> {
   const { data } = await supabase
     .from("integrations")
     .select("id, user_id, provider, metadata")
-    .eq("provider", "google_calendar")
-    .limit(50);
+    .eq("status", "active")
+    .limit(200);
 
   if (!data) return null;
 
@@ -255,6 +255,21 @@ async function findIntegrationByConnectedAccountId(
   }
 
   return null;
+}
+
+/** Triggers that should trigger todo merge (all integrations we support for todos). */
+const CALENDAR_TRIGGER_SLUGS = new Set([
+  "GOOGLECALENDAR_GOOGLE_CALENDAR_EVENT_SYNC_TRIGGER",
+  "GOOGLECALENDAR_GOOGLE_CALENDAR_EVENT_CREATED_TRIGGER",
+  "GOOGLECALENDAR_GOOGLE_CALENDAR_EVENT_UPDATED_TRIGGER",
+  "GOOGLECALENDAR_EVENT_CANCELED_DELETED_TRIGGER",
+  "GOOGLECALENDAR_GOOGLE_CALENDAR_EVENT_CHANGE_TRIGGER",
+]);
+
+function isIntegrationTriggerForTodo(triggerSlug: string): boolean {
+  if (CALENDAR_TRIGGER_SLUGS.has(triggerSlug)) return true;
+  if (triggerSlug.startsWith("GMAIL_")) return true;
+  return false;
 }
 
 async function handleCalendarSyncEvent(
@@ -336,14 +351,6 @@ async function handleCalendarSyncEvent(
   return { processed: 1, stored: 1, userId: integration.user_id };
 }
 
-const CALENDAR_TRIGGER_SLUGS = new Set([
-  "GOOGLECALENDAR_GOOGLE_CALENDAR_EVENT_SYNC_TRIGGER",
-  "GOOGLECALENDAR_GOOGLE_CALENDAR_EVENT_CREATED_TRIGGER",
-  "GOOGLECALENDAR_GOOGLE_CALENDAR_EVENT_UPDATED_TRIGGER",
-  "GOOGLECALENDAR_EVENT_CANCELED_DELETED_TRIGGER",
-  "GOOGLECALENDAR_GOOGLE_CALENDAR_EVENT_CHANGE_TRIGGER",
-]);
-
 /**
  * POST /api/webhooks/composio
  * Receives trigger payloads from Composio webhook subscriptions.
@@ -396,26 +403,57 @@ export async function POST(request: NextRequest) {
   }
 
   const triggerSlug = payload.metadata?.trigger_slug;
-  if (!triggerSlug || !CALENDAR_TRIGGER_SLUGS.has(triggerSlug)) {
+  if (!triggerSlug || !isIntegrationTriggerForTodo(triggerSlug)) {
     console.log(`[composio/webhook] Unhandled trigger slug: ${triggerSlug}`);
     return NextResponse.json({ status: "ignored", trigger: triggerSlug });
   }
 
   try {
-    const result = await handleCalendarSyncEvent(payload);
-    if (result.userId && result.processed > 0) {
-      // Real-time task sync: regenerate todo snapshots when integration context changes.
-      await dispatchTodoGenerationTask(result.userId, {
-        source: "system.webhook.composio.calendar",
+    let userId: string | undefined;
+
+    if (CALENDAR_TRIGGER_SLUGS.has(triggerSlug)) {
+      const result = await handleCalendarSyncEvent(payload);
+      userId = result.userId;
+      if (result.userId != null) {
+        // Real-time task sync: merge new tasks from all integrations.
+        await dispatchTodoGenerationTask(result.userId, {
+          source: "system.webhook.composio.calendar",
+          date: new Date().toISOString().split("T")[0],
+          incremental: true,
+          cooldownMinutes: 2,
+        });
+        return NextResponse.json({
+          status: "ok",
+          trigger: triggerSlug,
+          ...result,
+        });
+      }
+    }
+
+    // Non-calendar (e.g. Gmail): resolve userId and dispatch todo merge only.
+    userId =
+      payload.metadata?.user_id ||
+      (payload.metadata?.connected_account_id
+        ? (
+            await findIntegrationByConnectedAccountId(
+              String(payload.metadata.connected_account_id),
+            )
+          )?.user_id
+        : undefined);
+
+    if (userId) {
+      await dispatchTodoGenerationTask(userId, {
+        source: `system.webhook.composio.${triggerSlug.split("_")[0].toLowerCase()}`,
         date: new Date().toISOString().split("T")[0],
-        force: true,
+        incremental: true,
         cooldownMinutes: 2,
       });
     }
+
     return NextResponse.json({
       status: "ok",
       trigger: triggerSlug,
-      ...result,
+      userId: userId ?? null,
     });
   } catch (error) {
     console.error("[composio/webhook] Handler error:", error);

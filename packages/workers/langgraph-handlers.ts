@@ -234,12 +234,14 @@ async function handleInsightsGenerateTodoList(
     userId: string;
     date?: string;
     force?: boolean;
+    incremental?: boolean;
     generatedFromEvent?: string;
   }>(task);
 
   const userId = state.userId || task.user_id;
   const date = state.date ?? new Date().toISOString().split("T")[0];
   const force = state.force ?? true;
+  const incremental = state.incremental ?? false;
 
   const result = await runNodeWithEvents({
     client: options.client,
@@ -248,15 +250,20 @@ async function handleInsightsGenerateTodoList(
     nodeKey: "insights.generate_todo_list",
     handler: async () => {
       const generator = createTodoGenerator(options.client);
-      return force
-        ? generator.regenerateForDate(userId, date, {
-            generatedFromEvent:
-              state.generatedFromEvent ?? "task.insights.generate_todo_list",
-          })
-        : generator.getOrGenerateForDate(userId, date, {
-            generatedFromEvent:
-              state.generatedFromEvent ?? "task.insights.generate_todo_list",
-          });
+      const eventSource =
+        state.generatedFromEvent ?? "task.insights.generate_todo_list";
+      const opts = { generatedFromEvent: eventSource };
+
+      if (incremental) {
+        return generator.mergeNewTasksForDate(userId, date, {
+          ...opts,
+          updatedBecause: "webhook_change_detected",
+        });
+      }
+      if (force) {
+        return generator.regenerateForDate(userId, date, opts);
+      }
+      return generator.getOrGenerateForDate(userId, date, opts);
     },
   });
 

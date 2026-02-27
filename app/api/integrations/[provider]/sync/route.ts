@@ -80,11 +80,11 @@ export async function POST(
       );
     }
 
-    // System trigger: keep integration-based todo snapshot fresh after sync.
+    // System trigger: merge new tasks from integrations (no overwrite).
     await dispatchTodoGenerationTask(user.id, {
       source: `system.integration_sync.${provider}`,
       date: new Date().toISOString().split("T")[0],
-      force: true,
+      incremental: true,
       cooldownMinutes: 10,
     });
 

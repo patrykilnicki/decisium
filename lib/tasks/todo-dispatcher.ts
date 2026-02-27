@@ -7,7 +7,10 @@ import type { Json } from "@/types/supabase";
 export interface DispatchTodoTaskOptions {
   source?: string;
   date?: string;
+  /** Full regenerate (overwrite snapshot). If false and incremental true, merge only new tasks. */
   force?: boolean;
+  /** When true, add only new tasks from integrations (no overwrite). Use for webhook/sync. */
+  incremental?: boolean;
   sessionId?: string;
   cooldownMinutes?: number;
 }
@@ -54,6 +57,9 @@ export async function dispatchTodoGenerationTask(
   }
 
   const client = createAdminClient();
+  const incremental = options.incremental ?? false;
+  const force = options.force ?? !incremental;
+
   const task = await enqueueTask(client, {
     user_id: userId,
     session_id: options.sessionId ?? `system:todos:${userId}`,
@@ -63,7 +69,8 @@ export async function dispatchTodoGenerationTask(
       state: {
         userId,
         date,
-        force: options.force ?? true,
+        force,
+        incremental,
         generatedFromEvent: options.source ?? "system.unknown",
       },
     } as Json,
