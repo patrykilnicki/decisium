@@ -27,30 +27,18 @@ interface CalendarEventRow {
   categories: string[] | null;
 }
 
-const TASKS = [
-  {
-    id: "1",
-    title: "Developing mobile app",
-    status: "Anna waiting for new version" as const,
-    statusType: "warning" as const,
-    appIcon: "mail" as const,
-  },
-  {
-    id: "2",
-    title: "Creating new website",
-    appIcon: "calendar" as const,
-  },
-  {
-    id: "3",
-    title: "Redesigning logo",
-    appIcon: "notion" as const,
-  },
-  {
-    id: "4",
-    title: "Conducting user research",
-    appIcon: "mail" as const,
-  },
-];
+interface IntegrationTodoItem {
+  id: string;
+  title: string;
+  summary: string;
+  priority: "low" | "medium" | "high" | "urgent";
+  status: "open" | "in_progress" | "done";
+  dueAt: string | null;
+}
+
+interface IntegrationTodoListResponse {
+  items: IntegrationTodoItem[];
+}
 
 const JOURNAL_ENTRIES = [
   {
@@ -125,11 +113,23 @@ function getEventColor(
   return "indigo";
 }
 
+function isSameDay(dateA: Date, dateB: Date): boolean {
+  return (
+    dateA.getFullYear() === dateB.getFullYear() &&
+    dateA.getMonth() === dateB.getMonth() &&
+    dateA.getDate() === dateB.getDate()
+  );
+}
+
 export function HomeContent({ userName, userId }: HomeContentProps) {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [journalValue, setJournalValue] = useState("");
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
   const [calendarLoading, setCalendarLoading] = useState(false);
+  const [integrationTasks, setIntegrationTasks] = useState<
+    IntegrationTodoItem[]
+  >([]);
+  const [tasksLoading, setTasksLoading] = useState(false);
 
   const displayName =
     typeof userName === "string" && userName !== "there"
@@ -197,6 +197,45 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
     fetchCalendarEvents();
   }, [userId, selectedDate]);
 
+  useEffect(() => {
+    if (!userId) {
+      queueMicrotask(() => setIntegrationTasks([]));
+      return;
+    }
+
+    async function fetchTasks() {
+      setTasksLoading(true);
+      try {
+        const response = await fetch(
+          "/api/integrations/todos?mode=smart&persist=true&maxItems=100",
+          { method: "GET", cache: "no-store" },
+        );
+        if (!response.ok) {
+          setIntegrationTasks([]);
+          return;
+        }
+        const payload =
+          (await response.json()) as Partial<IntegrationTodoListResponse>;
+        setIntegrationTasks(Array.isArray(payload.items) ? payload.items : []);
+      } catch {
+        setIntegrationTasks([]);
+      } finally {
+        setTasksLoading(false);
+      }
+    }
+
+    fetchTasks();
+  }, [userId]);
+
+  const today = new Date();
+  const selectedIsToday = isSameDay(selectedDate, today);
+  const visibleTasks = integrationTasks.filter((task) => {
+    if (!task.dueAt) return selectedIsToday;
+    const dueDate = new Date(task.dueAt);
+    if (Number.isNaN(dueDate.getTime())) return selectedIsToday;
+    return isSameDay(dueDate, selectedDate);
+  });
+
   return (
     <div className="flex flex-1 flex-col items-center gap-14 px-4 py-8 md:px-8 lg:px-32">
       {/* Header: greeting + date navigation */}
@@ -245,45 +284,55 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
           Tasks
         </h2>
         <div className="overflow-hidden rounded-2xl border border-border bg-card">
-          {TASKS.map((task) => (
-            <div
-              key={task.id}
-              className="flex items-center gap-5 border-b border-border px-5 py-4 last:border-b-0"
-            >
-              <div className="flex min-w-0 flex-1 items-center gap-2">
-                <div
-                  className="size-[18px] shrink-0 rounded-[6px] border-[1.5px] border-input"
-                  aria-hidden
-                />
-                <span className="truncate text-sm font-medium text-foreground">
-                  {task.title}
-                </span>
-              </div>
-              {task.statusType === "warning" && task.status ? (
-                <div className="flex shrink-0 items-center gap-1.5">
-                  <CentralIcon
-                    name="IconWarningSign"
-                    iconFill="outlined"
-                    iconStroke="2"
-                    size={16}
-                    className="text-destructive"
+          {tasksLoading ? (
+            <p className="px-5 py-4 text-sm text-muted-foreground">
+              Loading tasks...
+            </p>
+          ) : visibleTasks.length === 0 ? (
+            <p className="px-5 py-4 text-sm text-muted-foreground">
+              No tasks for this day
+            </p>
+          ) : (
+            visibleTasks.map((task) => (
+              <div
+                key={task.id}
+                className="flex items-center gap-5 border-b border-border px-5 py-4 last:border-b-0"
+              >
+                <div className="flex min-w-0 flex-1 items-center gap-2">
+                  <div
+                    className="size-[18px] shrink-0 rounded-[6px] border-[1.5px] border-input"
+                    aria-hidden
                   />
-                  <span className="text-[13px] font-medium tracking-tight text-destructive">
-                    {task.status}
+                  <span className="truncate text-sm font-medium text-foreground">
+                    {task.title}
                   </span>
                 </div>
-              ) : (
-                <div className="size-[18px] shrink-0 text-muted-foreground">
-                  <CentralIcon
-                    name="IconNote1"
-                    iconFill="outlined"
-                    iconStroke="2"
-                    size={18}
-                  />
-                </div>
-              )}
-            </div>
-          ))}
+                {task.priority === "urgent" || task.priority === "high" ? (
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    <CentralIcon
+                      name="IconWarningSign"
+                      iconFill="outlined"
+                      iconStroke="2"
+                      size={16}
+                      className="text-destructive"
+                    />
+                    <span className="text-[13px] font-medium tracking-tight text-destructive">
+                      {task.priority === "urgent" ? "Urgent" : "High priority"}
+                    </span>
+                  </div>
+                ) : (
+                  <div className="size-[18px] shrink-0 text-muted-foreground">
+                    <CentralIcon
+                      name="IconNote1"
+                      iconFill="outlined"
+                      iconStroke="2"
+                      size={18}
+                    />
+                  </div>
+                )}
+              </div>
+            ))
+          )}
           <button
             type="button"
             className="flex w-full items-center gap-2 px-5 py-3 text-left text-sm font-normal text-muted-foreground transition-colors hover:bg-muted/50"

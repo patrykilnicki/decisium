@@ -33,6 +33,8 @@ export type PendingCalendarSync =
   Database["public"]["Tables"]["pending_calendar_syncs"]["Row"];
 export type Task = Database["public"]["Tables"]["tasks"]["Row"];
 export type TaskEvent = Database["public"]["Tables"]["task_events"]["Row"];
+export type TodoSnapshot =
+  Database["public"]["Tables"]["todo_snapshots"]["Row"];
 export type UserSignal = Database["public"]["Tables"]["user_signals"]["Row"];
 export type User = Database["public"]["Tables"]["users"]["Row"];
 export type WeeklySummary =
@@ -77,6 +79,8 @@ export type PendingCalendarSyncInsert =
 export type TaskInsert = Database["public"]["Tables"]["tasks"]["Insert"];
 export type TaskEventInsert =
   Database["public"]["Tables"]["task_events"]["Insert"];
+export type TodoSnapshotInsert =
+  Database["public"]["Tables"]["todo_snapshots"]["Insert"];
 export type UserSignalInsert =
   Database["public"]["Tables"]["user_signals"]["Insert"];
 export type UserInsert = Database["public"]["Tables"]["users"]["Insert"];
@@ -122,6 +126,8 @@ export type PendingCalendarSyncUpdate =
 export type TaskUpdate = Database["public"]["Tables"]["tasks"]["Update"];
 export type TaskEventUpdate =
   Database["public"]["Tables"]["task_events"]["Update"];
+export type TodoSnapshotUpdate =
+  Database["public"]["Tables"]["todo_snapshots"]["Update"];
 export type UserSignalUpdate =
   Database["public"]["Tables"]["user_signals"]["Update"];
 export type UserUpdate = Database["public"]["Tables"]["users"]["Update"];

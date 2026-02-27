@@ -3,7 +3,8 @@ export type TaskType =
   | "root.memory_retriever"
   | "root.response_agent"
   | "root.save_assistant_message"
-  | "orchestrator.invoke";
+  | "orchestrator.invoke"
+  | "insights.generate_todo_list";
 
 export type TaskGraph = "root" | "orchestrator";
 
@@ -24,5 +25,7 @@ export function getTaskNodeId(taskType: TaskType): string {
       return "saveAssistantMessage";
     case "orchestrator.invoke":
       return "orchestrator";
+    case "insights.generate_todo_list":
+      return "insightsGenerateTodoList";
   }
 }

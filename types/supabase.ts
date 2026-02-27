@@ -875,6 +875,47 @@ export type Database = {
           },
         ]
       }
+      todo_snapshots: {
+        Row: {
+          created_at: string | null
+          generated_from_event: string | null
+          id: string
+          mode: string
+          payload: Json
+          user_id: string
+          window_from: string
+          window_to: string
+        }
+        Insert: {
+          created_at?: string | null
+          generated_from_event?: string | null
+          id?: string
+          mode: string
+          payload?: Json
+          user_id: string
+          window_from: string
+          window_to: string
+        }
+        Update: {
+          created_at?: string | null
+          generated_from_event?: string | null
+          id?: string
+          mode?: string
+          payload?: Json
+          user_id?: string
+          window_from?: string
+          window_to?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "todo_snapshots_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_signals: {
         Row: {
           confidence: number | null
