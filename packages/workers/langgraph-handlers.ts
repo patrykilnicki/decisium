@@ -21,6 +21,8 @@ import type { Database } from "@/types/supabase";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createTaskEvent } from "@/lib/tasks/task-events";
 import { runWithTaskContext } from "@/packages/agents/lib/task-context";
+import { createTodoGenerator } from "@/lib/integrations";
+import { GenerateTodoListInputSchema } from "@/packages/agents/schemas/todo.schema";
 
 function buildNextTask(params: {
   parentTaskId: string;
@@ -71,6 +73,9 @@ export async function handleTask(
   }
   if (taskType === "orchestrator.invoke") {
     return handleOrchestratorInvoke(task, { client, jobId });
+  }
+  if (taskType === "insights.generate_todo_list") {
+    return handleInsightsGenerateTodoList(task, { client, jobId });
   }
   throw new Error(`Unknown task type: ${taskType}`);
 }
@@ -218,6 +223,52 @@ async function handleOrchestratorInvoke(
       userMessageId: result.userMessageId,
       assistantMessageId: result.assistantMessageId,
       toolsUsed: result.toolsUsed,
+    },
+  };
+}
+
+async function handleInsightsGenerateTodoList(
+  task: TaskRow,
+  options: { client: SupabaseClient<Database>; jobId: string },
+): Promise<TaskExecutionResult> {
+  const state = getTaskState<{
+    userId: string;
+    mode?: "latest" | "regenerate";
+    persist?: boolean;
+    maxItems?: number;
+    windowHours?: number;
+    generatedFromEvent?: string;
+  }>(task);
+
+  const parsedInput = GenerateTodoListInputSchema.parse({
+    userId: state.userId || task.user_id,
+    mode: state.mode ?? "regenerate",
+    persist: state.persist ?? true,
+    maxItems: state.maxItems,
+    windowHours: state.windowHours,
+  });
+
+  const result = await runNodeWithEvents({
+    client: options.client,
+    task,
+    jobId: options.jobId,
+    nodeKey: "insights.generate_todo_list",
+    handler: async () => {
+      const generator = createTodoGenerator(options.client);
+      return generator.generate(parsedInput, {
+        generatedFromEvent:
+          state.generatedFromEvent ?? "task.insights.generate_todo_list",
+      });
+    },
+  });
+
+  return {
+    output: {
+      state: {
+        ...state,
+        todoList: result,
+      },
+      todoList: result,
     },
   };
 }

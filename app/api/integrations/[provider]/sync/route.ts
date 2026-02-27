@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createOAuthManager, createSyncPipeline } from "@/lib/integrations";
 import { Provider } from "@agents/integrations";
+import { dispatchTodoGenerationTask } from "@/lib/tasks/todo-dispatcher";
 
 /**
  * POST /api/integrations/[provider]/sync
@@ -78,6 +79,14 @@ export async function POST(
         { status: 500 },
       );
     }
+
+    // System trigger: keep integration-based todo snapshot fresh after sync.
+    await dispatchTodoGenerationTask(user.id, {
+      source: `system.integration_sync.${provider}`,
+      mode: "latest",
+      persist: true,
+      cooldownMinutes: 10,
+    });
 
     return NextResponse.json({
       success: true,

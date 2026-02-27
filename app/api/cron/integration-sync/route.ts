@@ -6,6 +6,7 @@ import {
   createSyncPipeline,
   createInsightGenerator,
 } from "@/lib/integrations";
+import { dispatchTodoGenerationTask } from "@/lib/tasks/todo-dispatcher";
 
 // Use service role for cron jobs
 const supabase = createClient<Database>(
@@ -90,6 +91,12 @@ export async function POST(request: NextRequest) {
     for (const userId of userIds) {
       try {
         await insightGenerator.generateDailyDigest(userId, new Date());
+        await dispatchTodoGenerationTask(userId, {
+          source: "system.cron.integration_sync",
+          mode: "latest",
+          persist: true,
+          cooldownMinutes: 30,
+        });
       } catch (error) {
         console.error(`Failed to generate insights for user ${userId}:`, error);
       }

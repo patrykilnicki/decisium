@@ -31,6 +31,13 @@ export {
 } from "./insight-generator";
 
 export {
+  TodoGenerator,
+  createTodoGenerator,
+  type TodoSnapshotRow,
+  type TodoGenerateOptions,
+} from "./todo-generator";
+
+export {
   syncComposioCalendarToSupabase,
   type ComposioCalendarSyncOptions,
   type ComposioCalendarSyncResult,

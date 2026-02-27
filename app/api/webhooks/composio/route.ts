@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import type { Database, Json } from "@/types/supabase";
 import type { ActivityAtomInsert } from "@/types/database";
 import crypto from "crypto";
+import { dispatchTodoGenerationTask } from "@/lib/tasks/todo-dispatcher";
 
 const supabase = createClient<Database>(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -258,14 +259,14 @@ async function findIntegrationByConnectedAccountId(
 
 async function handleCalendarSyncEvent(
   payload: ComposioWebhookPayload,
-): Promise<{ processed: number; stored: number }> {
+): Promise<{ processed: number; stored: number; userId?: string }> {
   const event = payload.data as unknown as TriggerEventData;
   const userId = payload.metadata?.user_id;
   const connectedAccountId = payload.metadata?.connected_account_id;
 
   if (!userId || !connectedAccountId) {
     console.warn("[composio/webhook] Missing user_id or connected_account_id");
-    return { processed: 0, stored: 0 };
+    return { processed: 0, stored: 0, userId: undefined };
   }
 
   const integration = await findIntegrationByComposioAccount(
@@ -277,7 +278,7 @@ async function handleCalendarSyncEvent(
     console.warn(
       `[composio/webhook] No integration found for user ${userId.slice(0, 8)}... / account ${connectedAccountId}`,
     );
-    return { processed: 0, stored: 0 };
+    return { processed: 0, stored: 0, userId };
   }
 
   if (event.event_type === "deleted" || event.status === "cancelled") {
@@ -291,7 +292,7 @@ async function handleCalendarSyncEvent(
         `[composio/webhook] Deleted event ${event.event_id} for integration ${integration.id}`,
       );
     }
-    return { processed: 1, stored: 0 };
+    return { processed: 1, stored: 0, userId: integration.user_id };
   }
 
   const atom = triggerEventToAtom(event);
@@ -299,7 +300,7 @@ async function handleCalendarSyncEvent(
     console.warn(
       `[composio/webhook] Could not convert trigger event to atom (event_id: ${event.event_id})`,
     );
-    return { processed: 1, stored: 0 };
+    return { processed: 1, stored: 0, userId: integration.user_id };
   }
 
   const syncedAt = new Date().toISOString();
@@ -316,7 +317,7 @@ async function handleCalendarSyncEvent(
 
   if (error) {
     console.error("[composio/webhook] Failed to upsert atom:", error.message);
-    return { processed: 1, stored: 0 };
+    return { processed: 1, stored: 0, userId: integration.user_id };
   }
 
   await supabase
@@ -332,7 +333,7 @@ async function handleCalendarSyncEvent(
   console.log(
     `[composio/webhook] Upserted event "${atom.title}" for integration ${integration.id}`,
   );
-  return { processed: 1, stored: 1 };
+  return { processed: 1, stored: 1, userId: integration.user_id };
 }
 
 const CALENDAR_TRIGGER_SLUGS = new Set([
@@ -402,6 +403,15 @@ export async function POST(request: NextRequest) {
 
   try {
     const result = await handleCalendarSyncEvent(payload);
+    if (result.userId && result.processed > 0) {
+      // Real-time task sync: regenerate todo snapshots when integration context changes.
+      await dispatchTodoGenerationTask(result.userId, {
+        source: "system.webhook.composio.calendar",
+        mode: "regenerate",
+        persist: true,
+        cooldownMinutes: 2,
+      });
+    }
     return NextResponse.json({
       status: "ok",
       trigger: triggerSlug,

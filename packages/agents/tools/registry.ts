@@ -3,6 +3,7 @@ import {
   memorySearchTool,
   supabaseStoreTool,
   embeddingGeneratorTool,
+  generateTodoListTool,
 } from "./index";
 import { getComposioToolsForUser } from "../lib/composio";
 
@@ -50,6 +51,7 @@ export interface ToolConfig {
   includeMemorySearch?: boolean;
   includeSupabaseStore?: boolean;
   includeEmbeddingGenerator?: boolean;
+  includeTodoGenerator?: boolean;
   includeExternalTools?: boolean;
   customTools?: DynamicStructuredTool[];
   enabledCategories?: ToolCategory[];
@@ -138,6 +140,12 @@ function initializeRegistry(): void {
 
   toolRegistry.set("embedding_generator", {
     tool: embeddingGeneratorTool,
+    category: "utility",
+    isExternal: false,
+  });
+
+  toolRegistry.set("generate_todo_list", {
+    tool: generateTodoListTool,
     category: "utility",
     isExternal: false,
   });
@@ -289,6 +297,10 @@ export function getDefaultTools(
     tools.push(embeddingGeneratorTool);
   }
 
+  if (config.includeTodoGenerator !== false) {
+    tools.push(generateTodoListTool);
+  }
+
   // Include enabled external tools if requested
   if (config.includeExternalTools) {
     const externalTools = getEnabledExternalTools();
@@ -338,6 +350,7 @@ export function getToolsForAgent(
       config.includeMemorySearch = true;
       config.includeSupabaseStore = true;
       config.includeEmbeddingGenerator = true;
+      config.includeTodoGenerator = false;
       break;
 
     case "orchestrator":
@@ -345,6 +358,7 @@ export function getToolsForAgent(
       config.includeMemorySearch = false;
       config.includeSupabaseStore = true;
       config.includeEmbeddingGenerator = true;
+      config.includeTodoGenerator = true;
       config.includeExternalTools = true;
       break;
 
@@ -353,6 +367,7 @@ export function getToolsForAgent(
       config.includeMemorySearch = true;
       config.includeSupabaseStore = true;
       config.includeEmbeddingGenerator = false;
+      config.includeTodoGenerator = false;
       break;
 
     case "system":
@@ -360,6 +375,7 @@ export function getToolsForAgent(
       config.includeMemorySearch = false;
       config.includeSupabaseStore = false;
       config.includeEmbeddingGenerator = false;
+      config.includeTodoGenerator = false;
       break;
 
     default:

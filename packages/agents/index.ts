@@ -4,6 +4,7 @@ export * from "./schemas/ask.schema";
 export * from "./schemas/memory.schema";
 export * from "./schemas/orchestrator.schema";
 export * from "./schemas/main.schema";
+export * from "./schemas/todo.schema";
 export * from "./lib/llm";
 export * from "./lib/embeddings";
 export * from "./lib/deepagent-config";
