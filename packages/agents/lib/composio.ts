@@ -310,6 +310,67 @@ export async function executeGoogleCalendarListEvents(
 }
 
 /**
+ * Execute GMAIL_FETCH_EMAILS for a user's connected account.
+ *
+ * @param userId - Supabase user ID
+ * @param connectedAccountId - Composio connected account ID
+ * @param params - query, max_results, etc.
+ */
+export async function executeGmailFetchEmails(
+  userId: string,
+  connectedAccountId: string,
+  params: {
+    query?: string;
+    max_results?: number;
+  },
+): Promise<{
+  data?: {
+    messages?: Array<Record<string, unknown>>;
+    nextPageToken?: string;
+    resultSizeEstimate?: number;
+  };
+  error?: string;
+  successful?: boolean;
+}> {
+  const client = getComposioServerClient();
+  if (!client) {
+    return { successful: false, error: "Composio not configured" };
+  }
+
+  try {
+    const result = await client.tools.execute("GMAIL_FETCH_EMAILS", {
+      userId,
+      connectedAccountId,
+      arguments: {
+        query: params.query ?? "",
+        max_results: params.max_results ?? 50,
+        user_id: "me",
+      },
+    });
+
+    const data = result.data as Record<string, unknown> | undefined;
+    const error = result.error;
+    const successful = result.successful ?? false;
+
+    return {
+      data: data as
+        | {
+            messages?: Array<Record<string, unknown>>;
+            nextPageToken?: string;
+            resultSizeEstimate?: number;
+          }
+        | undefined,
+      error: error ?? undefined,
+      successful,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn("[composio] GMAIL_FETCH_EMAILS failed:", message);
+    return { successful: false, error: message };
+  }
+}
+
+/**
  * Delete a Composio connected account.
  */
 export async function deleteComposioConnectedAccount(

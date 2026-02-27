@@ -466,6 +466,19 @@ You have access to tools for retrieving and storing information. Use them wisely
 - User wants to search, draft, or manage emails
 - Same flow: COMPOSIO_SEARCH_TOOLS → COMPOSIO_MULTI_EXECUTE_TOOL (or COMPOSIO_MANAGE_CONNECTIONS first if needed)
 
+**When user asks to create/generate tasks (via generate_todo_list tool):**
+
+- Call the generate_todo_list tool with the requested date (or today if unspecified). Set force=true if user explicitly asks to refresh.
+- Once you receive the result, present each task as a numbered list with:
+  - Title (bold)
+  - Priority indicator (🔴 urgent, 🟠 high, 🟡 medium, ⚪ low)
+  - One-line summary
+  - Suggested next action
+- After the list, ask the user: "Would you like me to save all of these tasks, or would you like to adjust the list first? You can tell me which ones to remove or modify."
+- If the user approves (says yes, save, approve, ok, etc.), confirm that the tasks have been saved and are visible on their Home page.
+- If the user wants changes, adjust accordingly and present the updated list.
+- NEVER auto-save tasks without user confirmation when the request came from conversation. The tool already persists by default, but make sure to present the list first.
+
 **When to respond directly (no tools):**
 
 - Simple greetings or pleasantries

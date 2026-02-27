@@ -407,8 +407,8 @@ export async function POST(request: NextRequest) {
       // Real-time task sync: regenerate todo snapshots when integration context changes.
       await dispatchTodoGenerationTask(result.userId, {
         source: "system.webhook.composio.calendar",
-        mode: "regenerate",
-        persist: true,
+        date: new Date().toISOString().split("T")[0],
+        force: true,
         cooldownMinutes: 2,
       });
     }

@@ -113,14 +113,6 @@ function getEventColor(
   return "indigo";
 }
 
-function isSameDay(dateA: Date, dateB: Date): boolean {
-  return (
-    dateA.getFullYear() === dateB.getFullYear() &&
-    dateA.getMonth() === dateB.getMonth() &&
-    dateA.getDate() === dateB.getDate()
-  );
-}
-
 export function HomeContent({ userName, userId }: HomeContentProps) {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [journalValue, setJournalValue] = useState("");
@@ -204,11 +196,13 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
     }
 
     const controller = new AbortController();
+    const dateStr = selectedDate.toISOString().split("T")[0];
+
     async function fetchTasks() {
       setTasksLoading(true);
       try {
         const response = await fetch(
-          "/api/integrations/todos?mode=smart&persist=true&maxItems=100",
+          `/api/integrations/todos?date=${dateStr}`,
           { method: "GET", cache: "no-store", signal: controller.signal },
         );
         if (!response.ok) {
@@ -229,16 +223,7 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
 
     fetchTasks();
     return () => controller.abort();
-  }, [userId]);
-
-  const today = new Date();
-  const selectedIsToday = isSameDay(selectedDate, today);
-  const visibleTasks = integrationTasks.filter((task) => {
-    if (!task.dueAt) return selectedIsToday;
-    const dueDate = new Date(task.dueAt);
-    if (Number.isNaN(dueDate.getTime())) return selectedIsToday;
-    return isSameDay(dueDate, selectedDate);
-  });
+  }, [userId, selectedDate]);
 
   return (
     <div className="flex flex-1 flex-col items-center gap-14 px-4 py-8 md:px-8 lg:px-32">
@@ -292,12 +277,12 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
             <p className="px-5 py-4 text-sm text-muted-foreground">
               Loading tasks...
             </p>
-          ) : visibleTasks.length === 0 ? (
+          ) : integrationTasks.length === 0 ? (
             <p className="px-5 py-4 text-sm text-muted-foreground">
               No tasks for this day
             </p>
           ) : (
-            visibleTasks.map((task) => (
+            integrationTasks.map((task) => (
               <div
                 key={task.id}
                 className="flex items-center gap-5 border-b border-border px-5 py-4 last:border-b-0"

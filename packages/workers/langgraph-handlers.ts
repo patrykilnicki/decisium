@@ -22,7 +22,6 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createTaskEvent } from "@/lib/tasks/task-events";
 import { runWithTaskContext } from "@/packages/agents/lib/task-context";
 import { createTodoGenerator } from "@/lib/integrations";
-import { GenerateTodoListInputSchema } from "@/packages/agents/schemas/todo.schema";
 
 function buildNextTask(params: {
   parentTaskId: string;
@@ -233,20 +232,14 @@ async function handleInsightsGenerateTodoList(
 ): Promise<TaskExecutionResult> {
   const state = getTaskState<{
     userId: string;
-    mode?: "latest" | "regenerate";
-    persist?: boolean;
-    maxItems?: number;
-    windowHours?: number;
+    date?: string;
+    force?: boolean;
     generatedFromEvent?: string;
   }>(task);
 
-  const parsedInput = GenerateTodoListInputSchema.parse({
-    userId: state.userId || task.user_id,
-    mode: state.mode ?? "regenerate",
-    persist: state.persist ?? true,
-    maxItems: state.maxItems,
-    windowHours: state.windowHours,
-  });
+  const userId = state.userId || task.user_id;
+  const date = state.date ?? new Date().toISOString().split("T")[0];
+  const force = state.force ?? true;
 
   const result = await runNodeWithEvents({
     client: options.client,
@@ -255,19 +248,21 @@ async function handleInsightsGenerateTodoList(
     nodeKey: "insights.generate_todo_list",
     handler: async () => {
       const generator = createTodoGenerator(options.client);
-      return generator.generate(parsedInput, {
-        generatedFromEvent:
-          state.generatedFromEvent ?? "task.insights.generate_todo_list",
-      });
+      return force
+        ? generator.regenerateForDate(userId, date, {
+            generatedFromEvent:
+              state.generatedFromEvent ?? "task.insights.generate_todo_list",
+          })
+        : generator.getOrGenerateForDate(userId, date, {
+            generatedFromEvent:
+              state.generatedFromEvent ?? "task.insights.generate_todo_list",
+          });
     },
   });
 
   return {
     output: {
-      state: {
-        ...state,
-        todoList: result,
-      },
+      state: { ...state, todoList: result },
       todoList: result,
     },
   };

@@ -878,33 +878,27 @@ export type Database = {
       todo_snapshots: {
         Row: {
           created_at: string | null
+          date: string
           generated_from_event: string | null
           id: string
-          mode: string
           payload: Json
           user_id: string
-          window_from: string
-          window_to: string
         }
         Insert: {
           created_at?: string | null
+          date: string
           generated_from_event?: string | null
           id?: string
-          mode: string
           payload?: Json
           user_id: string
-          window_from: string
-          window_to: string
         }
         Update: {
           created_at?: string | null
+          date?: string
           generated_from_event?: string | null
           id?: string
-          mode?: string
           payload?: Json
           user_id?: string
-          window_from?: string
-          window_to?: string
         }
         Relationships: [
           {
