@@ -69,9 +69,9 @@ const FRIENDLY_TOOL_LABELS: Record<
     failed: "Memory check failed",
   },
   generate_todo_list: {
-    started: "Generating tasks from integrations...",
-    completed: "Tasks generated",
-    failed: "Task generation failed",
+    started: "Getting tasks for the day...",
+    completed: "Tasks ready",
+    failed: "Could not load tasks",
   },
 };
 

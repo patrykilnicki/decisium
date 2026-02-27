@@ -7,7 +7,7 @@ import { getTaskContext } from "../lib/task-context";
 export const generateTodoListTool = new DynamicStructuredTool({
   name: "generate_todo_list",
   description:
-    "Generate actionable tasks for a specific date from user's connected integrations (Calendar, Gmail, etc.). Returns structured task list. Use force=true to regenerate fresh tasks even if cached ones exist. Present the results to the user for approval before confirming.",
+    "Get or generate actionable tasks for a specific date. First returns existing snapshot for that date if available (no regeneration). Only generates from integrations (Calendar, Gmail) when no snapshot exists for the date. Use force=true only when user explicitly asks to refresh or regenerate. Present the results to the user for approval before confirming.",
   schema: z.object({
     userId: z.string().uuid().optional().describe("Authenticated user id"),
     date: z
@@ -16,8 +16,10 @@ export const generateTodoListTool = new DynamicStructuredTool({
       .describe("Date in YYYY-MM-DD format. Defaults to today."),
     force: z
       .boolean()
-      .default(true)
-      .describe("Force regenerate tasks from live integration data"),
+      .default(false)
+      .describe(
+        "If true, regenerate from live integrations even when snapshot exists. Default false: show cached snapshot or generate only when missing.",
+      ),
   }),
   func: async (args) => {
     const contextUserId = getTaskContext()?.userId;
