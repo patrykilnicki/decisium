@@ -21,11 +21,16 @@ import {
   createInitialOrchestratorState,
 } from "../schemas/orchestrator.schema";
 import { ORCHESTRATOR_SYSTEM_PROMPT } from "../prompts";
-import { getFriendlyToolLabel } from "../lib/step-mappings";
+import {
+  getFriendlyToolLabel,
+  GENERATE_TODO_LIST_STARTED_LABELS,
+} from "../lib/step-mappings";
 import {
   listComposioConnectedAccounts,
   isComposioEnabled,
 } from "../lib/composio";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { createTodoGenerator } from "@/lib/integrations";
 
 // ═══════════════════════════════════════════════════════════════
 // NODE IMPLEMENTATIONS
@@ -303,6 +308,7 @@ interface PendingToolCall {
   toolCallKey: string;
   callIndex: number;
   innerToolSlugs?: string[];
+  args?: Record<string, unknown>;
 }
 
 export interface OrchestratorToolEvent {
@@ -344,10 +350,11 @@ function getPendingToolCalls(messages: BaseMessage[]): PendingToolCall[] {
         ? toolCall.id
         : fallbackId;
 
-    const innerToolSlugs =
+    const args =
       toolCall?.args && typeof toolCall.args === "object"
-        ? extractInnerToolSlugs(toolCall.args as Record<string, unknown>)
+        ? (toolCall.args as Record<string, unknown>)
         : undefined;
+    const innerToolSlugs = args ? extractInnerToolSlugs(args) : undefined;
 
     acc.push({
       toolName,
@@ -355,6 +362,7 @@ function getPendingToolCalls(messages: BaseMessage[]): PendingToolCall[] {
       toolCallKey: `${toolName}:${index + 1}`,
       callIndex: index + 1,
       innerToolSlugs: innerToolSlugs?.length ? innerToolSlugs : undefined,
+      args,
     });
     return acc;
   }, []);
@@ -365,14 +373,17 @@ async function emitToolEvent(params: {
   eventType: OrchestratorToolEvent["eventType"];
   tool: PendingToolCall;
   error?: string;
+  displayLabelOverride?: string;
 }): Promise<void> {
   if (!params.onToolEvent) return;
 
-  const friendlyLabel = getFriendlyToolLabel(
-    params.eventType,
-    params.tool.toolName,
-    params.tool.innerToolSlugs,
-  );
+  const friendlyLabel =
+    params.displayLabelOverride ??
+    getFriendlyToolLabel(
+      params.eventType,
+      params.tool.toolName,
+      params.tool.innerToolSlugs,
+    );
 
   const action =
     params.eventType === "tool_completed"
@@ -413,14 +424,34 @@ function createToolNode(
   const toolNode = new ToolNode(tools);
   return async (state: OrchestratorState) => {
     const pendingTools = getPendingToolCalls(state.messages);
+    const today = state.currentDate ?? new Date().toISOString().split("T")[0];
     await Promise.all(
-      pendingTools.map((tool) =>
-        emitToolEvent({
+      pendingTools.map(async (tool) => {
+        let displayLabelOverride: string | undefined;
+        if (
+          tool.toolName === "generate_todo_list" &&
+          state.userId &&
+          tool.args
+        ) {
+          const date =
+            (typeof tool.args.date === "string" ? tool.args.date : null) ??
+            today;
+          const generator = createTodoGenerator(createAdminClient());
+          const hasSnapshot = await generator.hasSnapshotForDate(
+            state.userId,
+            date,
+          );
+          displayLabelOverride = hasSnapshot
+            ? GENERATE_TODO_LIST_STARTED_LABELS.fromCache
+            : GENERATE_TODO_LIST_STARTED_LABELS.generating;
+        }
+        return emitToolEvent({
           onToolEvent,
           eventType: "tool_started",
           tool,
-        }),
-      ),
+          displayLabelOverride,
+        });
+      }),
     );
 
     try {

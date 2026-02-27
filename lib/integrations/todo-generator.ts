@@ -25,6 +25,8 @@ export interface TodoSnapshotRow {
 
 export interface TodoGenerateOptions {
   generatedFromEvent?: string;
+  /** When merging, reason to set in payload.updatedBecause */
+  updatedBecause?: TodoListOutput["updatedBecause"];
 }
 
 function buildStats(items: TodoItem[]): TodoListOutput["stats"] {
@@ -40,6 +42,13 @@ function buildStats(items: TodoItem[]): TodoListOutput["stats"] {
 
 function toDateString(date: Date): string {
   return date.toISOString().split("T")[0];
+}
+
+/** Next calendar day in YYYY-MM-DD (for Gmail before: end-of-day range). */
+function nextDayDateString(date: string): string {
+  const d = new Date(date + "T12:00:00Z");
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().split("T")[0];
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -129,8 +138,11 @@ async function fetchGmailSignals(
   const accounts = await listComposioConnectedAccounts(userId, "GMAIL");
   if (accounts.length === 0) return [];
 
+  // Single-day range: after start of day, before start of next day (same as Ask/adapters).
+  const gmailDate = date.replace(/-/g, "/");
+  const nextDay = nextDayDateString(date).replace(/-/g, "/");
   const result = await executeGmailFetchEmails(userId, accounts[0].id, {
-    query: `after:${date.replace(/-/g, "/")}`,
+    query: `after:${gmailDate} before:${nextDay}`,
     max_results: 50,
   });
 
@@ -147,22 +159,29 @@ async function fetchGmailSignals(
   }));
 }
 
+/** Registry of all integrations that contribute to todo signals. Add new providers here. */
+const SIGNAL_FETCHERS: Array<{
+  key: string;
+  fetch: (userId: string, date: string) => Promise<IntegrationSignal[]>;
+}> = [
+  { key: "google_calendar", fetch: fetchCalendarSignals },
+  { key: "gmail", fetch: fetchGmailSignals },
+];
+
+/** Fetch signals from all registered integrations (Calendar, Gmail, etc.). */
 async function fetchAllSignals(
   userId: string,
   date: string,
 ): Promise<IntegrationSignal[]> {
-  const [calendar, gmail] = await Promise.all([
-    fetchCalendarSignals(userId, date).catch((err) => {
-      console.warn("[todo-generator] Calendar fetch error:", err);
-      return [] as CalendarEventSignal[];
-    }),
-    fetchGmailSignals(userId, date).catch((err) => {
-      console.warn("[todo-generator] Gmail fetch error:", err);
-      return [] as GmailSignal[];
-    }),
-  ]);
-
-  return [...calendar, ...gmail];
+  const results = await Promise.all(
+    SIGNAL_FETCHERS.map(({ key, fetch }) =>
+      fetch(userId, date).catch((err) => {
+        console.warn(`[todo-generator] ${key} fetch error:`, err);
+        return [] as IntegrationSignal[];
+      }),
+    ),
+  );
+  return results.flat();
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -364,6 +383,90 @@ export class TodoGenerator {
     options?: TodoGenerateOptions,
   ): Promise<TodoListOutput> {
     return this.generateForDate(userId, date, options);
+  }
+
+  /**
+   * Incremental update: fetch fresh signals, extract tasks, add only those not
+   * already in the snapshot (by sourceRef.externalId). Use after webhook/sync
+   * so new emails/events create only new tasks without overwriting existing.
+   */
+  async mergeNewTasksForDate(
+    userId: string,
+    date: string,
+    options?: TodoGenerateOptions,
+  ): Promise<TodoListOutput> {
+    const existing = await this.getSnapshotForDate(userId, date);
+    if (!existing) {
+      return this.generateForDate(userId, date, options);
+    }
+
+    const signals = await fetchAllSignals(userId, date);
+    if (signals.length === 0) {
+      return TodoListOutputSchema.parse({
+        ...existing,
+        updatedBecause: "no_changes_detected",
+      });
+    }
+
+    const extracted = await extractTasksWithLlm(signals, date);
+    const existingExternalIds = new Set(
+      existing.items
+        .map((i) => i.sourceRef?.externalId)
+        .filter((id): id is string => Boolean(id)),
+    );
+    const existingByKey = new Set(
+      existing.items.map(
+        (i) => `${i.sourceProvider}:${i.title.toLowerCase().trim()}`,
+      ),
+    );
+
+    const newItems = extracted.filter((item) => {
+      const id = item.sourceRef?.externalId;
+      if (id && existingExternalIds.has(id)) return false;
+      const key = `${item.sourceProvider}:${item.title.toLowerCase().trim()}`;
+      if (existingByKey.has(key)) return false;
+      return true;
+    });
+
+    if (newItems.length === 0) {
+      return TodoListOutputSchema.parse({
+        ...existing,
+        generatedAt: new Date().toISOString(),
+        updatedBecause: options?.updatedBecause ?? "no_changes_detected",
+      });
+    }
+
+    const mergedItems = [...existing.items, ...newItems];
+    const reason =
+      options?.updatedBecause ??
+      ("webhook_change_detected" as TodoListOutput["updatedBecause"]);
+
+    const list: TodoListOutput = TodoListOutputSchema.parse({
+      listId: existing.listId,
+      userId: existing.userId,
+      date: existing.date,
+      generatedAt: new Date().toISOString(),
+      updatedBecause: reason,
+      items: mergedItems,
+      stats: buildStats(mergedItems),
+      version: "1.0",
+    });
+
+    await this.upsertSnapshot(userId, date, list, options?.generatedFromEvent);
+    return list;
+  }
+
+  /**
+   * Lightweight check whether a snapshot exists for the given date (for UI labels).
+   */
+  async hasSnapshotForDate(userId: string, date: string): Promise<boolean> {
+    const { data, error } = await this.supabase
+      .from("todo_snapshots")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("date", date)
+      .maybeSingle();
+    return !error && !!data;
   }
 
   private async getSnapshotForDate(

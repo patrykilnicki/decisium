@@ -44,9 +44,20 @@ export function getTaskStepLabel(taskType: TaskType): string {
   );
 }
 
+/** Labels for generate_todo_list started state (cache vs generating). */
+export const GENERATE_TODO_LIST_STARTED_LABELS = {
+  fromCache: "Getting tasks...",
+  generating: "Generating tasks...",
+} as const;
+
 const FRIENDLY_TOOL_LABELS: Record<
   string,
-  { started: string; completed: string; failed: string }
+  {
+    started: string;
+    startedGenerating?: string;
+    completed: string;
+    failed: string;
+  }
 > = {
   COMPOSIO_SEARCH_TOOLS: {
     started: "Preparing...",
@@ -69,7 +80,8 @@ const FRIENDLY_TOOL_LABELS: Record<
     failed: "Memory check failed",
   },
   generate_todo_list: {
-    started: "Getting tasks for the day...",
+    started: GENERATE_TODO_LIST_STARTED_LABELS.fromCache,
+    startedGenerating: GENERATE_TODO_LIST_STARTED_LABELS.generating,
     completed: "Tasks ready",
     failed: "Could not load tasks",
   },

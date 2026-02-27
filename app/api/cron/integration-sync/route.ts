@@ -94,7 +94,7 @@ export async function POST(request: NextRequest) {
         await dispatchTodoGenerationTask(userId, {
           source: "system.cron.integration_sync",
           date: new Date().toISOString().split("T")[0],
-          force: true,
+          incremental: true,
           cooldownMinutes: 30,
         });
       } catch (error) {
