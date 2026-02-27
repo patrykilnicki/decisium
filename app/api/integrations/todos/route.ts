@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createTodoGenerator } from "@/lib/integrations";
 import { GenerateTodoListInputSchema } from "@/packages/agents/schemas/todo.schema";
 
@@ -51,7 +52,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const generator = createTodoGenerator(supabase);
+    const generator = createTodoGenerator(createAdminClient());
     const payload =
       rawMode === "smart"
         ? await generator.generateSmart(inputResult.data, {
@@ -113,7 +114,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const generator = createTodoGenerator(supabase);
+    const generator = createTodoGenerator(createAdminClient());
     const payload = await generator.generate(inputResult.data, {
       generatedFromEvent: "api.integrations.todos.post",
     });
