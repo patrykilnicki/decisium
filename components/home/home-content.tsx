@@ -203,12 +203,13 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
       return;
     }
 
+    const controller = new AbortController();
     async function fetchTasks() {
       setTasksLoading(true);
       try {
         const response = await fetch(
           "/api/integrations/todos?mode=smart&persist=true&maxItems=100",
-          { method: "GET", cache: "no-store" },
+          { method: "GET", cache: "no-store", signal: controller.signal },
         );
         if (!response.ok) {
           setIntegrationTasks([]);
@@ -217,14 +218,17 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
         const payload =
           (await response.json()) as Partial<IntegrationTodoListResponse>;
         setIntegrationTasks(Array.isArray(payload.items) ? payload.items : []);
-      } catch {
-        setIntegrationTasks([]);
+      } catch (err) {
+        if ((err as { name?: string }).name !== "AbortError") {
+          setIntegrationTasks([]);
+        }
       } finally {
         setTasksLoading(false);
       }
     }
 
     fetchTasks();
+    return () => controller.abort();
   }, [userId]);
 
   const today = new Date();

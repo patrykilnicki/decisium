@@ -163,10 +163,13 @@ export function buildSuggestedAction(atom: ActivityAtom): string {
   return "Review context and define the next concrete action.";
 }
 
-function toTodoItem(atom: ActivityAtom): TodoItem {
+/** Exported for unit tests. */
+export function toTodoItem(atom: ActivityAtom): TodoItem {
   const score = scoreAtomForTodo(atom);
-  const title = atom.title?.trim() || atom.content.slice(0, 80).trim();
-  const summary = atom.content.trim().slice(0, 500);
+  const content = atom.content ?? "";
+  const rawTitle = atom.title?.trim() || content.slice(0, 80).trim();
+  const title = rawTitle || "Untitled";
+  const summary = content.trim().slice(0, 500) || "No description.";
   const item: TodoItem = {
     id: atom.id,
     title,

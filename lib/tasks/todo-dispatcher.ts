@@ -65,6 +65,7 @@ export async function dispatchTodoGenerationTask(
     } as Json,
   });
 
+  // Fire-and-forget: task is processed asynchronously by the worker.
   triggerTask(task.id);
   return { taskId: task.id, reused: false };
 }
