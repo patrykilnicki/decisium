@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { ActivityAtom } from "@/types/database";
 import type { TodoItem } from "@/packages/agents/schemas/todo.schema";
-import { dedupeAndSortItems, scoreAtomForTodo } from "./todo-generator";
+import {
+  dedupeAndSortItems,
+  scoreAtomForTodo,
+  toTodoItem,
+} from "./todo-generator";
 
 function createAtom(overrides: Partial<ActivityAtom> = {}): ActivityAtom {
   return {
@@ -75,4 +79,13 @@ test("scoreAtomForTodo remains bounded", () => {
   });
   const score = scoreAtomForTodo(atom);
   assert.ok(score >= 0 && score <= 1);
+});
+
+test("toTodoItem returns valid item for empty title and content", () => {
+  const atom = createAtom({ title: "", content: "" });
+  const item = toTodoItem(atom);
+  assert.equal(item.title, "Untitled");
+  assert.equal(item.summary, "No description.");
+  assert.ok(item.id);
+  assert.ok(item.sourceProvider);
 });
