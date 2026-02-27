@@ -437,8 +437,10 @@ function createToolNode(
             (typeof tool.args.date === "string" ? tool.args.date : null) ??
             today;
           const generator = createTodoGenerator(createAdminClient());
-          const hasSnapshot =
-            await generator.hasSnapshotForDate(state.userId, date);
+          const hasSnapshot = await generator.hasSnapshotForDate(
+            state.userId,
+            date,
+          );
           displayLabelOverride = hasSnapshot
             ? GENERATE_TODO_LIST_STARTED_LABELS.fromCache
             : GENERATE_TODO_LIST_STARTED_LABELS.generating;
