@@ -76,7 +76,7 @@ function verifyWebhookSignature(
   request: NextRequest,
 ): boolean {
   const secret = process.env.COMPOSIO_WEBHOOK_SECRET;
-  if (!secret) return true; // Skip verification when secret not configured
+  if (!secret) return false; // Reject when secret not configured (prevent accepting forged webhooks)
 
   const webhookSignature = request.headers.get("webhook-signature");
   const webhookId = request.headers.get("webhook-id");

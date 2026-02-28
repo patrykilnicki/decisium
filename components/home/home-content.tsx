@@ -1,12 +1,37 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { CentralIcon } from "@/components/ui/central-icon";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
-import { Calendar, Mail, FileText, CheckSquare, Circle } from "lucide-react";
+import {
+  Calendar,
+  Mail,
+  FileText,
+  CheckSquare,
+  Circle,
+  MoreHorizontal,
+  CalendarClock,
+  Trash2,
+  CheckCircle,
+  Pencil,
+} from "lucide-react";
 
 interface HomeContentProps {
   userName: string | null;
@@ -38,6 +63,9 @@ interface IntegrationTodoItem {
   sourceProvider?: string;
 }
 
+/** Task that may be from a past day (overdue); snapshotDate is set for overdue items. */
+type TodoItemWithMeta = IntegrationTodoItem & { snapshotDate?: string };
+
 const PRIORITY_ORDER: Record<IntegrationTodoItem["priority"], number> = {
   urgent: 0,
   high: 1,
@@ -45,9 +73,7 @@ const PRIORITY_ORDER: Record<IntegrationTodoItem["priority"], number> = {
   low: 3,
 };
 
-function sortTasksByPriority(
-  tasks: IntegrationTodoItem[],
-): IntegrationTodoItem[] {
+function sortTasksByPriority<T extends IntegrationTodoItem>(tasks: T[]): T[] {
   return [...tasks].sort(
     (a, b) => PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority],
   );
@@ -55,6 +81,7 @@ function sortTasksByPriority(
 
 interface IntegrationTodoListResponse {
   items: IntegrationTodoItem[];
+  hasSnapshot?: boolean;
 }
 
 const JOURNAL_ENTRIES = [
@@ -83,6 +110,89 @@ function getGreeting() {
   return "Good evening";
 }
 
+interface TaskRowProps {
+  task: TodoItemWithMeta;
+  date: string;
+  isOverdue: boolean;
+  onActionOpen: (type: "date" | "name") => void;
+  onMarkResolved: () => void;
+  onDelete: () => void;
+}
+
+function TaskRow({
+  task,
+  date,
+  isOverdue,
+  onActionOpen,
+  onMarkResolved,
+  onDelete,
+}: TaskRowProps) {
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-3 border-b border-border px-5 py-4 last:border-b-0",
+        task.status === "done" && "opacity-60",
+      )}
+    >
+      <div className="flex min-w-0 flex-1 items-center gap-2">
+        <SourceLogo provider={task.sourceProvider} />
+        <div className="min-w-0 flex-1">
+          <span
+            className={cn(
+              "text-sm font-medium text-foreground",
+              task.status === "done" && "line-through",
+            )}
+          >
+            {task.title}
+          </span>
+          {isOverdue && task.snapshotDate && (
+            <span className="ml-2 text-xs text-muted-foreground">
+              ({formatOverdueLabel(task.snapshotDate)})
+            </span>
+          )}
+        </div>
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        {task.priority === "urgent" || task.priority === "high" ? (
+          <span className="text-[13px] font-medium tracking-tight text-destructive">
+            {task.priority === "urgent" ? "Urgent" : "High"}
+          </span>
+        ) : null}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-8 shrink-0"
+              aria-label="Task actions"
+            >
+              <MoreHorizontal className="size-4 text-muted-foreground" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={onMarkResolved}>
+              <CheckCircle className="size-4" />
+              Mark as resolved
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onActionOpen("date")}>
+              <Calendar className="size-4" />
+              Change date
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onActionOpen("name")}>
+              <Pencil className="size-4" />
+              Change name
+            </DropdownMenuItem>
+            <DropdownMenuItem variant="destructive" onClick={onDelete}>
+              <Trash2 className="size-4" />
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+    </div>
+  );
+}
+
 function formatDisplayDate(date: Date) {
   return date.toLocaleDateString("en-GB", {
     day: "numeric",
@@ -97,6 +207,16 @@ function toLocalDateString(date: Date): string {
   const m = String(date.getMonth() + 1).padStart(2, "0");
   const d = String(date.getDate()).padStart(2, "0");
   return `${y}-${m}-${d}`;
+}
+
+function formatOverdueLabel(snapshotDate: string): string {
+  const today = toLocalDateString(new Date());
+  const yesterday = new Date(new Date().setDate(new Date().getDate() - 1));
+  const yesterdayStr = toLocalDateString(yesterday);
+  if (snapshotDate === yesterdayStr) return "Yesterday";
+  if (snapshotDate === today) return "Today";
+  const d = new Date(snapshotDate + "T12:00:00");
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 }
 
 function formatTimeRange(
@@ -173,6 +293,71 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
     IntegrationTodoItem[]
   >([]);
   const [tasksLoading, setTasksLoading] = useState(false);
+  const [hasSnapshot, setHasSnapshot] = useState<boolean | null>(null);
+  const [generatingTasks, setGeneratingTasks] = useState(false);
+  const [overdueItems, setOverdueItems] = useState<TodoItemWithMeta[]>([]);
+  const [overdueLoading, setOverdueLoading] = useState(false);
+  const [actionDialog, setActionDialog] = useState<null | {
+    type: "date" | "name";
+    task: TodoItemWithMeta;
+    date: string;
+  }>(null);
+  const [actionPending, setActionPending] = useState(false);
+  const [changeDateTo, setChangeDateTo] = useState("");
+  const [changeNameTo, setChangeNameTo] = useState("");
+
+  const isToday =
+    toLocalDateString(selectedDate) === toLocalDateString(new Date());
+
+  const refetchTasksForSelectedDay = useCallback(() => {
+    if (!userId) return;
+    const dateStr = toLocalDateString(selectedDate);
+    fetch(`/api/integrations/todos?date=${dateStr}`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((payload: Partial<IntegrationTodoListResponse> | null) => {
+        if (payload && Array.isArray(payload.items)) {
+          setIntegrationTasks(payload.items);
+          setHasSnapshot(true);
+        }
+      });
+  }, [userId, selectedDate]);
+
+  const refetchOverdue = useCallback(() => {
+    if (!userId) return;
+    fetch("/api/integrations/todos/overdue?days=2", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { items?: TodoItemWithMeta[] } | null) => {
+        if (data && Array.isArray(data.items)) setOverdueItems(data.items);
+      });
+  }, [userId]);
+
+  async function patchItem(
+    date: string,
+    itemId: string,
+    action: "update" | "delete" | "move",
+    extra?: { status?: "done"; title?: string; toDate?: string },
+  ) {
+    setActionPending(true);
+    try {
+      const body: Record<string, unknown> = { date, itemId, action };
+      if (action === "update" && extra) {
+        if (extra.status) body.status = extra.status;
+        if (extra.title !== undefined) body.title = extra.title;
+      }
+      if (action === "move" && extra?.toDate) body.toDate = extra.toDate;
+      const res = await fetch("/api/integrations/todos/items", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) return;
+      setActionDialog(null);
+      refetchTasksForSelectedDay();
+      if (isToday) refetchOverdue();
+    } finally {
+      setActionPending(false);
+    }
+  }
 
   const displayName =
     typeof userName === "string" && userName !== "there"
@@ -242,30 +427,42 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
 
   useEffect(() => {
     if (!userId) {
-      queueMicrotask(() => setIntegrationTasks([]));
+      queueMicrotask(() => {
+        setIntegrationTasks([]);
+        setHasSnapshot(null);
+      });
       return;
     }
 
     const controller = new AbortController();
     const dateStr = toLocalDateString(selectedDate);
+    const onlyFromCache = !isToday;
 
     async function fetchTasks() {
       setTasksLoading(true);
+      setHasSnapshot(null);
       try {
-        const response = await fetch(
-          `/api/integrations/todos?date=${dateStr}`,
-          { method: "GET", cache: "no-store", signal: controller.signal },
-        );
+        const url = onlyFromCache
+          ? `/api/integrations/todos?date=${dateStr}&onlyFromCache=true`
+          : `/api/integrations/todos?date=${dateStr}`;
+        const response = await fetch(url, {
+          method: "GET",
+          cache: "no-store",
+          signal: controller.signal,
+        });
         if (!response.ok) {
           setIntegrationTasks([]);
+          setHasSnapshot(null);
           return;
         }
         const payload =
           (await response.json()) as Partial<IntegrationTodoListResponse>;
         setIntegrationTasks(Array.isArray(payload.items) ? payload.items : []);
+        setHasSnapshot(payload.hasSnapshot ?? true);
       } catch (err) {
         if ((err as { name?: string }).name !== "AbortError") {
           setIntegrationTasks([]);
+          setHasSnapshot(null);
         }
       } finally {
         setTasksLoading(false);
@@ -275,6 +472,52 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
     fetchTasks();
     return () => controller.abort();
   }, [userId, selectedDate]);
+
+  useEffect(() => {
+    if (actionDialog) {
+      setChangeDateTo(toLocalDateString(new Date()));
+      setChangeNameTo(actionDialog.task.title);
+    }
+  }, [actionDialog]);
+
+  useEffect(() => {
+    if (!userId || !isToday) {
+      setOverdueItems([]);
+      return;
+    }
+    const controller = new AbortController();
+    setOverdueLoading(true);
+    fetch("/api/integrations/todos/overdue?days=2", {
+      cache: "no-store",
+      signal: controller.signal,
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { items?: TodoItemWithMeta[] } | null) => {
+        if (data && Array.isArray(data.items)) setOverdueItems(data.items);
+      })
+      .catch(() => {})
+      .finally(() => setOverdueLoading(false));
+    return () => controller.abort();
+  }, [userId, isToday]);
+
+  async function generateTasksForSelectedDay() {
+    if (!userId) return;
+    const dateStr = toLocalDateString(selectedDate);
+    setGeneratingTasks(true);
+    try {
+      const response = await fetch(`/api/integrations/todos?date=${dateStr}`, {
+        method: "GET",
+        cache: "no-store",
+      });
+      if (!response.ok) return;
+      const payload =
+        (await response.json()) as Partial<IntegrationTodoListResponse>;
+      setIntegrationTasks(Array.isArray(payload.items) ? payload.items : []);
+      setHasSnapshot(true);
+    } finally {
+      setGeneratingTasks(false);
+    }
+  }
 
   return (
     <div className="flex flex-1 flex-col items-center gap-14 px-4 py-8 md:px-8 lg:px-32">
@@ -323,51 +566,112 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
         <h2 className="text-lg font-bold leading-8 tracking-tight text-foreground">
           Tasks
         </h2>
+
+        {/* Overdue block – only when viewing today */}
+        {isToday && (overdueLoading || overdueItems.length > 0) && (
+          <div className="overflow-hidden rounded-2xl border border-destructive/30 bg-destructive/5">
+            <div className="border-b border-destructive/20 bg-destructive/10 px-4 py-2">
+              <span className="flex items-center gap-2 text-sm font-medium text-destructive">
+                <CalendarClock className="size-4" />
+                Overdue
+              </span>
+            </div>
+            <div className="divide-y divide-border">
+              {overdueLoading ? (
+                <p className="px-5 py-4 text-sm text-muted-foreground">
+                  Loading overdue…
+                </p>
+              ) : (
+                sortTasksByPriority(overdueItems).map((task) => (
+                  <TaskRow
+                    key={task.id}
+                    task={task}
+                    date={task.snapshotDate ?? toLocalDateString(new Date())}
+                    isOverdue
+                    onActionOpen={(type) =>
+                      setActionDialog({
+                        type,
+                        task,
+                        date:
+                          task.snapshotDate ?? toLocalDateString(new Date()),
+                      })
+                    }
+                    onMarkResolved={() =>
+                      patchItem(
+                        task.snapshotDate ?? toLocalDateString(new Date()),
+                        task.id,
+                        "update",
+                        { status: "done" },
+                      )
+                    }
+                    onDelete={() =>
+                      patchItem(
+                        task.snapshotDate ?? toLocalDateString(new Date()),
+                        task.id,
+                        "delete",
+                      )
+                    }
+                  />
+                ))
+              )}
+            </div>
+          </div>
+        )}
+
         <div className="overflow-hidden rounded-2xl border border-border bg-card">
           {tasksLoading ? (
             <p className="px-5 py-4 text-sm text-muted-foreground">
               Loading tasks...
             </p>
+          ) : !isToday && hasSnapshot === false ? (
+            <div className="flex flex-col gap-4 px-5 py-6">
+              <p className="text-sm text-muted-foreground">
+                No tasks generated yet for this day.
+              </p>
+              <Button
+                variant="secondary"
+                size="sm"
+                className="w-fit"
+                onClick={generateTasksForSelectedDay}
+                disabled={generatingTasks}
+              >
+                {generatingTasks
+                  ? "Generating…"
+                  : "Generate tasks for this day"}
+              </Button>
+            </div>
           ) : integrationTasks.length === 0 ? (
             <p className="px-5 py-4 text-sm text-muted-foreground">
               No tasks for this day
             </p>
           ) : (
             sortTasksByPriority(integrationTasks).map((task) => (
-              <div
+              <TaskRow
                 key={task.id}
-                className="flex items-center gap-5 border-b border-border px-5 py-4 last:border-b-0"
-              >
-                <div className="flex min-w-0 flex-1 items-center gap-2">
-                  <SourceLogo provider={task.sourceProvider} />
-                  <span className="truncate text-sm font-medium text-foreground">
-                    {task.title}
-                  </span>
-                </div>
-                {task.priority === "urgent" || task.priority === "high" ? (
-                  <div className="flex shrink-0 items-center gap-1.5">
-                    <CentralIcon
-                      name="IconWarningSign"
-                      iconFill="outlined"
-                      iconStroke="2"
-                      size={16}
-                      className="text-destructive"
-                    />
-                    <span className="text-[13px] font-medium tracking-tight text-destructive">
-                      {task.priority === "urgent" ? "Urgent" : "High priority"}
-                    </span>
-                  </div>
-                ) : (
-                  <div className="size-[18px] shrink-0 text-muted-foreground">
-                    <CentralIcon
-                      name="IconNote1"
-                      iconFill="outlined"
-                      iconStroke="2"
-                      size={18}
-                    />
-                  </div>
-                )}
-              </div>
+                task={task}
+                date={toLocalDateString(selectedDate)}
+                isOverdue={false}
+                onActionOpen={(type) =>
+                  setActionDialog({
+                    type,
+                    task,
+                    date: toLocalDateString(selectedDate),
+                  })
+                }
+                onMarkResolved={() =>
+                  patchItem(
+                    toLocalDateString(selectedDate),
+                    task.id,
+                    "update",
+                    {
+                      status: "done",
+                    },
+                  )
+                }
+                onDelete={() =>
+                  patchItem(toLocalDateString(selectedDate), task.id, "delete")
+                }
+              />
             ))
           )}
           <button
@@ -386,6 +690,78 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
           </button>
         </div>
       </section>
+
+      {/* Task action dialogs */}
+      <Dialog
+        open={!!actionDialog}
+        onOpenChange={(open) => !open && setActionDialog(null)}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {actionDialog?.type === "date" ? "Change date" : "Change name"}
+            </DialogTitle>
+          </DialogHeader>
+          {actionDialog?.type === "date" && (
+            <div className="flex flex-col gap-3">
+              <Input
+                type="date"
+                value={changeDateTo}
+                onChange={(e) => setChangeDateTo(e.target.value)}
+              />
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setChangeDateTo(toLocalDateString(new Date()))}
+                >
+                  Today
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    const t = new Date();
+                    t.setDate(t.getDate() + 1);
+                    setChangeDateTo(toLocalDateString(t));
+                  }}
+                >
+                  Tomorrow
+                </Button>
+              </div>
+            </div>
+          )}
+          {actionDialog?.type === "name" && (
+            <Input
+              value={changeNameTo}
+              onChange={(e) => setChangeNameTo(e.target.value)}
+              placeholder="Task name"
+            />
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setActionDialog(null)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={actionPending}
+              onClick={() => {
+                if (!actionDialog) return;
+                if (actionDialog.type === "date") {
+                  patchItem(actionDialog.date, actionDialog.task.id, "move", {
+                    toDate: changeDateTo,
+                  });
+                } else {
+                  patchItem(actionDialog.date, actionDialog.task.id, "update", {
+                    title: changeNameTo.trim() || actionDialog.task.title,
+                  });
+                }
+              }}
+            >
+              {actionDialog?.type === "date" ? "Move" : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Calendar section */}
       <section className="flex w-full max-w-[720px] flex-col gap-4">

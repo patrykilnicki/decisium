@@ -4,6 +4,7 @@ import {
   supabaseStoreTool,
   embeddingGeneratorTool,
   generateTodoListTool,
+  listCalendarEventsTool,
 } from "./index";
 import { getComposioToolsForUser } from "../lib/composio";
 
@@ -52,6 +53,7 @@ export interface ToolConfig {
   includeSupabaseStore?: boolean;
   includeEmbeddingGenerator?: boolean;
   includeTodoGenerator?: boolean;
+  includeListCalendarEvents?: boolean;
   includeExternalTools?: boolean;
   customTools?: DynamicStructuredTool[];
   enabledCategories?: ToolCategory[];
@@ -147,6 +149,12 @@ function initializeRegistry(): void {
   toolRegistry.set("generate_todo_list", {
     tool: generateTodoListTool,
     category: "utility",
+    isExternal: false,
+  });
+
+  toolRegistry.set("list_calendar_events", {
+    tool: listCalendarEventsTool,
+    category: "calendar",
     isExternal: false,
   });
 }
@@ -301,6 +309,10 @@ export function getDefaultTools(
     tools.push(generateTodoListTool);
   }
 
+  if (config.includeListCalendarEvents !== false) {
+    tools.push(listCalendarEventsTool);
+  }
+
   // Include enabled external tools if requested
   if (config.includeExternalTools) {
     const externalTools = getEnabledExternalTools();
@@ -354,28 +366,29 @@ export function getToolsForAgent(
       break;
 
     case "orchestrator":
-      // Orchestrator uses Composio for insights (calendar, etc.) - no DB memory search
+      // Orchestrator: calendar read from Supabase (list_calendar_events), write via Composio
       config.includeMemorySearch = false;
       config.includeSupabaseStore = true;
       config.includeEmbeddingGenerator = true;
       config.includeTodoGenerator = true;
+      config.includeListCalendarEvents = true;
       config.includeExternalTools = true;
       break;
 
     case "summary":
-      // Summary agents need memory search but may not need store/embedding
       config.includeMemorySearch = true;
       config.includeSupabaseStore = true;
       config.includeEmbeddingGenerator = false;
       config.includeTodoGenerator = false;
+      config.includeListCalendarEvents = false;
       break;
 
     case "system":
-      // System agents typically don't need tools
       config.includeMemorySearch = false;
       config.includeSupabaseStore = false;
       config.includeEmbeddingGenerator = false;
       config.includeTodoGenerator = false;
+      config.includeListCalendarEvents = false;
       break;
 
     default:

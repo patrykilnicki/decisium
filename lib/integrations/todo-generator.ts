@@ -5,7 +5,6 @@ import { createLLM } from "@/packages/agents/lib/llm";
 import {
   isComposioEnabled,
   listComposioConnectedAccounts,
-  executeGoogleCalendarListEvents,
   executeGmailFetchEmails,
 } from "@/packages/agents/lib/composio";
 import {
@@ -52,7 +51,7 @@ function nextDayDateString(date: string): string {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Live Composio data fetching
+// Calendar: read from Supabase (activity_atoms). Write stays Composio.
 // ═══════════════════════════════════════════════════════════════
 
 interface CalendarEventSignal {
@@ -79,52 +78,60 @@ interface GmailSignal {
 
 type IntegrationSignal = CalendarEventSignal | GmailSignal;
 
-async function fetchCalendarSignals(
+/**
+ * Fetch calendar events from Supabase (activity_atoms). Sync from Google runs
+ * via Composio → activity_atoms; we read from DB to avoid duplicate API calls.
+ */
+async function fetchCalendarSignalsFromSupabase(
+  supabase: SupabaseClient<Database>,
   userId: string,
   date: string,
 ): Promise<CalendarEventSignal[]> {
-  if (!isComposioEnabled()) return [];
+  const dayStart = `${date}T00:00:00.000Z`;
+  const dayEnd = `${date}T23:59:59.999Z`;
 
-  const accounts = await listComposioConnectedAccounts(
-    userId,
-    "GOOGLECALENDAR",
-  );
-  if (accounts.length === 0) return [];
+  const { data, error } = await supabase
+    .from("activity_atoms")
+    .select(
+      "title, occurred_at, duration_minutes, participants, source_url, external_id, content, metadata",
+    )
+    .eq("user_id", userId)
+    .eq("atom_type", "event")
+    .eq("provider", "google_calendar")
+    .gte("occurred_at", dayStart)
+    .lte("occurred_at", dayEnd)
+    .order("occurred_at", { ascending: true });
 
-  const dayStart = `${date}T00:00:00Z`;
-  const dayEnd = `${date}T23:59:59Z`;
+  if (error) {
+    console.warn(
+      "[todo-generator] activity_atoms calendar fetch error:",
+      error.message,
+    );
+    return [];
+  }
 
-  const result = await executeGoogleCalendarListEvents(userId, accounts[0].id, {
-    timeMin: dayStart,
-    timeMax: dayEnd,
-    maxResults: 50,
-    singleEvents: true,
-  });
-
-  if (!result.successful || !result.data?.items) return [];
-
-  return result.data.items.map((item) => {
-    const start = item.start as Record<string, unknown> | undefined;
-    const end = item.end as Record<string, unknown> | undefined;
-    const attendees = (item.attendees ?? []) as Array<{
-      email?: string;
-      displayName?: string;
-    }>;
-
+  const rows = data ?? [];
+  return rows.map((row) => {
+    const startTime = row.occurred_at;
+    let endTime: string | undefined;
+    if (row.duration_minutes != null && row.duration_minutes > 0) {
+      const end = new Date(
+        new Date(startTime).getTime() + row.duration_minutes * 60 * 1000,
+      );
+      endTime = end.toISOString();
+    }
+    const metadata = (row.metadata ?? {}) as Record<string, unknown>;
     return {
       provider: "google_calendar" as const,
-      title: String(item.summary ?? "Untitled"),
-      startTime: String(start?.dateTime ?? start?.date ?? ""),
-      endTime: end?.dateTime ? String(end.dateTime) : undefined,
-      participants: attendees
-        .map((a) => a.displayName ?? a.email ?? "")
-        .filter(Boolean),
-      location: item.location ? String(item.location) : undefined,
-      description: item.description
-        ? String(item.description).slice(0, 300)
-        : undefined,
-      htmlLink: item.htmlLink ? String(item.htmlLink) : undefined,
-      externalId: String(item.id ?? ""),
+      title: row.title ?? "Untitled",
+      startTime,
+      endTime,
+      participants: Array.isArray(row.participants) ? row.participants : [],
+      location:
+        typeof metadata.location === "string" ? metadata.location : undefined,
+      description: row.content ? String(row.content).slice(0, 300) : undefined,
+      htmlLink: row.source_url ?? undefined,
+      externalId: row.external_id,
     };
   });
 }
@@ -159,29 +166,26 @@ async function fetchGmailSignals(
   }));
 }
 
-/** Registry of all integrations that contribute to todo signals. Add new providers here. */
-const SIGNAL_FETCHERS: Array<{
-  key: string;
-  fetch: (userId: string, date: string) => Promise<IntegrationSignal[]>;
-}> = [
-  { key: "google_calendar", fetch: fetchCalendarSignals },
-  { key: "gmail", fetch: fetchGmailSignals },
-];
-
-/** Fetch signals from all registered integrations (Calendar, Gmail, etc.). */
+/** Fetch signals from all registered integrations. Calendar from Supabase; Gmail via Composio. */
 async function fetchAllSignals(
+  supabase: SupabaseClient<Database>,
   userId: string,
   date: string,
 ): Promise<IntegrationSignal[]> {
-  const results = await Promise.all(
-    SIGNAL_FETCHERS.map(({ key, fetch }) =>
-      fetch(userId, date).catch((err) => {
-        console.warn(`[todo-generator] ${key} fetch error:`, err);
-        return [] as IntegrationSignal[];
-      }),
-    ),
-  );
-  return results.flat();
+  const calendarSignals = fetchCalendarSignalsFromSupabase(
+    supabase,
+    userId,
+    date,
+  ).catch((err) => {
+    console.warn("[todo-generator] google_calendar fetch error:", err);
+    return [] as CalendarEventSignal[];
+  });
+  const gmailSignals = fetchGmailSignals(userId, date).catch((err) => {
+    console.warn("[todo-generator] gmail fetch error:", err);
+    return [] as GmailSignal[];
+  });
+  const [cal, gmail] = await Promise.all([calendarSignals, gmailSignals]);
+  return [...cal, ...gmail];
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -222,7 +226,7 @@ function signalsToPromptContext(signals: IntegrationSignal[]): string {
 
 const TASK_EXTRACTION_PROMPT = `You are an intelligent task extraction system for Decisium, a personal productivity app.
 
-You receive LIVE data from the user's connected integrations (Google Calendar, Gmail) for a specific date.
+You receive data from the user's connected integrations for a specific date: calendar events from synced storage (Google Calendar), and emails from Gmail.
 
 Extract ONLY genuinely actionable tasks — things the user needs to DO, PREPARE FOR, FOLLOW UP on, or RESPOND to on this specific date.
 
@@ -400,7 +404,7 @@ export class TodoGenerator {
       return this.generateForDate(userId, date, options);
     }
 
-    const signals = await fetchAllSignals(userId, date);
+    const signals = await fetchAllSignals(this.supabase, userId, date);
     if (signals.length === 0) {
       return TodoListOutputSchema.parse({
         ...existing,
@@ -457,6 +461,144 @@ export class TodoGenerator {
   }
 
   /**
+   * Returns existing snapshot for the date if any. Never generates.
+   * Use for "only from cache" reads (e.g. non-today dates before user clicks Generate).
+   */
+  async getCachedForDate(
+    userId: string,
+    date: string,
+  ): Promise<TodoListOutput | null> {
+    return this.getSnapshotForDate(userId, date);
+  }
+
+  /**
+   * Overdue = open items from previous days. Returns items with snapshotDate so UI can show "From yesterday".
+   */
+  async getOverdueItems(
+    userId: string,
+    options?: { days?: number },
+  ): Promise<Array<TodoItem & { snapshotDate: string }>> {
+    const days = options?.days ?? 2;
+    const today = toDateString(new Date());
+    const result: Array<TodoItem & { snapshotDate: string }> = [];
+    for (let i = 1; i <= days; i++) {
+      const d = new Date(today + "T12:00:00Z");
+      d.setUTCDate(d.getUTCDate() - i);
+      const dateStr = toDateString(d);
+      const snapshot = await this.getSnapshotForDate(userId, dateStr);
+      if (!snapshot) continue;
+      for (const item of snapshot.items) {
+        if (item.status !== "done") {
+          result.push({ ...item, snapshotDate: dateStr });
+        }
+      }
+    }
+    return result;
+  }
+
+  /**
+   * Update one item in a snapshot (status, title, or dueAt). Persists to DB.
+   */
+  async updateItemInSnapshot(
+    userId: string,
+    date: string,
+    itemId: string,
+    patch: {
+      status?: TodoItem["status"];
+      title?: string;
+      dueAt?: string | null;
+    },
+  ): Promise<TodoListOutput> {
+    const snapshot = await this.getSnapshotForDate(userId, date);
+    if (!snapshot) throw new Error(`No snapshot for date ${date}`);
+    const index = snapshot.items.findIndex((i) => i.id === itemId);
+    if (index === -1) throw new Error(`Item ${itemId} not found in snapshot`);
+    const items = [...snapshot.items];
+    const next: TodoItem = { ...items[index], ...patch };
+    if (patch.title != null) next.title = patch.title;
+    if (patch.status != null) next.status = patch.status;
+    if (patch.dueAt !== undefined) next.dueAt = patch.dueAt;
+    items[index] = next;
+    const list = TodoListOutputSchema.parse({
+      ...snapshot,
+      items,
+      stats: buildStats(items),
+      generatedAt: new Date().toISOString(),
+      updatedBecause: "user_edit",
+    });
+    await this.upsertSnapshot(userId, date, list);
+    return list;
+  }
+
+  /**
+   * Remove one item from a snapshot (delete).
+   */
+  async removeItemFromSnapshot(
+    userId: string,
+    date: string,
+    itemId: string,
+  ): Promise<TodoListOutput> {
+    const snapshot = await this.getSnapshotForDate(userId, date);
+    if (!snapshot) throw new Error(`No snapshot for date ${date}`);
+    const items = snapshot.items.filter((i) => i.id !== itemId);
+    if (items.length === snapshot.items.length)
+      throw new Error(`Item ${itemId} not found`);
+    const list = TodoListOutputSchema.parse({
+      ...snapshot,
+      items,
+      stats: buildStats(items),
+      generatedAt: new Date().toISOString(),
+      updatedBecause: "user_edit",
+    });
+    await this.upsertSnapshot(userId, date, list);
+    return list;
+  }
+
+  /**
+   * Move item from one date's snapshot to another. Creates target snapshot if needed.
+   */
+  async moveItemToDate(
+    userId: string,
+    fromDate: string,
+    toDate: string,
+    itemId: string,
+  ): Promise<{ from: TodoListOutput; to: TodoListOutput }> {
+    const fromSnapshot = await this.getSnapshotForDate(userId, fromDate);
+    if (!fromSnapshot) throw new Error(`No snapshot for date ${fromDate}`);
+    const item = fromSnapshot.items.find((i) => i.id === itemId);
+    if (!item)
+      throw new Error(`Item ${itemId} not found in snapshot ${fromDate}`);
+    const fromItems = fromSnapshot.items.filter((i) => i.id !== itemId);
+    const fromList = TodoListOutputSchema.parse({
+      ...fromSnapshot,
+      items: fromItems,
+      stats: buildStats(fromItems),
+      generatedAt: new Date().toISOString(),
+      updatedBecause: "user_edit",
+    });
+    await this.upsertSnapshot(userId, fromDate, fromList);
+
+    const movedItem: TodoItem = {
+      ...item,
+      dueAt: `${toDate}T00:00:00.000Z`,
+    };
+    let toSnapshot = await this.getSnapshotForDate(userId, toDate);
+    if (!toSnapshot) {
+      toSnapshot = this.buildEmptyList(userId, toDate, "user_edit");
+    }
+    const toItems = [...toSnapshot.items, movedItem];
+    const toList = TodoListOutputSchema.parse({
+      ...toSnapshot,
+      items: toItems,
+      stats: buildStats(toItems),
+      generatedAt: new Date().toISOString(),
+      updatedBecause: "user_edit",
+    });
+    await this.upsertSnapshot(userId, toDate, toList);
+    return { from: fromList, to: toList };
+  }
+
+  /**
    * Lightweight check whether a snapshot exists for the given date (for UI labels).
    */
   async hasSnapshotForDate(userId: string, date: string): Promise<boolean> {
@@ -499,7 +641,7 @@ export class TodoGenerator {
       return this.buildEmptyList(userId, date, "initial_generation");
     }
 
-    const signals = await fetchAllSignals(userId, date);
+    const signals = await fetchAllSignals(this.supabase, userId, date);
     if (signals.length === 0) {
       const empty = this.buildEmptyList(userId, date, "initial_generation");
       await this.upsertSnapshot(
