@@ -50,6 +50,7 @@ export const TodoUpdateReasonSchema = z.enum([
   "resolved_items_pruned",
   "no_changes_detected",
   "cached",
+  "user_edit",
 ]);
 export type TodoUpdateReason = z.infer<typeof TodoUpdateReasonSchema>;
 

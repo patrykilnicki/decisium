@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { generateDailySummary } from "@/app/actions/summaries";
 import { format, subDays } from "date-fns";
 import type { User } from "@/types/database";
@@ -17,9 +17,9 @@ function isAuthorized(request: NextRequest): boolean {
 
 async function runDailySummary(): Promise<NextResponse> {
   try {
-    const supabase = await createClient();
+    const admin = createAdminClient();
 
-    const { data: users, error: usersError } = await supabase
+    const { data: users, error: usersError } = await admin
       .from("users")
       .select("id, timezone");
 

@@ -17,6 +17,7 @@ function todayDateString(): string {
  * Query params:
  * - date (YYYY-MM-DD, defaults to today)
  * - force=true to regenerate even if cached
+ * - onlyFromCache=true return only existing snapshot, never generate (for non-today dates)
  */
 export async function GET(request: NextRequest) {
   try {
@@ -33,8 +34,22 @@ export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams;
     const date = searchParams.get("date") ?? todayDateString();
     const force = searchParams.get("force") === "true";
+    const onlyFromCache = searchParams.get("onlyFromCache") === "true";
 
     const generator = createTodoGenerator(createAdminClient());
+
+    if (onlyFromCache) {
+      const snapshot = await generator.getCachedForDate(user.id, date);
+      if (!snapshot) {
+        return NextResponse.json({
+          items: [],
+          date,
+          hasSnapshot: false,
+        });
+      }
+      return NextResponse.json({ ...snapshot, hasSnapshot: true });
+    }
+
     const payload = force
       ? await generator.regenerateForDate(user.id, date, {
           generatedFromEvent: "api.todos.get.force",
@@ -43,7 +58,7 @@ export async function GET(request: NextRequest) {
           generatedFromEvent: "api.todos.get",
         });
 
-    return NextResponse.json(payload);
+    return NextResponse.json({ ...payload, hasSnapshot: true });
   } catch (error) {
     return NextResponse.json(
       {
