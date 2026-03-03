@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createOAuthManager, createSyncPipeline } from "@/lib/integrations";
 import { Provider } from "@agents/integrations";
 import { dispatchTodoGenerationTask } from "@/lib/tasks/todo-dispatcher";
+import { dispatchVaultSyncTask } from "@/lib/tasks/vault-dispatcher";
 
 /**
  * POST /api/integrations/[provider]/sync
@@ -84,6 +85,11 @@ export async function POST(
     await dispatchTodoGenerationTask(user.id, {
       source: `system.integration_sync.${provider}`,
       date: new Date().toISOString().split("T")[0],
+      incremental: true,
+      cooldownMinutes: 10,
+    });
+    await dispatchVaultSyncTask(user.id, {
+      source: `system.integration_sync.${provider}`,
       incremental: true,
       cooldownMinutes: 10,
     });

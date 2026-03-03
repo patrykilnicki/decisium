@@ -1,14 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-import type { Database, Json } from "@/types/supabase";
+import type { Json } from "@/types/supabase";
 import type { ActivityAtomInsert } from "@/types/database";
 import crypto from "crypto";
 import { dispatchTodoGenerationTask } from "@/lib/tasks/todo-dispatcher";
+import { dispatchVaultSyncTask } from "@/lib/tasks/vault-dispatcher";
+import { createAdminClient } from "@/lib/supabase/admin";
+import * as db from "@/lib/supabase/db";
 
-const supabase = createClient<Database>(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
+const supabase = createAdminClient();
 
 interface ComposioWebhookPayload {
   id?: string;
@@ -207,13 +206,12 @@ async function findIntegrationByComposioAccount(
   connectedAccountId: string,
   userId: string,
 ): Promise<{ id: string; user_id: string; provider: string } | null> {
-  const { data } = await supabase
-    .from("integrations")
-    .select("id, user_id, provider, metadata")
-    .eq("user_id", userId)
-    .eq("provider", "google_calendar")
-    .eq("status", "active")
-    .limit(5);
+  const { data } = await db.selectMany(
+    supabase,
+    "integrations",
+    { user_id: userId, provider: "google_calendar", status: "active" },
+    { limit: 5 },
+  );
 
   if (!data) return null;
 
@@ -235,11 +233,12 @@ async function findIntegrationByComposioAccount(
 async function findIntegrationByConnectedAccountId(
   connectedAccountId: string,
 ): Promise<{ id: string; user_id: string; provider: string } | null> {
-  const { data } = await supabase
-    .from("integrations")
-    .select("id, user_id, provider, metadata")
-    .eq("status", "active")
-    .limit(200);
+  const { data } = await db.selectMany(
+    supabase,
+    "integrations",
+    { status: "active" },
+    { limit: 200 },
+  );
 
   if (!data) return null;
 
@@ -298,11 +297,10 @@ async function handleCalendarSyncEvent(
 
   if (event.event_type === "deleted" || event.status === "cancelled") {
     if (event.event_id) {
-      await supabase
-        .from("activity_atoms")
-        .delete()
-        .eq("integration_id", integration.id)
-        .eq("external_id", event.event_id);
+      await db.remove(supabase, "activity_atoms", {
+        integration_id: integration.id,
+        external_id: event.event_id,
+      });
       console.log(
         `[composio/webhook] Deleted event ${event.event_id} for integration ${integration.id}`,
       );
@@ -319,7 +317,9 @@ async function handleCalendarSyncEvent(
   }
 
   const syncedAt = new Date().toISOString();
-  const { error } = await supabase.from("activity_atoms").upsert(
+  const { error } = await db.upsert(
+    supabase,
+    "activity_atoms",
     {
       user_id: integration.user_id,
       integration_id: integration.id,
@@ -335,15 +335,17 @@ async function handleCalendarSyncEvent(
     return { processed: 1, stored: 0, userId: integration.user_id };
   }
 
-  await supabase
-    .from("integrations")
-    .update({
+  await db.update(
+    supabase,
+    "integrations",
+    { id: integration.id },
+    {
       last_sync_at: syncedAt,
       last_sync_status: "success",
       last_sync_error: null,
       updated_at: syncedAt,
-    })
-    .eq("id", integration.id);
+    },
+  );
 
   console.log(
     `[composio/webhook] Upserted event "${atom.title}" for integration ${integration.id}`,
@@ -378,15 +380,17 @@ export async function POST(request: NextRequest) {
       const integration = await findIntegrationByConnectedAccountId(accountId);
       if (integration) {
         const reason = expiredData?.status_reason ?? "Token expired";
-        await supabase
-          .from("integrations")
-          .update({
+        await db.update(
+          supabase,
+          "integrations",
+          { id: integration.id },
+          {
             status: "error",
             last_sync_error: reason,
             last_sync_status: "error",
             updated_at: new Date().toISOString(),
-          })
-          .eq("id", integration.id);
+          },
+        );
         console.log(
           `[composio/webhook] Marked integration ${integration.id} expired: ${reason}`,
         );
@@ -422,6 +426,11 @@ export async function POST(request: NextRequest) {
           incremental: true,
           cooldownMinutes: 2,
         });
+        await dispatchVaultSyncTask(result.userId, {
+          source: "system.webhook.composio.calendar",
+          incremental: true,
+          cooldownMinutes: 10,
+        });
         return NextResponse.json({
           status: "ok",
           trigger: triggerSlug,
@@ -447,6 +456,11 @@ export async function POST(request: NextRequest) {
         date: new Date().toISOString().split("T")[0],
         incremental: true,
         cooldownMinutes: 2,
+      });
+      await dispatchVaultSyncTask(userId, {
+        source: `system.webhook.composio.${triggerSlug.split("_")[0].toLowerCase()}`,
+        incremental: true,
+        cooldownMinutes: 10,
       });
     }
 

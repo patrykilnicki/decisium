@@ -22,6 +22,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createTaskEvent } from "@/lib/tasks/task-events";
 import { runWithTaskContext } from "@/packages/agents/lib/task-context";
 import { createTodoGenerator } from "@/lib/integrations";
+import { runVaultFromEventsAgent } from "@/lib/vault/vault-from-events-agent";
 
 function buildNextTask(params: {
   parentTaskId: string;
@@ -75,6 +76,9 @@ export async function handleTask(
   }
   if (taskType === "insights.generate_todo_list") {
     return handleInsightsGenerateTodoList(task, { client, jobId });
+  }
+  if (taskType === "vault.sync_from_events") {
+    return handleVaultSyncFromEvents(task, { client, jobId });
   }
   throw new Error(`Unknown task type: ${taskType}`);
 }
@@ -271,6 +275,38 @@ async function handleInsightsGenerateTodoList(
     output: {
       state: { ...state, todoList: result },
       todoList: result,
+    },
+  };
+}
+
+async function handleVaultSyncFromEvents(
+  task: TaskRow,
+  options: { client: SupabaseClient<Database>; jobId: string },
+): Promise<TaskExecutionResult> {
+  const state = getTaskState<{
+    userId: string;
+    sinceAt?: string | null;
+    incremental?: boolean;
+    generatedFromEvent?: string;
+  }>(task);
+
+  const userId = state.userId || task.user_id;
+
+  const result = await runNodeWithEvents({
+    client: options.client,
+    task,
+    jobId: options.jobId,
+    nodeKey: "vault.sync_from_events",
+    handler: () =>
+      runVaultFromEventsAgent(userId, {
+        sinceAt: state.sinceAt,
+      }),
+  });
+
+  return {
+    output: {
+      state: { ...state, vaultResult: result },
+      vaultResult: result,
     },
   };
 }

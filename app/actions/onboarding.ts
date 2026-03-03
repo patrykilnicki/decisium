@@ -1,26 +1,26 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import * as db from "@/lib/supabase/db";
 import { redirect } from "next/navigation";
 
 export async function completeOnboarding() {
   const supabase = await createClient();
+  const { user, error: authError } = await db.getAuthUser(supabase);
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
+  if (authError || !user) {
     redirect("/auth");
   }
 
-  const { error } = await supabase
-    .from("users")
-    .update({
+  const { error } = await db.update(
+    supabase,
+    "users",
+    { id: user.id },
+    {
       onboarding_completed: true,
       onboarding_completed_at: new Date().toISOString(),
-    })
-    .eq("id", user.id);
+    },
+  );
 
   if (error) {
     console.error("Failed to complete onboarding:", error);

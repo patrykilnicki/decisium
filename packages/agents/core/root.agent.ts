@@ -104,7 +104,7 @@ async function storeAskEmbedding(params: {
 
 /** No-op: memory now comes from Composio (calendar, etc.), not database */
 async function memoryRetrieverNode(
-  state: RootGraphState,
+  _state: RootGraphState,
 ): Promise<Partial<RootGraphState>> {
   return { memoryContext: "" };
 }

@@ -121,7 +121,7 @@ interface TaskRowProps {
 
 function TaskRow({
   task,
-  date,
+  date: _date,
   isOverdue,
   onActionOpen,
   onMarkResolved,
@@ -471,7 +471,7 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
 
     fetchTasks();
     return () => controller.abort();
-  }, [userId, selectedDate]);
+  }, [userId, selectedDate, isToday]);
 
   useEffect(() => {
     if (actionDialog) {

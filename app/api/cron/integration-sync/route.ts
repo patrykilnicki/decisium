@@ -7,6 +7,7 @@ import {
   createInsightGenerator,
 } from "@/lib/integrations";
 import { dispatchTodoGenerationTask } from "@/lib/tasks/todo-dispatcher";
+import { dispatchVaultSyncTask } from "@/lib/tasks/vault-dispatcher";
 
 // Use service role for cron jobs
 const supabase = createClient<Database>(
@@ -94,6 +95,11 @@ export async function POST(request: NextRequest) {
         await dispatchTodoGenerationTask(userId, {
           source: "system.cron.integration_sync",
           date: new Date().toISOString().split("T")[0],
+          incremental: true,
+          cooldownMinutes: 30,
+        });
+        await dispatchVaultSyncTask(userId, {
+          source: "system.cron.integration_sync",
           incremental: true,
           cooldownMinutes: 30,
         });

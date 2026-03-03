@@ -1,20 +1,17 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "@/types/supabase";
+import * as db from "@/lib/supabase/db";
 import type { TaskInsert, TaskRow, TaskStatus } from "./task-types";
 
 export async function enqueueTask(
   client: SupabaseClient<Database>,
   task: TaskInsert,
 ): Promise<TaskRow> {
-  const { data, error } = await client
-    .from("tasks")
-    .insert({
-      ...task,
-      status: task.status ?? "pending",
-      retry_count: task.retry_count ?? 0,
-    })
-    .select()
-    .single();
+  const { data, error } = await db.insertOne(client, "tasks", {
+    ...task,
+    status: task.status ?? "pending",
+    retry_count: task.retry_count ?? 0,
+  });
 
   if (error || !data) {
     throw new Error(
@@ -31,16 +28,15 @@ export async function enqueueTasks(
 ): Promise<TaskRow[]> {
   if (tasks.length === 0) return [];
 
-  const { data, error } = await client
-    .from("tasks")
-    .insert(
-      tasks.map((task) => ({
-        ...task,
-        status: task.status ?? "pending",
-        retry_count: task.retry_count ?? 0,
-      })),
-    )
-    .select();
+  const { data, error } = await db.insertMany(
+    client,
+    "tasks",
+    tasks.map((task) => ({
+      ...task,
+      status: task.status ?? "pending",
+      retry_count: task.retry_count ?? 0,
+    })),
+  );
 
   if (error || !data) {
     throw new Error(
@@ -72,19 +68,17 @@ export async function updateTaskSuccess(
   taskId: string,
   output: Record<string, unknown>,
 ): Promise<TaskRow> {
-  // Cast Record<string, unknown> to Json for database insert
-  const outputJson: Json = output as Json;
-
-  const { data, error } = await client
-    .from("tasks")
-    .update({
+  const { data, error } = await db.update(
+    client,
+    "tasks",
+    { id: taskId },
+    {
       status: "completed" as TaskStatus,
-      output: outputJson,
+      output: output as Json,
       last_error: null,
-    })
-    .eq("id", taskId)
-    .select()
-    .single();
+    },
+    { returning: "single" },
+  );
 
   if (error || !data) {
     throw new Error(
@@ -100,16 +94,17 @@ export async function updateTaskFailure(
   taskId: string,
   params: { status: TaskStatus; retryCount: number; lastError: string },
 ): Promise<TaskRow> {
-  const { data, error } = await client
-    .from("tasks")
-    .update({
+  const { data, error } = await db.update(
+    client,
+    "tasks",
+    { id: taskId },
+    {
       status: params.status,
       retry_count: params.retryCount,
       last_error: params.lastError,
-    })
-    .eq("id", taskId)
-    .select()
-    .single();
+    },
+    { returning: "single" },
+  );
 
   if (error || !data) {
     throw new Error(
@@ -124,17 +119,8 @@ export async function fetchTaskById(
   client: SupabaseClient<Database>,
   taskId: string,
 ): Promise<TaskRow | null> {
-  const { data, error } = await client
-    .from("tasks")
-    .select("*")
-    .eq("id", taskId)
-    .single();
-
-  if (error || !data) {
-    return null;
-  }
-
-  return data as TaskRow;
+  const { data } = await db.selectOne(client, "tasks", { id: taskId });
+  return data as TaskRow | null;
 }
 
 /**
@@ -146,21 +132,14 @@ export async function claimTaskById(
   client: SupabaseClient<Database>,
   taskId: string,
 ): Promise<TaskRow | null> {
-  const { data, error } = await client
-    .from("tasks")
-    .update({
-      status: "in_progress" as TaskStatus,
-    })
-    .eq("id", taskId)
-    .eq("status", "pending")
-    .select()
-    .single();
-
-  if (error || !data) {
-    return null;
-  }
-
-  return data as TaskRow;
+  const { data } = await db.update(
+    client,
+    "tasks",
+    { id: taskId, status: "pending" },
+    { status: "in_progress" as TaskStatus },
+    { returning: "single" },
+  );
+  return data as TaskRow | null;
 }
 
 export async function resolveRootTaskId(
