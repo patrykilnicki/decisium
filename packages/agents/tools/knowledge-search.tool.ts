@@ -97,8 +97,22 @@ export const knowledgeSearchTool = new DynamicStructuredTool({
       const items: KnowledgeSearchItem[] = [];
 
       const addMemoryResults = (
-        fragments: { id: string; content: string; similarity: number; metadata?: unknown }[],
-        atoms: { id: string; content: string; similarity: number; provider: string; atomType: string; occurredAt: Date; title?: string; sourceUrl?: string }[],
+        fragments: {
+          id: string;
+          content: string;
+          similarity: number;
+          metadata?: unknown;
+        }[],
+        atoms: {
+          id: string;
+          content: string;
+          similarity: number;
+          provider: string;
+          atomType: string;
+          occurredAt: Date;
+          title?: string;
+          sourceUrl?: string;
+        }[],
         hierarchyLevel: string,
       ) => {
         for (const f of fragments) {
@@ -227,7 +241,9 @@ export const knowledgeSearchTool = new DynamicStructuredTool({
         (minResults !== undefined && totalFound < minResults) ||
         (!useExpandedParams && totalFound < FEW_RESULTS_THRESHOLD);
 
-      const memoryCount = topResults.filter((x) => x.source === "memory").length;
+      const memoryCount = topResults.filter(
+        (x) => x.source === "memory",
+      ).length;
       const vaultCount = topResults.filter((x) => x.source === "vault").length;
 
       return JSON.stringify({

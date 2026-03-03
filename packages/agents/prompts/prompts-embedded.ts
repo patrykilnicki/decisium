@@ -540,7 +540,7 @@ Always prefer using tools when the request involves:
 
 export function replacePromptVariables(
   prompt: string,
-  variables: Record<string, string>
+  variables: Record<string, string>,
 ): string {
   let result = prompt;
   for (const [key, value] of Object.entries(variables)) {
@@ -549,7 +549,10 @@ export function replacePromptVariables(
   return result;
 }
 
-export function getPromptWithDate(prompt: string, currentDate?: string): string {
+export function getPromptWithDate(
+  prompt: string,
+  currentDate?: string,
+): string {
   const date = currentDate || new Date().toISOString().split("T")[0];
   return replacePromptVariables(prompt, { currentDate: date });
 }
