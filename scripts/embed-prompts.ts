@@ -17,7 +17,7 @@ function loadPrompt(filename: string): string {
   return content.trim();
 }
 
-function extractSection(content: string, sectionName: string): string {
+function _extractSection(content: string, sectionName: string): string {
   const regex = new RegExp(
     `## ${sectionName}[\\s\\S]*?\`\`\`([\\s\\S]*?)\`\`\``,
     "i",

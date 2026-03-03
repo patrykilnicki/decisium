@@ -17,11 +17,11 @@ const SAVE_DEBOUNCE_MS = 2000;
 
 export function VaultEditor({
   documentId,
-  initialTitle = "Untitled",
+  initialTitle: _initialTitle = "Untitled",
   initialYdocBase64,
-  onTitleChange,
+  onTitleChange: _onTitleChange,
 }: VaultEditorProps) {
-  const ydoc = useMemo(() => new Y.Doc(), [documentId]);
+  const ydoc = useMemo(() => new Y.Doc(), []);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasInitialApply = useRef(false);
   const editorRef = useRef<Editor | null>(null);
@@ -41,7 +41,12 @@ export function VaultEditor({
     [ydoc],
   );
 
-  editorRef.current = editor;
+  useEffect(() => {
+    editorRef.current = editor;
+    return () => {
+      editorRef.current = null;
+    };
+  }, [editor]);
 
   useEffect(() => {
     if (!initialYdocBase64 || hasInitialApply.current) return;
@@ -79,8 +84,6 @@ export function VaultEditor({
     },
     [documentId],
   );
-
-  editorRef.current = editor;
 
   useEffect(() => {
     const handleUpdate = () => {

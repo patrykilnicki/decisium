@@ -18,7 +18,7 @@ interface DocumentData {
 
 export default function VaultDocumentPage() {
   const params = useParams();
-  const router = useRouter();
+  const _router = useRouter();
   const documentId = params.documentId as string;
   const [doc, setDoc] = useState<DocumentData | null>(null);
   const [title, setTitle] = useState("Untitled");

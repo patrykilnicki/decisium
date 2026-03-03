@@ -1,5 +1,4 @@
 import { createClient } from "@supabase/supabase-js";
-import type { Database } from "@/types/supabase";
 import { generateEmbedding } from "@/packages/agents/lib/embeddings";
 
 const supabase = createClient(
