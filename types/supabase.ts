@@ -1041,6 +1041,210 @@ export type Database = {
           },
         ]
       }
+      vault_changes: {
+        Row: {
+          action: string | null
+          actor_id: string | null
+          actor_type: string
+          created_at: string | null
+          document_id: string
+          id: string
+          patch: Json | null
+          summary: string | null
+        }
+        Insert: {
+          action?: string | null
+          actor_id?: string | null
+          actor_type: string
+          created_at?: string | null
+          document_id: string
+          id?: string
+          patch?: Json | null
+          summary?: string | null
+        }
+        Update: {
+          action?: string | null
+          actor_id?: string | null
+          actor_type?: string
+          created_at?: string | null
+          document_id?: string
+          id?: string
+          patch?: Json | null
+          summary?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vault_changes_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "vault_documents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      vault_chunks: {
+        Row: {
+          chunk_index: number
+          content: string
+          document_id: string
+          embedding: number[] | null
+          heading_path: string | null
+          id: string
+          token_count: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          chunk_index: number
+          content: string
+          document_id: string
+          embedding?: number[] | null
+          heading_path?: string | null
+          id?: string
+          token_count?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          chunk_index?: number
+          content?: string
+          document_id?: string
+          embedding?: number[] | null
+          heading_path?: string | null
+          id?: string
+          token_count?: number | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vault_chunks_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "vault_documents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      vault_collections: {
+        Row: {
+          created_at: string | null
+          id: string
+          name: string
+          tenant_id: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          name: string
+          tenant_id: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          name?: string
+          tenant_id?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vault_collections_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      vault_documents: {
+        Row: {
+          collection_id: string | null
+          created_at: string | null
+          created_by: string | null
+          id: string
+          tenant_id: string
+          title: string
+          updated_at: string | null
+          ydoc_state: string | null
+        }
+        Insert: {
+          collection_id?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          id?: string
+          tenant_id: string
+          title: string
+          updated_at?: string | null
+          ydoc_state?: string | null
+        }
+        Update: {
+          collection_id?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          id?: string
+          tenant_id?: string
+          title?: string
+          updated_at?: string | null
+          ydoc_state?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vault_documents_collection_id_fkey"
+            columns: ["collection_id"]
+            isOneToOne: false
+            referencedRelation: "vault_collections"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vault_documents_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vault_documents_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      vault_snapshots: {
+        Row: {
+          content_json: Json | null
+          content_md: string | null
+          created_at: string | null
+          document_id: string
+          id: string
+          version: number
+        }
+        Insert: {
+          content_json?: Json | null
+          content_md?: string | null
+          created_at?: string | null
+          document_id: string
+          id?: string
+          version: number
+        }
+        Update: {
+          content_json?: Json | null
+          content_md?: string | null
+          created_at?: string | null
+          document_id?: string
+          id?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vault_snapshots_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "vault_documents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -1105,6 +1309,25 @@ export type Database = {
           metadata: Json
           similarity: number
           user_id: string
+        }[]
+      }
+      match_vault_chunks: {
+        Args: {
+          match_collection_id?: string
+          match_count?: number
+          match_document_id?: string
+          match_tenant_id: string
+          match_threshold?: number
+          query_embedding: string
+        }
+        Returns: {
+          chunk_index: number
+          content: string
+          document_id: string
+          heading_path: string | null
+          id: string
+          similarity: number
+          updated_at: string | null
         }[]
       }
     }

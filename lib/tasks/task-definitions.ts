@@ -4,7 +4,8 @@ export type TaskType =
   | "root.response_agent"
   | "root.save_assistant_message"
   | "orchestrator.invoke"
-  | "insights.generate_todo_list";
+  | "insights.generate_todo_list"
+  | "vault.sync_from_events";
 
 export type TaskGraph = "root" | "orchestrator";
 
@@ -27,5 +28,7 @@ export function getTaskNodeId(taskType: TaskType): string {
       return "orchestrator";
     case "insights.generate_todo_list":
       return "insightsGenerateTodoList";
+    case "vault.sync_from_events":
+      return "vaultSyncFromEvents";
   }
 }

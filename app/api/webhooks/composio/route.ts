@@ -3,6 +3,7 @@ import type { Json } from "@/types/supabase";
 import type { ActivityAtomInsert } from "@/types/database";
 import crypto from "crypto";
 import { dispatchTodoGenerationTask } from "@/lib/tasks/todo-dispatcher";
+import { dispatchVaultSyncTask } from "@/lib/tasks/vault-dispatcher";
 import { createAdminClient } from "@/lib/supabase/admin";
 import * as db from "@/lib/supabase/db";
 
@@ -425,6 +426,11 @@ export async function POST(request: NextRequest) {
           incremental: true,
           cooldownMinutes: 2,
         });
+        await dispatchVaultSyncTask(result.userId, {
+          source: "system.webhook.composio.calendar",
+          incremental: true,
+          cooldownMinutes: 10,
+        });
         return NextResponse.json({
           status: "ok",
           trigger: triggerSlug,
@@ -450,6 +456,11 @@ export async function POST(request: NextRequest) {
         date: new Date().toISOString().split("T")[0],
         incremental: true,
         cooldownMinutes: 2,
+      });
+      await dispatchVaultSyncTask(userId, {
+        source: `system.webhook.composio.${triggerSlug.split("_")[0].toLowerCase()}`,
+        incremental: true,
+        cooldownMinutes: 10,
       });
     }
 

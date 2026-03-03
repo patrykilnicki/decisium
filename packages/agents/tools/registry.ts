@@ -1,6 +1,7 @@
 import type { DynamicStructuredTool } from "@langchain/core/tools";
 import {
   memorySearchTool,
+  vaultSearchTool,
   supabaseStoreTool,
   embeddingGeneratorTool,
   generateTodoListTool,
@@ -130,6 +131,12 @@ function initializeRegistry(): void {
   // Register core memory tools
   toolRegistry.set("memory_search", {
     tool: memorySearchTool,
+    category: "memory",
+    isExternal: false,
+  });
+
+  toolRegistry.set("vault_search", {
+    tool: vaultSearchTool,
     category: "memory",
     isExternal: false,
   });
@@ -296,6 +303,8 @@ export function getDefaultTools(
   if (config.includeMemorySearch !== false) {
     tools.push(memorySearchTool);
   }
+
+  tools.push(vaultSearchTool);
 
   if (config.includeSupabaseStore !== false) {
     tools.push(supabaseStoreTool);
