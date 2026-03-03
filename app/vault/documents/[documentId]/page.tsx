@@ -14,6 +14,7 @@ interface DocumentData {
   id: string;
   title: string;
   ydoc_state: string | null;
+  content_markdown: string | null;
 }
 
 export default function VaultDocumentPage() {
@@ -42,6 +43,7 @@ export default function VaultDocumentPage() {
         id: data.id,
         title: data.title,
         ydoc_state: data.ydoc_state ?? null,
+        content_markdown: data.content_markdown ?? null,
       });
       setTitle(data.title);
       setLoading(false);
@@ -105,6 +107,7 @@ export default function VaultDocumentPage() {
               documentId={documentId}
               initialTitle={doc.title}
               initialYdocBase64={doc.ydoc_state}
+              initialContentMarkdown={doc.content_markdown}
             />
           </div>
         </div>

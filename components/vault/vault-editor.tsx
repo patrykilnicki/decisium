@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useEditor, EditorContent, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Collaboration from "@tiptap/extension-collaboration";
@@ -17,11 +17,13 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { markdownToHtml, htmlToMarkdown } from "@/lib/vault/markdown-utils";
 
 interface VaultEditorProps {
   documentId: string;
   initialTitle?: string;
   initialYdocBase64?: string | null;
+  initialContentMarkdown?: string | null;
   onTitleChange?: (title: string) => void;
 }
 
@@ -159,13 +161,22 @@ export function VaultEditor({
   documentId,
   initialTitle: _initialTitle = "Untitled",
   initialYdocBase64,
+  initialContentMarkdown,
   onTitleChange: _onTitleChange,
 }: VaultEditorProps) {
-  const ydoc = useMemo(() => new Y.Doc(), []);
+  const useMarkdown = initialContentMarkdown != null || !initialYdocBase64;
+  const ydoc = useRef<Y.Doc | null>(null);
+  if (ydoc.current === null && !useMarkdown) {
+    ydoc.current = new Y.Doc();
+  }
+  const ydocInstance = ydoc.current;
+
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasInitialApply = useRef(false);
+  const hasInitialContent = useRef(false);
   const editorRef = useRef<Editor | null>(null);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const editor = useEditor(
     {
@@ -175,10 +186,18 @@ export function VaultEditor({
         }),
         Underline,
         Link.configure({ openOnClick: false }),
-        Collaboration.configure({ document: ydoc }),
-        NodeRange,
+        ...(useMarkdown
+          ? [NodeRange]
+          : [
+              Collaboration.configure({
+                document: ydocInstance!,
+              }),
+              NodeRange,
+            ]),
       ],
-      content: undefined,
+      content: useMarkdown
+        ? markdownToHtml(initialContentMarkdown ?? "")
+        : undefined,
       editorProps: {
         attributes: {
           class:
@@ -187,7 +206,7 @@ export function VaultEditor({
       },
       immediatelyRender: false,
     },
-    [ydoc],
+    useMarkdown ? [initialContentMarkdown] : [ydocInstance],
   );
 
   useEffect(() => {
@@ -198,84 +217,147 @@ export function VaultEditor({
   }, [editor]);
 
   useEffect(() => {
-    if (!initialYdocBase64 || hasInitialApply.current) return;
+    if (!useMarkdown || !editor || hasInitialContent.current) return;
+    const md = initialContentMarkdown ?? "";
+    if (md) {
+      editor.commands.setContent(markdownToHtml(md));
+    }
+    hasInitialContent.current = true;
+  }, [useMarkdown, editor, initialContentMarkdown]);
+
+  useEffect(() => {
+    if (
+      useMarkdown ||
+      !initialYdocBase64 ||
+      !ydocInstance ||
+      hasInitialApply.current
+    )
+      return;
     try {
       const binary = atob(initialYdocBase64);
       const bytes = new Uint8Array(binary.length);
       for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
       if (bytes.length > 0) {
-        Y.applyUpdate(ydoc, bytes);
+        Y.applyUpdate(ydocInstance, bytes);
       }
       hasInitialApply.current = true;
     } catch (e) {
       console.error("Failed to apply initial ydoc state:", e);
     }
-  }, [initialYdocBase64, ydoc]);
+  }, [useMarkdown, initialYdocBase64, ydocInstance]);
 
   const saveToApi = useCallback(
-    async (state: Uint8Array, textContent?: string) => {
-      let binary = "";
-      for (let i = 0; i < state.length; i++)
-        binary += String.fromCharCode(state[i]);
-      const base64 = btoa(binary);
-      const body: { ydoc_state: string; content_text?: string } = {
-        ydoc_state: base64,
-      };
-      if (textContent) body.content_text = textContent;
+    async (payload: {
+      content_markdown?: string;
+      ydoc_state?: string;
+      content_text?: string;
+    }) => {
+      setSaveError(null);
       const res = await fetch(`/api/vault/documents/${documentId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify(payload),
       });
       if (!res.ok) {
-        console.error("Failed to save document:", await res.text());
+        const text = await res.text();
+        setSaveError(text || "Failed to save");
+        console.error("Failed to save document:", text);
+        throw new Error(text || "Failed to save");
       }
     },
     [documentId],
   );
 
+  const saveMarkdown = useCallback(async () => {
+    const html = editorRef.current?.getHTML();
+    if (html === undefined) return;
+    const markdown = htmlToMarkdown(html);
+    await saveToApi({ content_markdown: markdown });
+  }, [saveToApi]);
+
+  const saveYdoc = useCallback(async () => {
+    if (!ydocInstance) return;
+    const state = Y.encodeStateAsUpdate(ydocInstance);
+    let binary = "";
+    for (let i = 0; i < state.length; i++)
+      binary += String.fromCharCode(state[i]);
+    const base64 = btoa(binary);
+    const textContent = editorRef.current?.getText();
+    const html = editorRef.current?.getHTML();
+    const payload: {
+      ydoc_state: string;
+      content_text?: string;
+      content_markdown?: string;
+    } = { ydoc_state: base64 };
+    if (textContent) payload.content_text = textContent;
+    if (html) payload.content_markdown = htmlToMarkdown(html);
+    await saveToApi(payload);
+  }, [ydocInstance, saveToApi]);
+
   useEffect(() => {
-    const handleUpdate = () => {
-      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-      saveTimeoutRef.current = setTimeout(() => {
-        const state = Y.encodeStateAsUpdate(ydoc);
-        const textContent = editorRef.current?.getText();
-        saveToApi(state, textContent);
-        saveTimeoutRef.current = null;
-      }, SAVE_DEBOUNCE_MS);
-    };
-    ydoc.on("update", handleUpdate);
-    return () => {
-      ydoc.off("update", handleUpdate);
-      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    };
-  }, [ydoc, saveToApi]);
+    if (!editor) return;
+    if (useMarkdown) {
+      const handleUpdate = () => {
+        if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = setTimeout(() => {
+          saveMarkdown().catch(() => {});
+          saveTimeoutRef.current = null;
+        }, SAVE_DEBOUNCE_MS);
+      };
+      editor.on("update", handleUpdate);
+      return () => {
+        editor.off("update", handleUpdate);
+        if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+      };
+    } else if (ydocInstance) {
+      const handleUpdate = () => {
+        if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = setTimeout(() => {
+          saveYdoc().catch(() => {});
+          saveTimeoutRef.current = null;
+        }, SAVE_DEBOUNCE_MS);
+      };
+      ydocInstance.on("update", handleUpdate);
+      return () => {
+        ydocInstance.off("update", handleUpdate);
+        if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+      };
+    }
+  }, [editor, useMarkdown, saveMarkdown, saveYdoc, ydocInstance]);
 
   const handleSave = useCallback(async () => {
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     saveTimeoutRef.current = null;
     setSaving(true);
+    setSaveError(null);
     try {
-      const state = Y.encodeStateAsUpdate(ydoc);
-      const textContent = editorRef.current?.getText();
-      await saveToApi(state, textContent);
+      if (useMarkdown) {
+        await saveMarkdown();
+      } else {
+        await saveYdoc();
+      }
     } finally {
       setSaving(false);
     }
-  }, [ydoc, saveToApi]);
+  }, [useMarkdown, saveMarkdown, saveYdoc]);
 
   return (
     <div className="flex flex-col">
       <div className="flex items-center justify-between gap-2 border-b px-4 py-2">
         <MenuBar editor={editor} />
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleSave}
-          disabled={saving}
-        >
-          {saving ? "Saving..." : "Save"}
-        </Button>
+        <div className="flex items-center gap-2">
+          {saveError && (
+            <span className="text-sm text-destructive">{saveError}</span>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleSave}
+            disabled={saving}
+          >
+            {saving ? "Saving..." : "Save"}
+          </Button>
+        </div>
       </div>
       <div className="relative">
         {editor && (
