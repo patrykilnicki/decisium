@@ -18,6 +18,11 @@
   },
   "dependencies": {
     "@tiptap/extension-collaboration": "^2.10.4",
+    "@tiptap/extension-drag-handle": "^2.27.2",
+    "@tiptap/extension-drag-handle-react": "^2.27.2",
+    "@tiptap/extension-link": "^2.27.2",
+    "@tiptap/extension-node-range": "^2.27.2",
+    "@tiptap/extension-underline": "^2.27.2",
     "@tiptap/react": "^2.10.4",
     "@tiptap/starter-kit": "^2.10.4",
     "@base-ui/react": "^1.1.0",
