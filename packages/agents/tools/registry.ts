@@ -1,4 +1,5 @@
-import type { DynamicStructuredTool } from "@langchain/core/tools";
+import { DynamicStructuredTool } from "@langchain/core/tools";
+import { z } from "zod";
 import {
   memorySearchTool,
   vaultSearchTool,
@@ -439,13 +440,211 @@ export function getToolsForAgent(
   return tools;
 }
 
+const TOOLS_REQUIRING_USER_ID = [
+  "memory_search",
+  "knowledge_search",
+  "vault_search",
+  "vault_create_document",
+  "vault_update_document",
+] as const;
+
+/**
+ * Create userId-bound versions of tools that require it.
+ * The LLM does not have access to the authenticated userId, so we inject it
+ * to avoid FK violations (e.g. vault_documents.tenant_id) and security issues.
+ */
+function createToolsWithBoundUserId(userId: string): DynamicStructuredTool[] {
+  return [
+    new DynamicStructuredTool({
+      name: "memory_search",
+      description:
+        "Search user's history semantically. Pass query and maxResults. You must set maxResults (how many results to fetch) based on user intent; set minResults when user expects 'at least N'. When suggest_follow_up is true, offer to broaden the search or try different keywords.",
+      schema: z.object({
+        query: z
+          .string()
+          .describe("The search query to find relevant memories"),
+        maxResults: z
+          .number()
+          .int()
+          .min(1)
+          .max(60)
+          .describe(
+            "How many results to fetch. Set from user intent: 5-15 for specific questions, 20-50 for 'list all X' or broad queries.",
+          ),
+        minResults: z
+          .number()
+          .int()
+          .min(1)
+          .max(60)
+          .optional()
+          .describe(
+            "Optional. Minimum results you expect. When total_found < minResults, suggest_follow_up will be true.",
+          ),
+      }),
+      func: async (args) =>
+        memorySearchTool.func({
+          userId,
+          query: args.query,
+          maxResults: args.maxResults,
+          minResults: args.minResults,
+        }),
+    }),
+    new DynamicStructuredTool({
+      name: "knowledge_search",
+      description:
+        "Search across all user knowledge: memory (summaries, events, history) AND Vault documents. Use for broad queries (e.g. 'what do I know about X'). When suggest_follow_up is true, call again with expandSearch: true for broader search. Set minResults when user expects at least N results.",
+      schema: z.object({
+        query: z.string().describe("The search query"),
+        maxResults: z
+          .number()
+          .int()
+          .min(5)
+          .max(60)
+          .default(30)
+          .describe("Maximum total results to return (from both sources)"),
+        minResults: z
+          .number()
+          .int()
+          .min(1)
+          .max(60)
+          .optional()
+          .describe(
+            "When total_found < minResults, suggest_follow_up is true. Use for 'list all X' or when user expects many results.",
+          ),
+        expandSearch: z
+          .boolean()
+          .optional()
+          .default(false)
+          .describe(
+            "When true, use lower similarity threshold (0.25) and higher limits for broader retrieval. Use when initial search returned few results or user wants comprehensive coverage.",
+          ),
+      }),
+      func: async (args) =>
+        knowledgeSearchTool.func({
+          userId,
+          query: args.query,
+          maxResults: args.maxResults,
+          minResults: args.minResults,
+          expandSearch: args.expandSearch,
+        }),
+    }),
+    new DynamicStructuredTool({
+      name: "vault_search",
+      description:
+        "Search the user's Vault documents semantically. Use when the user asks about notes, documents, or knowledge stored in their Vault. Pass query.",
+      schema: z.object({
+        query: z
+          .string()
+          .describe("The search query to find relevant vault content"),
+        maxResults: z
+          .number()
+          .int()
+          .min(1)
+          .max(20)
+          .default(10)
+          .describe("Maximum number of vault chunks to return"),
+      }),
+      func: async (args) =>
+        vaultSearchTool.func({
+          userId,
+          query: args.query,
+          maxResults: args.maxResults,
+        }),
+    }),
+    new DynamicStructuredTool({
+      name: "vault_create_document",
+      description:
+        "Create a new document in the user's Vault (personal knowledge base). Use when the user asks to save a summary, note, or any content to the Vault. Pass title and content_md (markdown). Optional: collection_id.",
+      schema: z.object({
+        title: z
+          .string()
+          .describe("Short document title (e.g. 'Meeting summary Mar 3 2025')"),
+        content_md: z
+          .string()
+          .describe(
+            "Full document content in Markdown (summary, notes, or text to save)",
+          ),
+        collection_id: z
+          .string()
+          .uuid()
+          .optional()
+          .describe("Optional Vault collection ID to store the document in"),
+      }),
+      func: async (args) =>
+        vaultCreateDocumentTool.func({
+          userId,
+          title: args.title,
+          content_md: args.content_md,
+          collection_id: args.collection_id,
+        }),
+    }),
+    new DynamicStructuredTool({
+      name: "vault_update_document",
+      description:
+        "Update an existing document in the user's Vault. Use when the user asks to edit, update, or add to an existing document. Pass document_id and at least one of: title and/or content_md.",
+      schema: z.object({
+        document_id: z
+          .string()
+          .uuid()
+          .describe(
+            "The document ID to update (get from vault_search results or prior context)",
+          ),
+        title: z
+          .string()
+          .optional()
+          .describe("New title (optional; omit to keep current title)"),
+        content_md: z
+          .string()
+          .optional()
+          .describe(
+            "New full markdown content (optional; omit to keep current content). When provided, replaces entire content and re-indexes.",
+          ),
+      }),
+      func: async (args) =>
+        vaultUpdateDocumentTool.func({
+          userId,
+          document_id: args.document_id,
+          title: args.title,
+          content_md: args.content_md,
+        }),
+    }),
+  ];
+}
+
+/**
+ * Replace tools that require userId with bound versions when userId is provided.
+ */
+function applyUserIdBinding(
+  tools: DynamicStructuredTool[],
+  userId: string | undefined,
+): DynamicStructuredTool[] {
+  if (!userId) return tools;
+
+  const boundByName = new Map(
+    createToolsWithBoundUserId(userId).map((t) => [t.name, t]),
+  );
+
+  return tools.map((tool) => {
+    if (
+      TOOLS_REQUIRING_USER_ID.includes(
+        tool.name as (typeof TOOLS_REQUIRING_USER_ID)[number],
+      )
+    ) {
+      return boundByName.get(tool.name) ?? tool;
+    }
+    return tool;
+  });
+}
+
 /**
  * Get all tools for the orchestrator (includes Composio + internal tools).
  * When userId is provided and Composio is configured, merges Composio session
  * tools (meta-tools: SEARCH_TOOLS, MANAGE_CONNECTIONS, MULTI_EXECUTE_TOOL) per
  * [Composio Users & Sessions](https://docs.composio.dev/docs/users-and-sessions).
+ * When userId is provided, injects it into vault/memory tools so the LLM does
+ * not need to (and cannot) pass it—avoiding FK violations and security issues.
  *
- * @param options.userId - Supabase user ID; when set, Composio tools are included (user-scoped)
+ * @param options.userId - Supabase user ID; when set, Composio tools are included and vault/memory tools are user-bound
  * @param options.callbackUrl - Optional callback URL for Composio in-chat auth redirect
  */
 export async function getOrchestratorTools(options?: {
@@ -460,28 +659,26 @@ export async function getOrchestratorTools(options?: {
     enabledCategories: options?.enabledCategories,
   });
 
+  const toolsWithUserId = applyUserIdBinding(baseTools, options?.userId);
+
   if (options?.userId) {
     const composioTools = await getComposioToolsForUser(options.userId, {
       callbackUrl: options.callbackUrl,
       toolkits: ["GOOGLECALENDAR", "GMAIL"],
     });
-    return [...baseTools, ...composioTools];
+    return [...toolsWithUserId, ...composioTools];
   }
 
-  return baseTools;
+  return toolsWithUserId;
 }
 
 /**
- * Create a tool wrapper that injects user context
- * This is useful when tools need userId but it's not in the schema
+ * @deprecated Use getOrchestratorTools({ userId }) instead—it injects userId
+ * into vault/memory tools automatically via applyUserIdBinding.
  */
 export function createToolWithContext<T extends DynamicStructuredTool>(
   tool: T,
   _userId: string,
 ): T {
-  // Note: This is a conceptual wrapper
-  // In practice, tools should accept userId as a parameter
-  // This function documents the pattern but doesn't modify the tool
-  // Tools should be designed to accept userId in their schema
   return tool;
 }
