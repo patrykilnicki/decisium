@@ -201,7 +201,7 @@ export function VaultEditor({
       editorProps: {
         attributes: {
           class:
-            "prose prose-sm dark:prose-invert max-w-none focus:outline-none min-h-[200px] p-4",
+            "vault-editor-prose prose prose-sm dark:prose-invert max-w-none focus:outline-none min-h-[200px] p-4",
         },
       },
       immediatelyRender: false,
