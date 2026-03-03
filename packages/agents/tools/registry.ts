@@ -2,6 +2,9 @@ import type { DynamicStructuredTool } from "@langchain/core/tools";
 import {
   memorySearchTool,
   vaultSearchTool,
+  knowledgeSearchTool,
+  vaultCreateDocumentTool,
+  vaultUpdateDocumentTool,
   supabaseStoreTool,
   embeddingGeneratorTool,
   generateTodoListTool,
@@ -137,6 +140,24 @@ function initializeRegistry(): void {
 
   toolRegistry.set("vault_search", {
     tool: vaultSearchTool,
+    category: "memory",
+    isExternal: false,
+  });
+
+  toolRegistry.set("knowledge_search", {
+    tool: knowledgeSearchTool,
+    category: "memory",
+    isExternal: false,
+  });
+
+  toolRegistry.set("vault_create_document", {
+    tool: vaultCreateDocumentTool,
+    category: "memory",
+    isExternal: false,
+  });
+
+  toolRegistry.set("vault_update_document", {
+    tool: vaultUpdateDocumentTool,
     category: "memory",
     isExternal: false,
   });
@@ -304,7 +325,10 @@ export function getDefaultTools(
     tools.push(memorySearchTool);
   }
 
+  tools.push(knowledgeSearchTool);
   tools.push(vaultSearchTool);
+  tools.push(vaultCreateDocumentTool);
+  tools.push(vaultUpdateDocumentTool);
 
   if (config.includeSupabaseStore !== false) {
     tools.push(supabaseStoreTool);
@@ -375,8 +399,8 @@ export function getToolsForAgent(
       break;
 
     case "orchestrator":
-      // Orchestrator: calendar read from Supabase (list_calendar_events), write via Composio
-      config.includeMemorySearch = false;
+      // Orchestrator: knowledge_search (unified), memory_search, vault_search for search; calendar, Composio, etc.
+      config.includeMemorySearch = true;
       config.includeSupabaseStore = true;
       config.includeEmbeddingGenerator = true;
       config.includeTodoGenerator = true;

@@ -85,6 +85,26 @@ const FRIENDLY_TOOL_LABELS: Record<
     completed: "Tasks ready",
     failed: "Could not load tasks",
   },
+  vault_search: {
+    started: "Searching Vault...",
+    completed: "Vault search done",
+    failed: "Vault search failed",
+  },
+  knowledge_search: {
+    started: "Searching knowledge...",
+    completed: "Search complete",
+    failed: "Search failed",
+  },
+  vault_create_document: {
+    started: "Saving to Vault...",
+    completed: "Saved to Vault",
+    failed: "Could not save to Vault",
+  },
+  vault_update_document: {
+    started: "Updating Vault document...",
+    completed: "Document updated",
+    failed: "Could not update document",
+  },
 };
 
 const SERVICE_LABELS: Record<
