@@ -463,17 +463,6 @@ You have access to tools for retrieving and storing information. Use them wisely
 - User wants to search, draft, or manage emails
 - Same flow: COMPOSIO_SEARCH_TOOLS → COMPOSIO_MULTI_EXECUTE_TOOL (or COMPOSIO_MANAGE_CONNECTIONS first if needed)
 
-**Knowledge search (prefer knowledge_search for broad queries):**
-
-- **knowledge_search**: Search across memory (summaries, events, history) AND Vault documents in one call. Use for broad queries: "what do I know about X", "find anything related to Y", "what do I have on project Z". Returns merged results from both sources.
-- **memory_search**: Search only memory (summaries, events, activity). Use when user explicitly asks about their "history", "summaries", or "past notes" (not Vault documents).
-- **vault_search**: Search only Vault documents. Use when user explicitly asks about "my documents", "my vault", or "notes in vault".
-
-**Vault write:**
-
-- **vault_create_document**: Create a new document in the Vault. Use when the user asks to save a summary, note, or any content to the Vault (e.g. "save this to my vault", "add a summary"). First prepare a concise title and markdown content, then call with userId, title, and content_md.
-- **vault_update_document**: Update an existing document. Use when the user asks to edit or add to an existing document. Use knowledge_search or vault_search first to find the document_id if needed, then call with userId, document_id, and title and/or content_md.
-
 **When to respond directly (no tools):**
 
 - Simple greetings or pleasantries
@@ -529,16 +518,14 @@ Your role is to analyze the user's message and decide:
 - **GOOGLECALENDAR_CREATE_EVENT** (Composio): Create new calendar events when the user asks to schedule something.
 - **GOOGLECALENDAR_UPDATE_EVENT** (Composio): Update existing calendar events.
 - **GOOGLECALENDAR_DELETE_EVENT** (Composio): Delete calendar events.
-- **knowledge_search**: Search across memory AND Vault documents. Use for broad queries ("what do I know about X"). Parameters: userId, query, maxResults.
-- **memory_search**: Search only memory (summaries, history). Use when user explicitly asks about "history" or "summaries".
-- **vault_search**: Search only Vault documents. Use when user explicitly asks about "vault" or "my documents".
+- **memory_search**: Search user's personal history, notes, summaries, and patterns. Parameters: userId, query, maxResults, optional minResults. Use for reflections, habits, decisions — NOT for calendar events.
 - **supabase_store**: Save data to the user's personal database.
 - **embedding_generator**: Generate and store embeddings for content.
 
 ## Decision Guidelines
 
 - Use list_calendar_events for reading schedules/meetings/agenda. Use Composio (GOOGLECALENDAR_CREATE/UPDATE/DELETE_EVENT) only for creating, updating, or deleting events
-- Use \`knowledge_search\` for broad queries about user's knowledge (memory + Vault). Use \`memory_search\` or \`vault_search\` when user explicitly wants one source only.
+- Use \`memory_search\` when the user asks about their past notes, patterns, habits, reflections, or decisions
 - Use BOTH when user wants a comprehensive view (e.g. "summarize my week" needs calendar events + personal notes)
 - Respond directly for greetings, simple questions, or when no data retrieval is needed
 
@@ -547,13 +534,13 @@ Your role is to analyze the user's message and decide:
 Always prefer using tools when the request involves:
 
 - Calendar (read) → list*calendar_events; calendar (write) → Composio GOOGLECALENDAR*\\*
-- Personal history, patterns, reflections → use \`knowledge_search\` (or \`memory_search\` / \`vault_search\` if source-specific)
+- Personal history, patterns, reflections → use \`memory_search\`
 - Specific dates or time periods → determine the right tool based on data type
 - Real-time or current information`;
 
 export function replacePromptVariables(
   prompt: string,
-  variables: Record<string, string>,
+  variables: Record<string, string>
 ): string {
   let result = prompt;
   for (const [key, value] of Object.entries(variables)) {
@@ -562,10 +549,7 @@ export function replacePromptVariables(
   return result;
 }
 
-export function getPromptWithDate(
-  prompt: string,
-  currentDate?: string,
-): string {
+export function getPromptWithDate(prompt: string, currentDate?: string): string {
   const date = currentDate || new Date().toISOString().split("T")[0];
   return replacePromptVariables(prompt, { currentDate: date });
 }

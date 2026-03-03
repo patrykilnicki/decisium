@@ -43,12 +43,14 @@ export async function maybeCreateSnapshot(
   });
   if (!doc) return { created: false };
 
+  const contentMarkdown = (doc as { content_markdown?: string | null })
+    .content_markdown;
   const version = lastVersion + 1;
   const { error } = await db.insertOne(client, "vault_snapshots", {
     document_id: documentId,
     version,
     content_json: null,
-    content_md: null,
+    content_md: contentMarkdown ?? null,
   } as never);
 
   if (error) {

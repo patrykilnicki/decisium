@@ -50,13 +50,12 @@ export const vaultUpdateDocumentTool = new DynamicStructuredTool({
       if (title !== undefined) payload.title = title;
       if (content_md !== undefined) payload.content_markdown = content_md;
 
-      const { data: doc, error: updateError } =
-        await vaultRepo.updateDocument(
-          client,
-          document_id,
-          userId,
-          payload as never,
-        );
+      const { data: doc, error: updateError } = await vaultRepo.updateDocument(
+        client,
+        document_id,
+        userId,
+        payload as never,
+      );
 
       if (updateError || !doc) {
         console.error("[vault_update_document] Update error:", updateError);
