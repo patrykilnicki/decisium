@@ -8,6 +8,7 @@ export interface VaultDocumentRow {
   collection_id: string | null;
   title: string;
   ydoc_state: string | null;
+  content_markdown?: string | null;
   created_by: string | null;
   created_at: string | null;
   updated_at: string | null;
@@ -55,6 +56,7 @@ export async function createDocument(
     collection_id?: string | null;
     created_by?: string | null;
     ydoc_state?: Uint8Array | ArrayBuffer | null;
+    content_markdown?: string | null;
   },
 ): Promise<{ data: VaultDocumentRow | null; error: Error | null }> {
   const ydoc =
@@ -69,6 +71,7 @@ export async function createDocument(
     collection_id: payload.collection_id ?? null,
     created_by: payload.created_by ?? null,
     ydoc_state: ydoc,
+    content_markdown: payload.content_markdown ?? null,
   };
   return db.insertOne(client, "vault_documents", insertPayload as never);
 }
@@ -81,6 +84,7 @@ export async function updateDocument(
     title?: string;
     collection_id?: string | null;
     ydoc_state?: Uint8Array | ArrayBuffer | null;
+    content_markdown?: string | null;
   },
 ): Promise<{ data: VaultDocumentRow | null; error: Error | null }> {
   const updatePayload: Record<string, unknown> = {};
@@ -96,6 +100,8 @@ export async function updateDocument(
           : null;
     updatePayload.ydoc_state = ydoc;
   }
+  if (payload.content_markdown !== undefined)
+    updatePayload.content_markdown = payload.content_markdown;
   const result = await db.update(
     client,
     "vault_documents",

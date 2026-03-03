@@ -41,12 +41,16 @@ export async function getDocument(documentId: string) {
     }
   }
 
+  const contentMarkdown = (data as { content_markdown?: string | null })
+    .content_markdown;
+
   return {
     data: {
       id: data.id,
       title: data.title,
       collection_id: data.collection_id,
       ydoc_state: ydocBase64,
+      content_markdown: contentMarkdown ?? null,
       created_at: data.created_at,
       updated_at: data.updated_at,
     },
