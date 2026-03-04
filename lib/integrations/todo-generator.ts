@@ -3,12 +3,7 @@ import type { Database, Json } from "@/types/supabase";
 import type { Integration } from "@/types/database";
 import * as db from "@/lib/supabase/db";
 import { createLLM } from "@/packages/agents/lib/llm";
-import {
-  isComposioEnabled,
-  listComposioConnectedAccounts,
-  executeGmailFetchEmails,
-  executeGmailFetchThread,
-} from "@/packages/agents/lib/composio";
+import { fetchGmailEmailsFull } from "@/packages/agents/lib/composio-gmail";
 import {
   TodoListOutputSchema,
   type TodoItem,
@@ -118,12 +113,6 @@ interface GmailSignal {
 
 type IntegrationSignal = CalendarEventSignal | GmailSignal;
 
-function toNonEmptyString(value: unknown): string | undefined {
-  if (typeof value !== "string") return undefined;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
-}
-
 function normalizeTitleForKey(value: string): string {
   return value
     .toLowerCase()
@@ -159,36 +148,6 @@ function buildTodoItemDedupKeys(item: {
     );
   }
   return [...keys];
-}
-
-function summarizeThreadPayload(payload: Record<string, unknown>): string {
-  const possibleMessages = [
-    payload.messages,
-    (payload.thread as { messages?: unknown } | undefined)?.messages,
-    (payload.data as { messages?: unknown } | undefined)?.messages,
-  ];
-  const list = possibleMessages.find((value) => Array.isArray(value));
-  if (!Array.isArray(list) || list.length === 0) return "";
-
-  const snippets: string[] = [];
-  const lastMessages = list.slice(-4);
-  for (const message of lastMessages) {
-    if (!message || typeof message !== "object") continue;
-    const row = message as Record<string, unknown>;
-    const from =
-      toNonEmptyString(row.sender) ??
-      toNonEmptyString(row.from) ??
-      toNonEmptyString(row.author) ??
-      "Unknown sender";
-    const body =
-      toNonEmptyString(row.snippet) ??
-      toNonEmptyString(row.messageText) ??
-      toNonEmptyString(row.body) ??
-      "";
-    if (!body) continue;
-    snippets.push(`${from}: ${body.slice(0, 180)}`);
-  }
-  return snippets.join(" || ").slice(0, 900);
 }
 
 /**
@@ -249,125 +208,30 @@ async function fetchCalendarSignalsFromSupabase(
   });
 }
 
-const GMAIL_PAGE_SIZE = 50;
-const GMAIL_MAX_PAGES = 10;
-const THREAD_FETCH_CONCURRENCY = 6;
-
-function parseGmailMessage(msg: Record<string, unknown>): GmailSignal {
-  return {
-    provider: "gmail" as const,
-    subject: String(msg.subject ?? ""),
-    sender: String(msg.sender ?? ""),
-    snippet: String(msg.messageText ?? msg.snippet ?? "").slice(0, 300),
-    timestamp: String(msg.messageTimestamp ?? ""),
-    messageId: String(msg.messageId ?? ""),
-    threadId: toNonEmptyString(msg.threadId) ?? toNonEmptyString(msg.thread_id),
-    labels: Array.isArray(msg.labelIds) ? (msg.labelIds as string[]) : [],
-  };
-}
-
 async function fetchGmailSignals(
   userId: string,
   date: string,
 ): Promise<GmailSignal[]> {
-  if (!isComposioEnabled()) return [];
-
-  const accounts = await listComposioConnectedAccounts(userId, "GMAIL");
-  if (accounts.length === 0) return [];
-
-  const connectedAccountId = accounts[0].id;
   const gmailDate = date.replace(/-/g, "/");
   const nextDay = nextDayDateString(date).replace(/-/g, "/");
   const query = `after:${gmailDate} before:${nextDay}`;
 
-  const allMessages: GmailSignal[] = [];
-  let pageToken: string | undefined;
-
-  for (let page = 0; page < GMAIL_MAX_PAGES; page++) {
-    const result = await executeGmailFetchEmails(userId, connectedAccountId, {
-      query,
-      max_results: GMAIL_PAGE_SIZE,
-      page_token: pageToken,
-    });
-
-    if (!result.successful || !result.data?.messages) break;
-
-    for (const msg of result.data.messages) {
-      allMessages.push(parseGmailMessage(msg));
-    }
-
-    pageToken = result.data.nextPageToken ?? undefined;
-    if (!pageToken) break;
-  }
-
-  if (allMessages.length === 0) return [];
-  return enrichGmailSignalsWithThreadContext(
-    userId,
-    connectedAccountId,
-    allMessages,
-  );
-}
-
-/** Run async tasks with bounded concurrency. */
-async function mapConcurrent<T, R>(
-  items: T[],
-  concurrency: number,
-  fn: (item: T) => Promise<R>,
-): Promise<R[]> {
-  const results: R[] = new Array(items.length);
-  let cursor = 0;
-
-  async function worker() {
-    while (cursor < items.length) {
-      const idx = cursor++;
-      results[idx] = await fn(items[idx]);
-    }
-  }
-
-  await Promise.all(
-    Array.from({ length: Math.min(concurrency, items.length) }, () => worker()),
-  );
-  return results;
-}
-
-async function enrichGmailSignalsWithThreadContext(
-  userId: string,
-  connectedAccountId: string,
-  signals: GmailSignal[],
-): Promise<GmailSignal[]> {
-  const conversationThreadIds = [
-    ...new Set(
-      signals
-        .filter((s) => s.threadId && s.threadId !== s.messageId)
-        .map((s) => s.threadId!),
-    ),
-  ];
-  if (conversationThreadIds.length === 0) return signals;
-
-  const threadMap = new Map<string, string>();
-
-  await mapConcurrent(
-    conversationThreadIds,
-    THREAD_FETCH_CONCURRENCY,
-    async (threadId) => {
-      const response = await executeGmailFetchThread(
-        userId,
-        connectedAccountId,
-        { threadId },
-      ).catch(() => null);
-      if (!response?.successful || !response.data) return;
-
-      const summary = summarizeThreadPayload(response.data);
-      if (summary) threadMap.set(threadId, summary);
-    },
-  );
-
-  if (threadMap.size === 0) return signals;
-  return signals.map((signal) => {
-    if (!signal.threadId) return signal;
-    const threadContext = threadMap.get(signal.threadId);
-    return threadContext ? { ...signal, threadContext } : signal;
+  const parsed = await fetchGmailEmailsFull(userId, {
+    query,
+    withThreadContext: true,
   });
+
+  return parsed.map((msg) => ({
+    provider: "gmail" as const,
+    subject: msg.subject,
+    sender: msg.sender,
+    snippet: msg.snippet,
+    timestamp: msg.timestamp,
+    messageId: msg.messageId,
+    threadId: msg.threadId,
+    threadContext: msg.threadContext,
+    labels: msg.labels,
+  }));
 }
 
 /** Fetch signals from all registered integrations. Calendar from Supabase; Gmail via Composio. */

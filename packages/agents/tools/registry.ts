@@ -10,6 +10,7 @@ import {
   embeddingGeneratorTool,
   generateTodoListTool,
   listCalendarEventsTool,
+  fetchGmailEmailsTool,
 } from "./index";
 import { getComposioToolsForUser } from "../lib/composio";
 
@@ -59,6 +60,7 @@ export interface ToolConfig {
   includeEmbeddingGenerator?: boolean;
   includeTodoGenerator?: boolean;
   includeListCalendarEvents?: boolean;
+  includeFetchGmailEmails?: boolean;
   includeExternalTools?: boolean;
   customTools?: DynamicStructuredTool[];
   enabledCategories?: ToolCategory[];
@@ -87,18 +89,6 @@ const externalToolConfigs: Map<string, ExternalToolConfig> = new Map([
       enabled: false,
       authProvider: "google",
       scopes: ["https://www.googleapis.com/auth/calendar.events"],
-    },
-  ],
-  [
-    "email_search",
-    {
-      name: "email_search",
-      category: "email",
-      description: "Search Gmail messages",
-      requiresAuth: true,
-      enabled: false,
-      authProvider: "google",
-      scopes: ["https://www.googleapis.com/auth/gmail.readonly"],
     },
   ],
   [
@@ -184,6 +174,12 @@ function initializeRegistry(): void {
   toolRegistry.set("list_calendar_events", {
     tool: listCalendarEventsTool,
     category: "calendar",
+    isExternal: false,
+  });
+
+  toolRegistry.set("fetch_gmail_emails", {
+    tool: fetchGmailEmailsTool,
+    category: "email",
     isExternal: false,
   });
 }
@@ -347,6 +343,10 @@ export function getDefaultTools(
     tools.push(listCalendarEventsTool);
   }
 
+  if (config.includeFetchGmailEmails !== false) {
+    tools.push(fetchGmailEmailsTool);
+  }
+
   // Include enabled external tools if requested
   if (config.includeExternalTools) {
     const externalTools = getEnabledExternalTools();
@@ -400,12 +400,13 @@ export function getToolsForAgent(
       break;
 
     case "orchestrator":
-      // Orchestrator: knowledge_search (unified), memory_search, vault_search for search; calendar, Composio, etc.
+      // Orchestrator: knowledge_search (unified), memory_search, vault_search for search; calendar, Gmail fetch, Composio, etc.
       config.includeMemorySearch = true;
       config.includeSupabaseStore = true;
       config.includeEmbeddingGenerator = true;
       config.includeTodoGenerator = true;
       config.includeListCalendarEvents = true;
+      config.includeFetchGmailEmails = true;
       config.includeExternalTools = true;
       break;
 
@@ -446,6 +447,7 @@ const TOOLS_REQUIRING_USER_ID = [
   "vault_search",
   "vault_create_document",
   "vault_update_document",
+  "fetch_gmail_emails",
 ] as const;
 
 /**
@@ -606,6 +608,40 @@ function createToolsWithBoundUserId(userId: string): DynamicStructuredTool[] {
           document_id: args.document_id,
           title: args.title,
           content_md: args.content_md,
+        }),
+    }),
+    new DynamicStructuredTool({
+      name: "fetch_gmail_emails",
+      description: fetchGmailEmailsTool.description,
+      schema: z.object({
+        query: z
+          .string()
+          .describe(
+            "Gmail search query (e.g. 'after:2026/3/1 before:2026/3/2', 'is:unread', 'from:someone@example.com'). Use for listing, summarizing, or counting emails.",
+          ),
+        maxResults: z
+          .number()
+          .int()
+          .min(1)
+          .max(500)
+          .optional()
+          .describe(
+            "Optional cap on total messages to fetch (across all pages). Omit to fetch all pages up to internal limit.",
+          ),
+        withThreadContext: z
+          .boolean()
+          .optional()
+          .default(false)
+          .describe(
+            "When true, include a short summary of each email thread. Use when the user asks about conversation context.",
+          ),
+      }),
+      func: async (args) =>
+        fetchGmailEmailsTool.func({
+          userId,
+          query: args.query,
+          maxResults: args.maxResults,
+          withThreadContext: args.withThreadContext,
         }),
     }),
   ];

@@ -105,17 +105,17 @@ const FRIENDLY_TOOL_LABELS: Record<
     completed: "Document updated",
     failed: "Could not update document",
   },
+  fetch_gmail_emails: {
+    started: "Fetching emails...",
+    completed: "Emails fetched",
+    failed: "Could not fetch emails",
+  },
 };
 
 const SERVICE_LABELS: Record<
   string,
   { started: string; completed: string; failed: string }
 > = {
-  GMAIL: {
-    started: "Checking Gmail...",
-    completed: "Gmail checked",
-    failed: "Gmail check failed",
-  },
   GOOGLECALENDAR: {
     started: "Checking Calendar...",
     completed: "Calendar checked",
