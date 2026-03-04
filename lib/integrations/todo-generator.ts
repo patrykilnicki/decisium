@@ -311,8 +311,8 @@ DECISION FRAMEWORK — ask yourself for each signal:
 - For emails: is the user expected to respond, take action, or make a decision — or is this informational / automated / marketing?
 - For email threads: read the full conversation flow. Who spoke last? Is the ball in the user's court?
 
-If you cannot identify a specific action the user must take, do NOT create a task.
-When in doubt, skip it. Quality over quantity.
+Skip pure marketing, newsletters, and automated notifications (e.g. CI/CD bot comments, promotional offers) unless they contain a personal request or deadline directed at the user.
+For everything else — create a task if there is any reasonable chance the user should act.
 
 TASK RULES:
 1. Each task dueAt MUST be "{{targetDate}}T00:00:00.000Z".
@@ -446,7 +446,7 @@ async function extractTasksWithLlm(
     return { items: [], extractionLog: null };
   }
 
-  const llm = createLLM({ temperature: 0.15, maxTokens: 4096 });
+  const llm = createLLM({ temperature: 0.15, maxTokens: 8192 });
   const systemPrompt = TASK_EXTRACTION_PROMPT.replace(
     /\{\{targetDate\}\}/g,
     date,

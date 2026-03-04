@@ -60,7 +60,7 @@ async function agentNode(
   const llm = createLLM({
     model: state.preferredModel || process.env.LLM_MODEL,
     temperature: 0.1,
-    maxTokens: 4096,
+    maxTokens: 8192,
   });
   const llmWithTools = llm.bindTools(tools);
 
