@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { ProtectedRoute } from "@/components/auth/protected-route";
 import { AppLayout } from "@/components/layout/app-layout";
-import { VaultEditor } from "@/components/vault/vault-editor";
+import { VaultEditor } from "@/app/collections/components/vault-editor";
 import { getDocument, updateDocument } from "@/app/actions/vault";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

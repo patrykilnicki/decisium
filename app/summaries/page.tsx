@@ -1,6 +1,6 @@
 "use client";
 
-import { SummariesContent } from "@/components/summaries/summaries-content";
+import { SummariesContent } from "@/app/summaries/components/summaries-content";
 import { ProtectedRoute } from "@/components/auth/protected-route";
 import { AppLayout } from "@/components/layout/app-layout";
 
