@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/supabase";
 import { createAdminClient } from "@/lib/supabase/admin";
+import * as db from "@/lib/supabase/db";
 import { createLLM } from "@/packages/agents/lib/llm";
 import * as vaultRepo from "@/lib/vault/repository";
 import { chunkAndEmbedDocument } from "@/lib/vault/chunker";
@@ -33,21 +34,19 @@ async function fetchRecentAtoms(
   userId: string,
   sinceAt?: string | null,
 ): Promise<ActivityAtom[]> {
-  let query = client
-    .from("activity_atoms")
-    .select("id, atom_type, provider, title, content, occurred_at")
-    .eq("user_id", userId)
-    .order("synced_at", { ascending: false })
-    .limit(50);
-
-  if (sinceAt) {
-    query = query.gte("synced_at", sinceAt);
-  } else {
-    const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    query = query.gte("synced_at", dayAgo);
-  }
-
-  const { data, error } = await query;
+  const syncedAt =
+    sinceAt ?? new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const { data, error } = await db.selectMany(
+    client,
+    "activity_atoms",
+    { user_id: userId },
+    {
+      columns: "id, atom_type, provider, title, content, occurred_at",
+      rangeFilters: { synced_at: { gte: syncedAt } },
+      order: { column: "synced_at", ascending: false },
+      limit: 50,
+    },
+  );
   if (error) throw new Error(`Failed to fetch atoms: ${error.message}`);
   return (data ?? []) as ActivityAtom[];
 }

@@ -10,6 +10,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "@/types/supabase";
 import type { ActivityAtomInsert } from "@/types/database";
+import * as db from "@/lib/supabase/db";
 import { executeGoogleCalendarListEvents } from "@agents/lib/composio";
 
 // Google Calendar API event shape (from Composio GOOGLECALENDAR_EVENTS_LIST)
@@ -146,11 +147,12 @@ export async function syncComposioCalendarToSupabase(
     hasMore: false,
   };
 
-  const { data: integration, error: fetchError } = await supabase
-    .from("integrations")
-    .select("id, user_id, provider, metadata")
-    .eq("id", integrationId)
-    .single();
+  const { data: integration, error: fetchError } = await db.selectOne(
+    supabase,
+    "integrations",
+    { id: integrationId },
+    { columns: "id, user_id, provider, metadata" },
+  );
 
   if (fetchError || !integration) {
     result.error = fetchError?.message ?? "Integration not found";
@@ -209,11 +211,10 @@ export async function syncComposioCalendarToSupabase(
 
     for (const event of items) {
       if (event.status === "cancelled" && event.id) {
-        await supabase
-          .from("activity_atoms")
-          .delete()
-          .eq("integration_id", integrationId)
-          .eq("external_id", event.id);
+        await db.remove(supabase, "activity_atoms", {
+          integration_id: integrationId,
+          external_id: event.id,
+        });
         continue;
       }
 
@@ -229,15 +230,17 @@ export async function syncComposioCalendarToSupabase(
   } while (pageToken);
 
   if (allAtoms.length === 0) {
-    await supabase
-      .from("integrations")
-      .update({
+    await db.update(
+      supabase,
+      "integrations",
+      { id: integrationId },
+      {
         last_sync_at: new Date().toISOString(),
         last_sync_status: "success",
         last_sync_error: null,
         updated_at: new Date().toISOString(),
-      })
-      .eq("id", integrationId);
+      },
+    );
     return result;
   }
 
@@ -245,7 +248,9 @@ export async function syncComposioCalendarToSupabase(
   let stored = 0;
 
   for (const atom of allAtoms) {
-    const { error: upsertError } = await supabase.from("activity_atoms").upsert(
+    const { error: upsertError } = await db.upsert(
+      supabase,
+      "activity_atoms",
       {
         user_id: userId,
         integration_id: integrationId,
@@ -265,15 +270,17 @@ export async function syncComposioCalendarToSupabase(
 
   result.atomsStored = stored;
 
-  await supabase
-    .from("integrations")
-    .update({
+  await db.update(
+    supabase,
+    "integrations",
+    { id: integrationId },
+    {
       last_sync_at: syncedAt,
       last_sync_status: "success",
       last_sync_error: null,
       updated_at: syncedAt,
-    })
-    .eq("id", integrationId);
+    },
+  );
 
   return result;
 }

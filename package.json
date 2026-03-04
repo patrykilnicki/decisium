@@ -27,6 +27,7 @@
     "@langchain/openai": "^1.2.3",
     "@supabase/ssr": "^0.5.2",
     "@supabase/supabase-js": "^2.91.1",
+    "@tailwindcss/typography": "^0.5.19",
     "@tiptap/extension-collaboration": "^2.10.4",
     "@tiptap/extension-drag-handle": "^2.27.2",
     "@tiptap/extension-drag-handle-react": "^2.27.2",

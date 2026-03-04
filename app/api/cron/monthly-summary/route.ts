@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import * as db from "@/lib/supabase/db";
 import { generateMonthlySummary } from "@/app/actions/summaries";
 import { format, startOfMonth, subMonths } from "date-fns";
 import type { User } from "@/types/database";
@@ -22,9 +23,12 @@ export async function POST(request: NextRequest) {
   try {
     const admin = createAdminClient();
 
-    const { data: users, error: usersError } = await admin
-      .from("users")
-      .select("id");
+    const { data: users, error: usersError } = await db.selectMany(
+      admin,
+      "users",
+      {},
+      { columns: "id" },
+    );
 
     if (usersError || !users) {
       throw new Error("Failed to fetch users");

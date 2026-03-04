@@ -289,10 +289,15 @@ async function saveAssistantMessageNode(
       const supabase = shouldUseAdmin
         ? (await import("@/lib/supabase/admin")).createAdminClient()
         : await (await import("@/lib/supabase/server")).createClient();
-      await supabase
-        .from("ask_threads")
-        .update({ updated_at: new Date().toISOString() })
-        .eq("id", state.threadId);
+      const db = await import("@/lib/supabase/db");
+      await db.update(
+        supabase,
+        "ask_threads",
+        { id: state.threadId },
+        {
+          updated_at: new Date().toISOString(),
+        },
+      );
     } catch (updateError) {
       console.error("Error updating thread timestamp:", updateError);
       // Don't fail if thread update fails

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-import type { Database } from "@/types/supabase";
+import { createAdminClient } from "@/lib/supabase/admin";
+import * as db from "@/lib/supabase/db";
 import {
   createOAuthManager,
   createSyncPipeline,
@@ -8,12 +8,6 @@ import {
 } from "@/lib/integrations";
 import { dispatchTodoGenerationTask } from "@/lib/tasks/todo-dispatcher";
 import { dispatchVaultSyncTask } from "@/lib/tasks/vault-dispatcher";
-
-// Use service role for cron jobs
-const supabase = createClient<Database>(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
 
 /**
  * POST /api/cron/integration-sync
@@ -40,11 +34,15 @@ export async function POST(request: NextRequest) {
   }> = [];
 
   try {
+    const supabase = createAdminClient();
+
     // Get all active integrations
-    const { data: integrations, error: queryError } = await supabase
-      .from("integrations")
-      .select("id, user_id, provider")
-      .eq("status", "active");
+    const { data: integrations, error: queryError } = await db.selectMany(
+      supabase,
+      "integrations",
+      { status: "active" },
+      { columns: "id, user_id, provider" },
+    );
 
     if (queryError) {
       throw new Error(`Failed to fetch integrations: ${queryError.message}`);

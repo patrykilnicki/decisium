@@ -5,6 +5,7 @@ import type {
   TaskEventInsert,
   TaskEventType,
 } from "@/types/database";
+import * as db from "@/lib/supabase/db";
 
 export type { TaskEvent as TaskEventRow, TaskEventInsert, TaskEventType };
 
@@ -70,23 +71,22 @@ export async function createTaskEvent(
     payload: payloadJson,
   };
 
-  const { data, error } = await client
-    .from("task_events")
-    .insert(insert)
-    .select()
-    .single();
+  const result = await db.insertOne(client, "task_events", insert, {
+    returnRawError: true,
+  });
 
-  if (error?.code === "23505") {
+  const rawError = "rawError" in result ? result.rawError : null;
+  if (rawError?.code === "23505") {
     return null;
   }
 
-  if (error || !data) {
+  if (result.error || !result.data) {
     throw new Error(
-      `Failed to create task event: ${error?.message ?? "Unknown error"}`,
+      `Failed to create task event: ${result.error?.message ?? "Unknown error"}`,
     );
   }
 
-  return data as TaskEvent;
+  return result.data as TaskEvent;
 }
 
 export async function fetchTaskEventsBySession(
@@ -94,12 +94,12 @@ export async function fetchTaskEventsBySession(
   sessionId: string,
   userId: string,
 ): Promise<TaskEventRecord[]> {
-  const { data, error } = await client
-    .from("task_events")
-    .select("*")
-    .eq("session_id", sessionId)
-    .eq("user_id", userId)
-    .order("created_at", { ascending: true });
+  const { data, error } = await db.selectMany(
+    client,
+    "task_events",
+    { session_id: sessionId, user_id: userId },
+    { order: { column: "created_at", ascending: true } },
+  );
 
   if (error) {
     throw new Error(`Failed to fetch task events: ${error.message}`);

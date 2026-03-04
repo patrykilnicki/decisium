@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+@plugin "@tailwindcss/typography";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -135,4 +136,54 @@
   .text-9xl {
     font-family: var(--font-serif), serif;
   }
+}
+
+/* TipTap / Vault editor prose styling */
+.vault-editor-prose {
+  --tw-prose-body: var(--foreground);
+  --tw-prose-headings: var(--foreground);
+  --tw-prose-links: var(--primary);
+  --tw-prose-quotes: var(--muted-foreground);
+  --tw-prose-code: var(--foreground);
+  --tw-prose-bold: var(--foreground);
+}
+
+.vault-editor-prose h1 {
+  @apply mt-8 mb-4 text-2xl font-semibold tracking-tight;
+}
+
+.vault-editor-prose h2 {
+  @apply mt-6 mb-3 text-xl font-semibold tracking-tight;
+}
+
+.vault-editor-prose h3 {
+  @apply mt-4 mb-2 text-lg font-medium;
+}
+
+.vault-editor-prose p {
+  @apply my-2 leading-7;
+}
+
+.vault-editor-prose ul {
+  @apply my-2 list-disc pl-6;
+}
+
+.vault-editor-prose ol {
+  @apply my-2 list-decimal pl-6;
+}
+
+.vault-editor-prose li {
+  @apply my-0.5;
+}
+
+.vault-editor-prose blockquote {
+  @apply border-l-4 border-muted-foreground/30 pl-4 italic text-muted-foreground;
+}
+
+.vault-editor-prose code {
+  @apply rounded bg-muted px-1.5 py-0.5 text-sm font-mono;
+}
+
+.vault-editor-prose a {
+  @apply text-primary underline underline-offset-4 hover:text-primary/90;
 }

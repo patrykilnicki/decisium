@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import * as db from "@/lib/supabase/db";
 import {
   AskThread,
   AskMessageInput,
@@ -41,36 +42,39 @@ export async function createThread(
 ): Promise<AskThread> {
   const supabase = await createClient();
 
-  const { data, error } = await supabase
-    .from("ask_threads")
-    .insert({
-      user_id: userId,
-      title: title || "New Conversation",
-    })
-    .select()
-    .single();
+  const { data, error } = await db.insertOne(supabase, "ask_threads", {
+    user_id: userId,
+    title: title || "New Conversation",
+  });
 
-  if (error) {
-    throw new Error(`Failed to create thread: ${error.message}`);
+  if (error || !data) {
+    throw new Error(
+      `Failed to create thread: ${error?.message ?? "Unknown error"}`,
+    );
   }
 
-  return toAskThread(data);
+  return toAskThread(data as Parameters<typeof toAskThread>[0]);
 }
 
 export async function getThreads(userId: string): Promise<AskThread[]> {
   const supabase = await createClient();
 
-  const { data, error } = await supabase
-    .from("ask_threads")
-    .select("*")
-    .eq("user_id", userId)
-    .order("updated_at", { ascending: false });
+  const { data, error } = await db.selectMany(
+    supabase,
+    "ask_threads",
+    {
+      user_id: userId,
+    },
+    { order: { column: "updated_at", ascending: false } },
+  );
 
   if (error) {
     throw new Error(`Failed to fetch threads: ${error.message}`);
   }
 
-  return (data || []).map(toAskThread);
+  return (data || []).map((row) =>
+    toAskThread(row as Parameters<typeof toAskThread>[0]),
+  );
 }
 
 export async function getThread(
@@ -79,18 +83,16 @@ export async function getThread(
 ): Promise<AskThread | null> {
   const supabase = await createClient();
 
-  const { data, error } = await supabase
-    .from("ask_threads")
-    .select("*")
-    .eq("id", threadId)
-    .eq("user_id", userId)
-    .single();
+  const { data, error } = await db.selectOne(supabase, "ask_threads", {
+    id: threadId,
+    user_id: userId,
+  });
 
   if (error || !data) {
     return null;
   }
 
-  return toAskThread(data);
+  return toAskThread(data as Parameters<typeof toAskThread>[0]);
 }
 
 export async function getThreadMessages(threadId: string, userId: string) {
@@ -102,11 +104,12 @@ export async function getThreadMessages(threadId: string, userId: string) {
     throw new Error("Thread not found");
   }
 
-  const { data, error } = await supabase
-    .from("ask_messages")
-    .select("*")
-    .eq("thread_id", threadId)
-    .order("created_at", { ascending: true });
+  const { data, error } = await db.selectMany(
+    supabase,
+    "ask_messages",
+    { thread_id: threadId },
+    { order: { column: "created_at", ascending: true } },
+  );
 
   if (error) {
     throw new Error(`Failed to fetch messages: ${error.message}`);
@@ -139,18 +142,20 @@ export async function sendMessage(
     const supabase = await createClient();
 
     // Save user message first
-    const { data: savedUserMessage, error: userMsgError } = await supabase
-      .from("ask_messages")
-      .insert({
+    const { data: savedUserMessage, error: userMsgError } = await db.insertOne(
+      supabase,
+      "ask_messages",
+      {
         thread_id: threadId,
         role: "user",
         content: messageInput.content,
-      })
-      .select()
-      .single();
+      },
+    );
 
-    if (userMsgError) {
-      throw new Error(`Failed to save user message: ${userMsgError.message}`);
+    if (userMsgError || !savedUserMessage) {
+      throw new Error(
+        `Failed to save user message: ${userMsgError?.message ?? "Unknown error"}`,
+      );
     }
 
     const mode = getAgentMode();
@@ -225,11 +230,10 @@ export async function deleteThread(threadId: string) {
     throw new Error("Unauthorized");
   }
 
-  const { error } = await supabase
-    .from("ask_threads")
-    .delete()
-    .eq("id", threadId)
-    .eq("user_id", user.id);
+  const { error } = await db.remove(supabase, "ask_threads", {
+    id: threadId,
+    user_id: user.id,
+  });
 
   if (error) {
     throw new Error(`Failed to delete thread: ${error.message}`);

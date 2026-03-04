@@ -1,5 +1,6 @@
 import type { Json } from "@/types/supabase";
 import { createAdminClient } from "@/lib/supabase/admin";
+import * as db from "@/lib/supabase/db";
 import { getTaskContext } from "./task-context";
 
 interface PromptLogParams {
@@ -106,14 +107,11 @@ export async function logPromptPayload(params: PromptLogParams): Promise<void> {
     };
 
     const client = createAdminClient();
-    const dynamicClient = client as unknown as {
-      from: (table: string) => {
-        insert: (
-          data: unknown,
-        ) => Promise<{ error: { message: string } | null }>;
-      };
-    };
-    const { error } = await dynamicClient.from("agent_prompt_logs").insert(row);
+    const { error } = await db.insertOne(
+      client,
+      "agent_prompt_logs",
+      row as never,
+    );
     if (error) {
       console.error(
         "[logPromptPayload] Failed to store prompt log:",

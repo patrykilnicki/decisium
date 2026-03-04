@@ -69,11 +69,13 @@ export async function proxy(request: NextRequest) {
     !pathname.startsWith("/onboarding") &&
     !pathname.startsWith("/api")
   ) {
-    const { data: profile } = await supabase
-      .from("users")
-      .select("onboarding_completed")
-      .eq("id", user.id)
-      .single();
+    const db = await import("@/lib/supabase/db");
+    const { data: profile } = await db.selectOne(
+      supabase as unknown as Parameters<typeof db.selectOne>[0],
+      "users",
+      { id: user.id },
+      { columns: "onboarding_completed" },
+    );
 
     // Redirect to onboarding if not completed
     const onboardingCompleted = (

@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import * as db from "@/lib/supabase/db";
 import { enqueueTask } from "@/lib/tasks/task-repository";
 import { triggerTask } from "@/lib/tasks/task-processor";
 import type { TaskRow } from "@/lib/tasks/task-types";
@@ -21,18 +22,22 @@ async function findRecentVaultTask(
     Date.now() - cooldownMinutes * 60 * 1000,
   ).toISOString();
 
-  const { data } = await client
-    .from("tasks")
-    .select("*")
-    .eq("user_id", userId)
-    .eq("task_type", "vault.sync_from_events")
-    .in("status", ["pending", "in_progress"])
-    .gte("created_at", cutoff)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  const { data } = await db.selectMany(
+    client,
+    "tasks",
+    {
+      user_id: userId,
+      task_type: "vault.sync_from_events",
+      status: ["pending", "in_progress"],
+    },
+    {
+      rangeFilters: { created_at: { gte: cutoff } },
+      order: { column: "created_at", ascending: false },
+      limit: 1,
+    },
+  );
 
-  return data as TaskRow | null;
+  return (data[0] as TaskRow) ?? null;
 }
 
 export async function dispatchVaultSyncTask(

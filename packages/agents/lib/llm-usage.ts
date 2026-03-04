@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "@/types/supabase";
 import type { AgentLlmUsageInsert } from "@/types/database";
 import { createAdminClient } from "@/lib/supabase/admin";
+import * as db from "@/lib/supabase/db";
 import { getTaskContext } from "./task-context";
 
 interface ExtractedUsage {
@@ -168,37 +169,49 @@ async function fetchModelPrice(params: {
 
   // 1. Dokładne dopasowanie provider + model
   if (params.model) {
-    const { data, error } = await params.client
-      .from("llm_model_prices")
-      .select("input_cost_per_1k, output_cost_per_1k, currency")
-      .eq("provider", params.provider)
-      .eq("model", params.model)
-      .eq("active", true)
-      .maybeSingle();
+    const { data, error } = await db.selectOne(
+      params.client,
+      "llm_model_prices",
+      { provider: params.provider, model: params.model, active: true },
+      { columns: "input_cost_per_1k, output_cost_per_1k, currency" },
+    );
 
     if (!error && data) {
+      const row = data as {
+        input_cost_per_1k: number;
+        output_cost_per_1k: number;
+        currency: string;
+      };
       return {
-        inputCostPer1k: Number(data.input_cost_per_1k),
-        outputCostPer1k: Number(data.output_cost_per_1k),
-        currency: data.currency,
+        inputCostPer1k: Number(row.input_cost_per_1k),
+        outputCostPer1k: Number(row.output_cost_per_1k),
+        currency: row.currency,
       };
     }
   }
 
   // 2. Fallback: pierwsza aktywna cena dla providera (gdy model nie pasuje lub brak w odpowiedzi)
-  const { data: fallbackData, error: fallbackError } = await params.client
-    .from("llm_model_prices")
-    .select("input_cost_per_1k, output_cost_per_1k, currency, model")
-    .eq("provider", params.provider)
-    .eq("active", true)
-    .limit(1)
-    .maybeSingle();
+  const { data: fallbackData, error: fallbackError } = await db.selectMany(
+    params.client,
+    "llm_model_prices",
+    { provider: params.provider, active: true },
+    {
+      columns: "input_cost_per_1k, output_cost_per_1k, currency, model",
+      limit: 1,
+    },
+  );
 
-  if (!fallbackError && fallbackData) {
+  const fallbackRow = fallbackData?.[0];
+  if (!fallbackError && fallbackRow) {
+    const row = fallbackRow as {
+      input_cost_per_1k: number;
+      output_cost_per_1k: number;
+      currency: string;
+    };
     return {
-      inputCostPer1k: Number(fallbackData.input_cost_per_1k),
-      outputCostPer1k: Number(fallbackData.output_cost_per_1k),
-      currency: fallbackData.currency,
+      inputCostPer1k: Number(row.input_cost_per_1k),
+      outputCostPer1k: Number(row.output_cost_per_1k),
+      currency: row.currency,
     };
   }
 
@@ -322,7 +335,11 @@ export async function logLlmUsage(params: {
       usage_metadata: usage.usageMetadata as Json,
     };
 
-    const { error } = await client.from("agent_llm_usage").insert(insert);
+    const { error } = await db.insertOne(
+      client,
+      "agent_llm_usage",
+      insert as never,
+    );
     if (error) {
       console.error("[logLlmUsage] Failed to store usage:", error.message);
     }

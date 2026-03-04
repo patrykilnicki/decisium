@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/supabase";
+import * as db from "@/lib/supabase/db";
 
 export interface TodayMeetingRow {
   id: string;
@@ -23,17 +24,26 @@ export async function getTodayMeetingsForUser(
   const windowStart = new Date(Date.UTC(y, m - 1, d - 1, 0, 0, 0, 0));
   const windowEnd = new Date(Date.UTC(y, m - 1, d + 2, 0, 0, 0, 0));
 
-  const { data, error } = await client
-    .from("activity_atoms")
-    .select(
-      "id, title, occurred_at, duration_minutes, participants, source_url",
-    )
-    .eq("user_id", userId)
-    .eq("atom_type", "event")
-    .eq("provider", "google_calendar")
-    .gte("occurred_at", windowStart.toISOString())
-    .lt("occurred_at", windowEnd.toISOString())
-    .order("occurred_at", { ascending: true });
+  const { data, error } = await db.selectMany(
+    client,
+    "activity_atoms",
+    {
+      user_id: userId,
+      atom_type: "event",
+      provider: "google_calendar",
+    },
+    {
+      columns:
+        "id, title, occurred_at, duration_minutes, participants, source_url",
+      rangeFilters: {
+        occurred_at: {
+          gte: windowStart.toISOString(),
+          lt: windowEnd.toISOString(),
+        },
+      },
+      order: { column: "occurred_at", ascending: true },
+    },
+  );
 
   if (error) {
     console.error("[getTodayMeetingsForUser] Failed to fetch:", error);

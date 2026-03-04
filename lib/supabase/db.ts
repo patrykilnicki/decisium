@@ -41,11 +41,20 @@ export type Filters = Record<
   string | number | boolean | null | string[]
 >;
 
+export interface RangeFilter {
+  gt?: string | number;
+  gte?: string | number;
+  lt?: string | number;
+  lte?: string | number;
+}
+
 export interface SelectOptions {
   columns?: string;
   order?: { column: string; ascending?: boolean };
   limit?: number;
   offset?: number;
+  /** Range filters for columns (e.g. { occurred_at: { gte: "2026-01-01", lte: "2026-01-31" } }) */
+  rangeFilters?: Record<string, RangeFilter>;
 }
 
 export interface UpsertOptions {
@@ -98,17 +107,26 @@ export async function selectMany<T extends TableName>(
 ): Promise<{ data: Row<T>[]; error: Error | null }> {
   let query: any = client.from(table).select(options?.columns ?? "*");
   query = applyFilters(query, filters);
+  if (options?.rangeFilters) {
+    for (const [col, range] of Object.entries(options.rangeFilters)) {
+      if (range.gt != null) query = query.gt(col, range.gt);
+      if (range.gte != null) query = query.gte(col, range.gte);
+      if (range.lt != null) query = query.lt(col, range.lt);
+      if (range.lte != null) query = query.lte(col, range.lte);
+    }
+  }
   if (options?.order) {
     query = query.order(options.order.column, {
       ascending: options.order.ascending ?? true,
     });
   }
-  if (options?.limit != null) query = query.limit(options.limit);
-  if (options?.offset != null)
-    query = query.range(
-      options.offset,
-      options.offset + (options.limit ?? 10) - 1,
-    );
+  const limit = options?.limit ?? 1000;
+  const offset = options?.offset ?? 0;
+  if (offset > 0) {
+    query = query.range(offset, offset + limit - 1);
+  } else {
+    query = query.limit(limit);
+  }
   const { data, error } = await query;
   return {
     data: (data ?? []) as Row<T>[],
@@ -116,19 +134,39 @@ export async function selectMany<T extends TableName>(
   };
 }
 
+/** Optional result when insertOne is called with returnRawError: true (e.g. to check error.code for 23505). */
+export interface InsertOneResultWithRawError<T extends TableName> {
+  data: Row<T> | null;
+  error: Error | null;
+  rawError: { code?: string; message: string } | null;
+}
+
 /**
  * Insert one row. Returns the inserted row (with select().single()).
+ * Use options.returnRawError: true when you need to check error.code (e.g. unique constraint 23505).
  */
 export async function insertOne<T extends TableName>(
   client: SupabaseClient<Database>,
   table: T,
   payload: InsertDto<T>,
-): Promise<{ data: Row<T> | null; error: Error | null }> {
+  options?: { returnRawError?: boolean },
+): Promise<
+  { data: Row<T> | null; error: Error | null } | InsertOneResultWithRawError<T>
+> {
   const { data, error } = await client
     .from(table)
     .insert(payload as any)
     .select()
     .single();
+  if (options?.returnRawError) {
+    return {
+      data: data as Row<T> | null,
+      error: error ? new Error(error.message) : null,
+      rawError: error
+        ? { code: (error as { code?: string }).code, message: error.message }
+        : null,
+    };
+  }
   return {
     data: data as Row<T> | null,
     error: error ? new Error(error.message) : null,

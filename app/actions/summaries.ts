@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import * as db from "@/lib/supabase/db";
 import { rootAgent } from "@/packages/agents/core/root.agent";
 import {
   DailySummaryContent,
@@ -22,24 +23,27 @@ export async function generateDailySummary(userId: string, date: string) {
   const supabase = await createClient();
 
   // Check if summary already exists
-  const { data: existing } = await supabase
-    .from("daily_summaries")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("date", date)
-    .single();
+  const { data: existing } = await db.selectOne(
+    supabase,
+    "daily_summaries",
+    {
+      user_id: userId,
+      date,
+    },
+    { columns: "id" },
+  );
 
   if (existing) {
     return existing;
   }
 
   // Get all daily events for the date
-  const { data: events, error: eventsError } = await supabase
-    .from("daily_events")
-    .select("*")
-    .eq("user_id", userId)
-    .eq("date", date)
-    .order("created_at", { ascending: true });
+  const { data: events, error: eventsError } = await db.selectMany(
+    supabase,
+    "daily_events",
+    { user_id: userId, date },
+    { order: { column: "created_at", ascending: true } },
+  );
 
   if (eventsError || !events || events.length === 0) {
     throw new Error("No events found for this date");
@@ -202,18 +206,20 @@ Generate the summary for the given date and data. Return only the JSON object.
   }
 
   // Store summary
-  const { data: summary, error: summaryError } = await supabase
-    .from("daily_summaries")
-    .insert({
+  const { data: summary, error: summaryError } = await db.insertOne(
+    supabase,
+    "daily_summaries",
+    {
       user_id: userId,
       date,
       content: summaryContent,
-    })
-    .select()
-    .single();
+    },
+  );
 
-  if (summaryError) {
-    throw new Error(`Failed to store summary: ${summaryError.message}`);
+  if (summaryError || !summary) {
+    throw new Error(
+      `Failed to store summary: ${summaryError?.message ?? "Unknown error"}`,
+    );
   }
 
   // Generate and store embedding
@@ -238,7 +244,7 @@ Generate the summary for the given date and data. Return only the JSON object.
       content: summaryText,
       metadata: {
         type: "daily_summary",
-        source_id: summary.id,
+        source_id: (summary as { id: string }).id,
         date,
       },
     });
@@ -251,12 +257,12 @@ Generate the summary for the given date and data. Return only the JSON object.
 
 export async function getDailySummaries(userId: string, limit = 30) {
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("daily_summaries")
-    .select("*")
-    .eq("user_id", userId)
-    .order("date", { ascending: false })
-    .limit(limit);
+  const { data, error } = await db.selectMany(
+    supabase,
+    "daily_summaries",
+    { user_id: userId },
+    { order: { column: "date", ascending: false }, limit },
+  );
   if (error)
     throw new Error(`Failed to fetch daily summaries: ${error.message}`);
   return data ?? [];
@@ -264,12 +270,12 @@ export async function getDailySummaries(userId: string, limit = 30) {
 
 export async function getWeeklySummaries(userId: string, limit = 12) {
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("weekly_summaries")
-    .select("*")
-    .eq("user_id", userId)
-    .order("week_start", { ascending: false })
-    .limit(limit);
+  const { data, error } = await db.selectMany(
+    supabase,
+    "weekly_summaries",
+    { user_id: userId },
+    { order: { column: "week_start", ascending: false }, limit },
+  );
   if (error)
     throw new Error(`Failed to fetch weekly summaries: ${error.message}`);
   return data ?? [];
@@ -277,12 +283,12 @@ export async function getWeeklySummaries(userId: string, limit = 12) {
 
 export async function getMonthlySummaries(userId: string, limit = 12) {
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("monthly_summaries")
-    .select("*")
-    .eq("user_id", userId)
-    .order("month_start", { ascending: false })
-    .limit(limit);
+  const { data, error } = await db.selectMany(
+    supabase,
+    "monthly_summaries",
+    { user_id: userId },
+    { order: { column: "month_start", ascending: false }, limit },
+  );
   if (error)
     throw new Error(`Failed to fetch monthly summaries: ${error.message}`);
   return data ?? [];
@@ -292,12 +298,15 @@ export async function generateWeeklySummary(userId: string, weekStart: string) {
   const supabase = await createClient();
 
   // Check if summary already exists
-  const { data: existing } = await supabase
-    .from("weekly_summaries")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("week_start", weekStart)
-    .single();
+  const { data: existing } = await db.selectOne(
+    supabase,
+    "weekly_summaries",
+    {
+      user_id: userId,
+      week_start: weekStart,
+    },
+    { columns: "id" },
+  );
 
   if (existing) {
     return existing;
@@ -308,13 +317,17 @@ export async function generateWeeklySummary(userId: string, weekStart: string) {
   const weekEndDate = new Date(weekStartDate);
   weekEndDate.setDate(weekEndDate.getDate() + 6);
 
-  const { data: dailySummaries, error: summariesError } = await supabase
-    .from("daily_summaries")
-    .select("*")
-    .eq("user_id", userId)
-    .gte("date", weekStart)
-    .lte("date", format(weekEndDate, "yyyy-MM-dd"))
-    .order("date", { ascending: true });
+  const { data: dailySummaries, error: summariesError } = await db.selectMany(
+    supabase,
+    "daily_summaries",
+    { user_id: userId },
+    {
+      rangeFilters: {
+        date: { gte: weekStart, lte: format(weekEndDate, "yyyy-MM-dd") },
+      },
+      order: { column: "date", ascending: true },
+    },
+  );
 
   if (summariesError || !dailySummaries || dailySummaries.length === 0) {
     throw new Error("No daily summaries found for this week");
@@ -445,18 +458,20 @@ Not:
     };
   }
 
-  const { data: summary, error: summaryError } = await supabase
-    .from("weekly_summaries")
-    .insert({
+  const { data: summary, error: summaryError } = await db.insertOne(
+    supabase,
+    "weekly_summaries",
+    {
       user_id: userId,
       week_start: weekStart,
       content: summaryContent,
-    })
-    .select()
-    .single();
+    },
+  );
 
-  if (summaryError) {
-    throw new Error(`Failed to store weekly summary: ${summaryError.message}`);
+  if (summaryError || !summary) {
+    throw new Error(
+      `Failed to store weekly summary: ${summaryError?.message ?? "Unknown error"}`,
+    );
   }
 
   // Generate embedding
@@ -467,7 +482,7 @@ Not:
       content: summaryText,
       metadata: {
         type: "weekly_summary",
-        source_id: summary.id,
+        source_id: (summary as { id: string }).id,
         date: weekStart,
       },
     });
@@ -485,12 +500,15 @@ export async function generateMonthlySummary(
   const supabase = await createClient();
 
   // Check if summary already exists
-  const { data: existing } = await supabase
-    .from("monthly_summaries")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("month_start", monthStart)
-    .single();
+  const { data: existing } = await db.selectOne(
+    supabase,
+    "monthly_summaries",
+    {
+      user_id: userId,
+      month_start: monthStart,
+    },
+    { columns: "id" },
+  );
 
   if (existing) {
     return existing;
@@ -502,13 +520,20 @@ export async function generateMonthlySummary(
   monthEndDate.setMonth(monthEndDate.getMonth() + 1);
   monthEndDate.setDate(monthEndDate.getDate() - 1);
 
-  const { data: weeklySummaries } = await supabase
-    .from("weekly_summaries")
-    .select("*")
-    .eq("user_id", userId)
-    .gte("week_start", monthStart)
-    .lte("week_start", format(monthEndDate, "yyyy-MM-dd"))
-    .order("week_start", { ascending: true });
+  const { data: weeklySummaries } = await db.selectMany(
+    supabase,
+    "weekly_summaries",
+    { user_id: userId },
+    {
+      rangeFilters: {
+        week_start: {
+          gte: monthStart,
+          lte: format(monthEndDate, "yyyy-MM-dd"),
+        },
+      },
+      order: { column: "week_start", ascending: true },
+    },
+  );
 
   const summariesText = (weeklySummaries || [])
     .map((s) => `Week ${s.week_start}: ${JSON.stringify(s.content)}`)
@@ -646,18 +671,20 @@ Not:
     };
   }
 
-  const { data: summary, error: summaryError } = await supabase
-    .from("monthly_summaries")
-    .insert({
+  const { data: summary, error: summaryError } = await db.insertOne(
+    supabase,
+    "monthly_summaries",
+    {
       user_id: userId,
       month_start: monthStart,
       content: summaryContent,
-    })
-    .select()
-    .single();
+    },
+  );
 
-  if (summaryError) {
-    throw new Error(`Failed to store monthly summary: ${summaryError.message}`);
+  if (summaryError || !summary) {
+    throw new Error(
+      `Failed to store monthly summary: ${summaryError?.message ?? "Unknown error"}`,
+    );
   }
 
   // Generate embedding
@@ -668,7 +695,7 @@ Not:
       content: summaryText,
       metadata: {
         type: "monthly_summary",
-        source_id: summary.id,
+        source_id: (summary as { id: string }).id,
         date: monthStart,
       },
     });
