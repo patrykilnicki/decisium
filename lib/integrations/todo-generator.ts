@@ -339,9 +339,10 @@ DECISION FRAMEWORK — ask yourself for each signal:
 - For calendar events: does this meeting require preparation, deliverables, or follow-up — or is it passive attendance / personal time?
 - For emails: read the Content section (preview and thread context) in full. Is the user expected to respond, take action, or make a decision — or is this informational / automated / marketing?
 - For email threads: read the full conversation flow in the Content. Who spoke last? Is the ball in the user's court?
+- Replies from companies, support, or institutions that ask the user to send something (e.g. written request, scan, form) or to complete a concrete next step are actionable — create a task.
 
 Skip pure marketing, newsletters, and automated notifications (e.g. CI/CD bot comments, promotional offers) unless they contain a personal request or deadline directed at the user.
-For everything else — create a task if there is any reasonable chance the user should act.
+For everything else — create a task if there is any reasonable chance the user should act. When in doubt, include a task; missing an actionable signal is worse than including a borderline one.
 
 TASK RULES:
 1. Each task dueAt MUST be "{{targetDate}}T00:00:00.000Z".
@@ -352,7 +353,7 @@ TASK RULES:
 
 PRIORITY — two levels:
 - "normal" (default): most tasks.
-- "urgent": ONLY when you find explicit evidence of time pressure in the signal content — someone directly waiting for the user, a hard same-day deadline, or a scheduled commitment today with a specific time. You MUST set "urgentReason" with a concrete fact from the signal.
+- "urgent": ONLY when you find explicit evidence of time pressure in the signal content — someone directly waiting for the user, a hard same-day deadline, or a scheduled commitment with a specific time. You MUST set "urgentReason" with a concrete fact from the signal. Do NOT use the word "today" in urgentReason — use the actual date or time from the signal instead (e.g. "Scheduled at 09:00 UTC" or "Deadline 2026-03-04").
   If you cannot quote a specific sentence or fact that proves it cannot wait, use "normal".
 
 Return a JSON array. Each object:
@@ -360,7 +361,7 @@ Return a JSON array. Each object:
   "title": "short actionable title (max 80 chars)",
   "summary": "one sentence explaining what needs to be done",
   "priority": "normal" or "urgent",
-  "urgentReason": "only when urgent — concrete fact from the signal, max ~80 chars. Omit for normal.",
+  "urgentReason": "only when urgent — concrete fact from the signal, max ~80 chars. Do not use the word 'today'; use date/time from the signal. Omit for normal.",
   "sourceProvider": "google_calendar" or "gmail",
   "sourceType": "calendar_event" or "message",
   "sourceExternalId": "ID from the source signal",
@@ -371,7 +372,8 @@ Return a JSON array. Each object:
 }
 
 Return ONLY the JSON array. No markdown, no explanation.
-Create tasks for clear action items (e.g. meetings to prepare for, emails that need reply, payments to confirm).
+Create tasks for clear action items (e.g. meetings to prepare for, emails that need reply, payments to confirm, support replies that ask the user to send a document or complete a step).
+Output one task per actionable signal; do not cap the number of tasks — include every signal that meets the criteria above.
 Return [] only when no signal implies a concrete user action.`;
 
 interface LlmExtractedTask {
@@ -395,10 +397,14 @@ function llmTaskToTodoItem(task: LlmExtractedTask, date: string): TodoItem {
     task.urgentReason.trim().length >= 5;
   const priority =
     task.priority === "urgent" && hasUrgentReason ? "urgent" : "normal";
-  const urgentReason =
+  const rawUrgentReason =
     priority === "urgent" && task.urgentReason
       ? task.urgentReason.trim().slice(0, 200)
       : undefined;
+  // Do not use "today" in urgentReason; replace with target date
+  const urgentReason = rawUrgentReason
+    ? rawUrgentReason.replace(/\btoday\b/gi, date).trim()
+    : undefined;
   return {
     id: crypto.randomUUID(),
     title: task.title.slice(0, 120),
