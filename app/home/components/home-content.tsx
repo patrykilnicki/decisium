@@ -11,6 +11,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -143,6 +144,7 @@ interface TaskRowProps {
   isOverdue: boolean;
   onActionOpen: (type: "date" | "name") => void;
   onMarkResolved: () => void;
+  onMarkUnresolved: () => void;
   onDelete: () => void;
 }
 
@@ -152,6 +154,7 @@ function TaskRow({
   isOverdue,
   onActionOpen,
   onMarkResolved,
+  onMarkUnresolved,
   onDelete,
 }: TaskRowProps) {
   return (
@@ -161,8 +164,15 @@ function TaskRow({
         task.status === "done" && "opacity-60",
       )}
     >
+      <Checkbox
+        checked={task.status === "done"}
+        onCheckedChange={(checked) =>
+          checked === true ? onMarkResolved() : onMarkUnresolved()
+        }
+        aria-label={task.title}
+        className="shrink-0"
+      />
       <div className="flex min-w-0 flex-1 items-center gap-2">
-        <SourceLogo provider={task.sourceProvider} />
         <div className="min-w-0 flex-1">
           <span
             className={cn(
@@ -178,62 +188,55 @@ function TaskRow({
             </span>
           )}
         </div>
-      </div>
-      <div className="flex shrink-0 items-center gap-2">
-        {task.priority === "urgent" ? (
+        {task.priority === "urgent" && task.urgentReason?.trim() ? (
           <span
-            className="flex max-w-[200px] items-center gap-1.5 truncate text-right text-xs text-muted-foreground"
-            title={
-              task.urgentReason?.trim()
-                ? task.urgentReason
-                : "Priority marked by source (no reason provided)"
-            }
+            className="flex max-w-[200px] shrink-0 items-center gap-1.5 truncate text-xs text-muted-foreground"
+            title={task.urgentReason}
           >
             <CentralIcon
               name="IconExclamationTriangle"
               size={14}
               className="shrink-0 text-destructive"
             />
-            <span className="truncate">
-              {task.urgentReason?.trim() || "Priority from source (no details)"}
-            </span>
+            <span className="truncate">{task.urgentReason}</span>
           </span>
         ) : null}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-8 shrink-0"
-              aria-label="Task actions"
-            >
-              <CentralIcon
-                name="IconBarsThree"
-                size={16}
-                className="text-muted-foreground"
-              />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={onMarkResolved}>
-              <CentralIcon name="IconCircleCheck" size={16} />
-              Mark as resolved
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => onActionOpen("date")}>
-              <CentralIcon name="IconCalendar1" size={16} />
-              Change date
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => onActionOpen("name")}>
-              <CentralIcon name="IconPencil" size={16} />
-              Change name
-            </DropdownMenuItem>
-            <DropdownMenuItem variant="destructive" onClick={onDelete}>
-              <CentralIcon name="IconTrashCan" size={16} />
-              Delete
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <SourceLogo provider={task.sourceProvider} />
       </div>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8 shrink-0"
+            aria-label="Task actions"
+          >
+            <CentralIcon
+              name="IconBarsThree"
+              size={16}
+              className="text-muted-foreground"
+            />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onClick={onMarkResolved}>
+            <CentralIcon name="IconCircleCheck" size={16} />
+            Mark as resolved
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => onActionOpen("date")}>
+            <CentralIcon name="IconCalendar1" size={16} />
+            Change date
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => onActionOpen("name")}>
+            <CentralIcon name="IconPencil" size={16} />
+            Change name
+          </DropdownMenuItem>
+          <DropdownMenuItem variant="destructive" onClick={onDelete}>
+            <CentralIcon name="IconTrashCan" size={16} />
+            Delete
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 }
@@ -421,7 +424,11 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
     date: string,
     itemId: string,
     action: "update" | "delete" | "move",
-    extra?: { status?: "done"; title?: string; toDate?: string },
+    extra?: {
+      status?: "open" | "done";
+      title?: string;
+      toDate?: string;
+    },
   ) {
     setActionPending(true);
     try {
@@ -770,6 +777,11 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
                           onMarkResolved={() =>
                             patchItem(taskDate, task.id, "update", {
                               status: "done",
+                            })
+                          }
+                          onMarkUnresolved={() =>
+                            patchItem(taskDate, task.id, "update", {
+                              status: "open",
                             })
                           }
                           onDelete={() =>

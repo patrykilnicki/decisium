@@ -17,7 +17,10 @@ import {
 // ─── Constants ─────────────────────────────────────────────────────────────
 
 export const DEFAULT_GMAIL_PAGE_SIZE = 50;
+/** Default cap: 10 pages (500 emails). Use GMAIL_FULL_FETCH_MAX_PAGES when all emails from period are needed. */
 export const DEFAULT_GMAIL_MAX_PAGES = 10;
+/** Max pages when fetching all emails for a period (todo generation, Ask "emails today"). 50 × pageSize = 2500. */
+export const GMAIL_FULL_FETCH_MAX_PAGES = 50;
 export const THREAD_FETCH_CONCURRENCY = 6;
 /** Concurrency for fallback fetch-by-message-id when thread/snippet are empty. */
 const MESSAGE_BY_ID_FETCH_CONCURRENCY = 4;
@@ -394,11 +397,18 @@ export async function fetchGmailEmailsFull(
   const connectedAccountId = await getGmailConnectedAccountId(userId);
   if (!connectedAccountId) return [];
 
+  const pageSize = options.pageSize ?? DEFAULT_GMAIL_PAGE_SIZE;
+  const maxPages =
+    options.maxPages ??
+    (options.withThreadContext
+      ? GMAIL_FULL_FETCH_MAX_PAGES
+      : DEFAULT_GMAIL_MAX_PAGES);
+
   const { messages: rawMessages, connectedAccountId: accountId } =
     await fetchGmailEmailsPaginated(userId, connectedAccountId, {
       query: options.query,
-      pageSize: options.pageSize ?? DEFAULT_GMAIL_PAGE_SIZE,
-      maxPages: options.maxPages ?? DEFAULT_GMAIL_MAX_PAGES,
+      pageSize,
+      maxPages,
     });
 
   const parsed = rawMessages.map(parseGmailMessage);
