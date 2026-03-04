@@ -379,10 +379,63 @@ export async function executeGmailFetchEmails(
 }
 
 /**
+ * Execute GMAIL_FETCH_MESSAGE_BY_THREAD_ID for a user's connected account.
+ * Fetches the full thread by thread ID (all messages in the thread).
+ */
+export async function executeGmailFetchMessageByThreadId(
+  userId: string,
+  connectedAccountId: string,
+  params: { threadId: string },
+): Promise<{
+  data?: Record<string, unknown>;
+  error?: string;
+  successful?: boolean;
+}> {
+  const client = getComposioServerClient();
+  if (!client) {
+    return { successful: false, error: "Composio not configured" };
+  }
+  if (!params.threadId?.trim()) {
+    return { successful: false, error: "threadId is required" };
+  }
+
+  try {
+    const result = await client.tools.execute(
+      "GMAIL_FETCH_MESSAGE_BY_THREAD_ID",
+      {
+        userId,
+        connectedAccountId,
+        arguments: {
+          thread_id: params.threadId,
+          threadId: params.threadId,
+          id: params.threadId,
+          user_id: "me",
+        },
+      },
+    );
+    if (result.successful) {
+      const raw = result.data as Record<string, unknown> | undefined;
+      const data =
+        (raw?.data as Record<string, unknown> | undefined) ?? raw ?? {};
+      return { data, successful: true };
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(
+      "[composio] GMAIL_FETCH_MESSAGE_BY_THREAD_ID failed:",
+      message,
+    );
+  }
+  return {
+    successful: false,
+    error: "GMAIL_FETCH_MESSAGE_BY_THREAD_ID failed",
+  };
+}
+
+/**
  * Execute a Gmail thread-read tool for a user's connected account.
  *
- * Composio toolkit versions may expose different tool slugs for thread reads.
- * This helper tries a small set of known candidates and returns the first success.
+ * Tries GMAIL_FETCH_MESSAGE_BY_THREAD_ID first, then other thread tool slugs.
  */
 export async function executeGmailFetchThread(
   userId: string,
@@ -404,9 +457,9 @@ export async function executeGmailFetchThread(
   }
 
   const toolCandidates = [
+    "GMAIL_FETCH_MESSAGE_BY_THREAD_ID",
     "GMAIL_GET_THREAD",
     "GMAIL_FETCH_THREAD",
-    "GMAIL_FETCH_MESSAGE_BY_THREAD_ID",
     "GMAIL_GET_EMAIL_THREAD",
   ];
 
@@ -436,6 +489,62 @@ export async function executeGmailFetchThread(
   return {
     successful: false,
     error: "No compatible Gmail thread tool available in Composio toolkit",
+  };
+}
+
+/**
+ * Fetch a single Gmail message by message ID (full body/content).
+ * Use when thread fetch failed or returned no content — e.g. for "Re:" replies with empty snippet.
+ */
+export async function executeGmailFetchMessageByMessageId(
+  userId: string,
+  connectedAccountId: string,
+  params: { messageId: string },
+): Promise<{
+  data?: Record<string, unknown>;
+  error?: string;
+  successful?: boolean;
+}> {
+  const client = getComposioServerClient();
+  if (!client) {
+    return { successful: false, error: "Composio not configured" };
+  }
+  if (!params.messageId?.trim()) {
+    return { successful: false, error: "messageId is required" };
+  }
+
+  const toolCandidates = [
+    "GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID",
+    "GMAIL_GET_MESSAGE",
+    "GMAIL_FETCH_MESSAGE",
+  ];
+
+  for (const toolName of toolCandidates) {
+    try {
+      const result = await client.tools.execute(toolName, {
+        userId,
+        connectedAccountId,
+        arguments: {
+          message_id: params.messageId,
+          messageId: params.messageId,
+          id: params.messageId,
+          user_id: "me",
+        },
+      });
+      if (result.successful) {
+        const raw = result.data as Record<string, unknown> | undefined;
+        const data =
+          (raw?.data as Record<string, unknown> | undefined) ?? raw ?? {};
+        return { data, successful: true };
+      }
+    } catch {
+      // Try next candidate
+    }
+  }
+
+  return {
+    successful: false,
+    error: "No compatible Gmail fetch-message-by-id tool available",
   };
 }
 
