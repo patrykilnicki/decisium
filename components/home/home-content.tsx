@@ -313,7 +313,10 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
   const refetchTasksForSelectedDay = useCallback(() => {
     if (!userId) return;
     const dateStr = toLocalDateString(selectedDate);
-    fetch(`/api/integrations/todos?date=${dateStr}`, { cache: "no-store" })
+    fetch(`/api/integrations/todos?date=${dateStr}`, {
+      cache: "no-store",
+      credentials: "include",
+    })
       .then((r) => (r.ok ? r.json() : null))
       .then((payload: Partial<IntegrationTodoListResponse> | null) => {
         if (payload && Array.isArray(payload.items)) {
@@ -325,7 +328,10 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
 
   const refetchOverdue = useCallback(() => {
     if (!userId) return;
-    fetch("/api/integrations/todos/overdue?days=2", { cache: "no-store" })
+    fetch("/api/integrations/todos/overdue?days=2", {
+      cache: "no-store",
+      credentials: "include",
+    })
       .then((r) => (r.ok ? r.json() : null))
       .then((data: { items?: TodoItemWithMeta[] } | null) => {
         if (data && Array.isArray(data.items)) setOverdueItems(data.items);
@@ -349,6 +355,7 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
       const res = await fetch("/api/integrations/todos/items", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify(body),
       });
       if (!res.ok) return;
@@ -456,6 +463,7 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
         const response = await fetch(url, {
           method: "GET",
           cache: "no-store",
+          credentials: "include",
           signal: controller.signal,
         });
         if (!response.ok) {
@@ -497,6 +505,7 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
     setOverdueLoading(true);
     fetch("/api/integrations/todos/overdue?days=2", {
       cache: "no-store",
+      credentials: "include",
       signal: controller.signal,
     })
       .then((r) => (r.ok ? r.json() : null))
@@ -516,6 +525,7 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
       const response = await fetch(`/api/integrations/todos?date=${dateStr}`, {
         method: "GET",
         cache: "no-store",
+        credentials: "include",
       });
       if (!response.ok) return;
       const payload =
