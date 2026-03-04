@@ -212,7 +212,7 @@ export function parseGmailMessage(
   return {
     subject: String(msg.subject ?? ""),
     sender: String(msg.sender ?? ""),
-    snippet: stripHtmlAndJunk(rawSnippet).slice(0, 300),
+    snippet: rawSnippet.slice(0, 300),
     timestamp: String(msg.messageTimestamp ?? ""),
     messageId: String(msg.messageId ?? ""),
     threadId: toNonEmptyString(msg.threadId) ?? toNonEmptyString(msg.thread_id),
