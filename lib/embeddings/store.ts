@@ -1,12 +1,7 @@
-import { createClient } from "@supabase/supabase-js";
-import type { Database } from "@/types/supabase";
+import { createAdminClient } from "@/lib/supabase/admin";
+import * as db from "@/lib/supabase/db";
 import type { EmbeddingInsert } from "@/types/database";
 import { generateEmbedding } from "./generate";
-
-const supabase = createClient<Database>(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
 
 export interface StoreEmbeddingParams {
   userId: string;
@@ -42,15 +37,18 @@ export async function storeEmbedding(
     metadata,
   };
 
-  const { data, error } = await supabase
-    .from("embeddings")
-    .insert(insertData)
-    .select("id")
-    .single();
+  const supabase = createAdminClient();
+  const { data, error } = await db.insertOne(
+    supabase,
+    "embeddings",
+    insertData as never,
+  );
 
-  if (error) {
-    throw new Error(`Failed to store embedding: ${error.message}`);
+  if (error || !data) {
+    throw new Error(
+      `Failed to store embedding: ${error?.message ?? "Unknown error"}`,
+    );
   }
 
-  return data.id;
+  return (data as { id: string }).id;
 }

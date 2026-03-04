@@ -1,7 +1,8 @@
 import "@/lib/suppress-url-parse-deprecation";
 
-import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/supabase";
+import { createAdminClient } from "@/lib/supabase/admin";
+import * as db from "@/lib/supabase/db";
 import { generateEmbedding } from "@/packages/agents/lib/embeddings";
 import {
   MemoryFragment,
@@ -30,10 +31,9 @@ interface ActivityAtomRow {
   similarity?: number; // Optional - only present when returned from RPC functions
 }
 
-const supabase = createClient<Database>(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
+function getSupabase() {
+  return createAdminClient() as import("@supabase/supabase-js").SupabaseClient<Database>;
+}
 
 // ============================================
 // Activity Atom Types
@@ -75,7 +75,7 @@ export async function retrieveMemory(
   const queryEmbeddingString = `[${embedding.join(",")}]`;
 
   // Search embeddings using pgvector
-  const { data, error } = await supabase.rpc("match_embeddings", {
+  const { data, error } = await getSupabase().rpc("match_embeddings", {
     query_embedding: queryEmbeddingString,
     match_user_id: userId,
     match_threshold: threshold,
@@ -188,7 +188,7 @@ export async function retrieveMemoryAllTypes(
   // Convert number array to PostgreSQL array string format for pgvector
   const queryEmbeddingString = `[${embedding.join(",")}]`;
 
-  const { data, error } = await supabase.rpc("match_embeddings", {
+  const { data, error } = await getSupabase().rpc("match_embeddings", {
     query_embedding: queryEmbeddingString,
     match_user_id: userId,
     match_threshold: threshold,
@@ -243,7 +243,7 @@ export async function retrieveActivityAtoms(
   const queryEmbeddingString = `[${embedding.join(",")}]`;
 
   // Search using the match_activity_atoms function
-  const { data, error } = await supabase.rpc("match_activity_atoms", {
+  const { data, error } = await getSupabase().rpc("match_activity_atoms", {
     query_embedding: queryEmbeddingString,
     match_user_id: userId,
     match_threshold: threshold,
@@ -386,26 +386,22 @@ export async function getRecentActivityAtoms(
 ): Promise<ActivityAtomFragment[]> {
   const { limit = 20, provider, atomType, since } = options;
 
-  let query = supabase
-    .from("activity_atoms")
-    .select("*")
-    .eq("user_id", userId)
-    .order("occurred_at", { ascending: false })
-    .limit(limit);
+  const filters: Record<string, string> = { user_id: userId };
+  if (provider) filters.provider = provider;
+  if (atomType) filters.atom_type = atomType;
 
-  if (provider) {
-    query = query.eq("provider", provider);
-  }
-
-  if (atomType) {
-    query = query.eq("atom_type", atomType);
-  }
-
-  if (since) {
-    query = query.gte("occurred_at", since.toISOString());
-  }
-
-  const { data, error } = await query;
+  const { data, error } = await db.selectMany(
+    getSupabase(),
+    "activity_atoms",
+    filters,
+    {
+      rangeFilters: since
+        ? { occurred_at: { gte: since.toISOString() } }
+        : undefined,
+      order: { column: "occurred_at", ascending: false },
+      limit,
+    },
+  );
 
   if (error) {
     console.error("Error fetching recent activity atoms:", error);

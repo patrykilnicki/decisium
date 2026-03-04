@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import * as db from "@/lib/supabase/db";
 import { enqueueTask } from "@/lib/tasks/task-repository";
 import { triggerTask } from "@/lib/tasks/task-processor";
 import type { TaskRow } from "@/lib/tasks/task-types";
@@ -25,23 +26,28 @@ async function findRecentTodoTask(
     Date.now() - cooldownMinutes * 60 * 1000,
   ).toISOString();
 
-  const { data } = await client
-    .from("tasks")
-    .select("*")
-    .eq("user_id", userId)
-    .eq("task_type", "insights.generate_todo_list")
-    .in("status", ["pending", "in_progress"])
-    .gte("created_at", cutoff)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  const { data } = await db.selectMany(
+    client,
+    "tasks",
+    {
+      user_id: userId,
+      task_type: "insights.generate_todo_list",
+      status: ["pending", "in_progress"],
+    },
+    {
+      rangeFilters: { created_at: { gte: cutoff } },
+      order: { column: "created_at", ascending: false },
+      limit: 1,
+    },
+  );
 
-  if (!data) return null;
+  const row = data[0];
+  if (!row) return null;
 
-  const input = data.input as { state?: { date?: string } } | null;
+  const input = (row as TaskRow).input as { state?: { date?: string } } | null;
   if (input?.state?.date !== date) return null;
 
-  return data as TaskRow;
+  return row as TaskRow;
 }
 
 export async function dispatchTodoGenerationTask(

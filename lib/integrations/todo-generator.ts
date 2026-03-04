@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "@/types/supabase";
 import type { Integration } from "@/types/database";
+import * as db from "@/lib/supabase/db";
 import { createLLM } from "@/packages/agents/lib/llm";
 import {
   isComposioEnabled,
@@ -90,17 +91,17 @@ async function fetchCalendarSignalsFromSupabase(
   const dayStart = `${date}T00:00:00.000Z`;
   const dayEnd = `${date}T23:59:59.999Z`;
 
-  const { data, error } = await supabase
-    .from("activity_atoms")
-    .select(
-      "title, occurred_at, duration_minutes, participants, source_url, external_id, content, metadata",
-    )
-    .eq("user_id", userId)
-    .eq("atom_type", "event")
-    .eq("provider", "google_calendar")
-    .gte("occurred_at", dayStart)
-    .lte("occurred_at", dayEnd)
-    .order("occurred_at", { ascending: true });
+  const { data, error } = await db.selectMany(
+    supabase,
+    "activity_atoms",
+    { user_id: userId, atom_type: "event", provider: "google_calendar" },
+    {
+      columns:
+        "title, occurred_at, duration_minutes, participants, source_url, external_id, content, metadata",
+      rangeFilters: { occurred_at: { gte: dayStart, lte: dayEnd } },
+      order: { column: "occurred_at", ascending: true },
+    },
+  );
 
   if (error) {
     console.warn(
@@ -602,12 +603,12 @@ export class TodoGenerator {
    * Lightweight check whether a snapshot exists for the given date (for UI labels).
    */
   async hasSnapshotForDate(userId: string, date: string): Promise<boolean> {
-    const { data, error } = await this.supabase
-      .from("todo_snapshots")
-      .select("id")
-      .eq("user_id", userId)
-      .eq("date", date)
-      .maybeSingle();
+    const { data, error } = await db.selectOne(
+      this.supabase,
+      "todo_snapshots",
+      { user_id: userId, date },
+      { columns: "id" },
+    );
     return !error && !!data;
   }
 
@@ -615,17 +616,16 @@ export class TodoGenerator {
     userId: string,
     date: string,
   ): Promise<TodoListOutput | null> {
-    const { data, error } = await this.supabase
-      .from("todo_snapshots")
-      .select("*")
-      .eq("user_id", userId)
-      .eq("date", date)
-      .maybeSingle();
+    const { data, error } = await db.selectOne(
+      this.supabase,
+      "todo_snapshots",
+      { user_id: userId, date },
+    );
 
     if (error || !data) return null;
 
     try {
-      return TodoListOutputSchema.parse(data.payload);
+      return TodoListOutputSchema.parse((data as { payload: unknown }).payload);
     } catch {
       return null;
     }
@@ -697,7 +697,9 @@ export class TodoGenerator {
     payload: TodoListOutput,
     generatedFromEvent?: string,
   ): Promise<void> {
-    const { error } = await this.supabase.from("todo_snapshots").upsert(
+    const { error } = await db.upsert(
+      this.supabase,
+      "todo_snapshots",
       {
         user_id: userId,
         date,
@@ -714,11 +716,10 @@ export class TodoGenerator {
   private async fetchActiveIntegrations(
     userId: string,
   ): Promise<Integration[]> {
-    const { data, error } = await this.supabase
-      .from("integrations")
-      .select("*")
-      .eq("user_id", userId)
-      .eq("status", "active");
+    const { data, error } = await db.selectMany(this.supabase, "integrations", {
+      user_id: userId,
+      status: "active",
+    });
 
     if (error)
       throw new Error(`Failed to fetch integrations: ${error.message}`);

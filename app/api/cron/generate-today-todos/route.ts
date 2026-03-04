@@ -1,13 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-import type { Database } from "@/types/supabase";
 import { createAdminClient } from "@/lib/supabase/admin";
+import * as db from "@/lib/supabase/db";
 import { createTodoGenerator } from "@/lib/integrations";
-
-const supabase = createClient<Database>(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
 
 function isAuthorized(request: NextRequest): boolean {
   const authHeader = request.headers.get("authorization");
@@ -35,17 +29,21 @@ export async function POST(request: NextRequest) {
   const generator = createTodoGenerator(admin);
 
   try {
-    const { data: integrations, error } = await supabase
-      .from("integrations")
-      .select("user_id")
-      .eq("status", "active");
+    const { data: integrations, error } = await db.selectMany(
+      admin,
+      "integrations",
+      { status: "active" },
+      { columns: "user_id" },
+    );
 
     if (error) {
       throw new Error(`Failed to fetch integrations: ${error.message}`);
     }
 
     const userIds = [
-      ...new Set((integrations ?? []).map((r) => r.user_id as string)),
+      ...new Set(
+        (integrations ?? []).map((r) => (r as { user_id: string }).user_id),
+      ),
     ];
 
     if (userIds.length === 0) {

@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "@/types/supabase";
 import type { ActivityAtomInsert, EmbeddingInsert } from "@/types/database";
+import * as db from "@/lib/supabase/db";
 import {
   generateEmbedding,
   generateEmbeddings,
@@ -300,11 +301,15 @@ export class SyncPipeline {
         );
 
         // Get existing atoms for this integration
-        const { data: existingAtoms } = await this.supabase
-          .from("activity_atoms")
-          .select("external_id")
-          .eq("integration_id", integrationId)
-          .eq("provider", integration.provider);
+        const { data: existingAtoms } = await db.selectMany(
+          this.supabase,
+          "activity_atoms",
+          {
+            integration_id: integrationId,
+            provider: integration.provider,
+          },
+          { columns: "external_id" },
+        );
 
         // Find atoms that exist in DB but not in fetched data (deleted from calendar)
         const existingExternalIds = (existingAtoms ?? []).map(
@@ -364,10 +369,12 @@ export class SyncPipeline {
 
       // Reactivate integration if it was in error status and sync succeeded
       if (wasError) {
-        await this.supabase
-          .from("integrations")
-          .update({ status: "active", updated_at: new Date().toISOString() })
-          .eq("id", integrationId);
+        await db.update(
+          this.supabase,
+          "integrations",
+          { id: integrationId },
+          { status: "active", updated_at: new Date().toISOString() },
+        );
         console.log(
           `[sync-pipeline] Reactivated integration ${integrationId} after successful sync`,
         );
@@ -446,14 +453,19 @@ export class SyncPipeline {
 
     // Fetch existing atoms to detect changes
     const externalIds = atoms.map((a) => a.externalId);
-    const { data: existingAtoms } = await this.supabase
-      .from("activity_atoms")
-      .select(
-        "external_id, content, title, occurred_at, duration_minutes, participants, metadata, embedding_id",
-      )
-      .eq("user_id", integration.userId)
-      .eq("provider", integration.provider)
-      .in("external_id", externalIds);
+    const { data: existingAtoms } = await db.selectMany(
+      this.supabase,
+      "activity_atoms",
+      {
+        user_id: integration.userId,
+        provider: integration.provider,
+        external_id: externalIds,
+      },
+      {
+        columns:
+          "external_id, content, title, occurred_at, duration_minutes, participants, metadata, embedding_id",
+      },
+    );
 
     const existingMap = new Map(
       (existingAtoms ?? []).map((a) => [
@@ -528,11 +540,15 @@ export class SyncPipeline {
       const contentsToCheck = [
         ...new Set(atomsNeedingEmbeddings.map((a) => a.content)),
       ];
-      const { data: existingEmbeddings } = await this.supabase
-        .from("embeddings")
-        .select("id, content")
-        .eq("user_id", integration.userId)
-        .in("content", contentsToCheck);
+      const { data: existingEmbeddings } = await db.selectMany(
+        this.supabase,
+        "embeddings",
+        {
+          user_id: integration.userId,
+          content: contentsToCheck,
+        },
+        { columns: "id, content" },
+      );
 
       const contentToEmbeddingId = new Map(
         (existingEmbeddings ?? []).map((e) => [e.content, e.id]),
@@ -583,11 +599,7 @@ export class SyncPipeline {
               };
 
               const { data: embeddingData, error: embeddingError } =
-                await this.supabase
-                  .from("embeddings")
-                  .insert(insertData)
-                  .select("id")
-                  .single();
+                await db.insertOne(this.supabase, "embeddings", insertData);
 
               if (!embeddingError && embeddingData) {
                 embeddingMap.set(atom.externalId, embeddingData.id);
@@ -624,11 +636,14 @@ export class SyncPipeline {
         updated_at: new Date().toISOString(),
       };
 
-      const { error } = await this.supabase
-        .from("activity_atoms")
-        .upsert(atomData, {
+      const { error } = await db.upsert(
+        this.supabase,
+        "activity_atoms",
+        atomData,
+        {
           onConflict: "user_id,provider,external_id",
-        });
+        },
+      );
 
       if (!error) {
         atomsStored++;
@@ -684,12 +699,16 @@ export class SyncPipeline {
     if (externalIds.length === 0) return;
 
     // First, get the embedding IDs for atoms being deleted
-    const { data: atomsToDelete } = await this.supabase
-      .from("activity_atoms")
-      .select("embedding_id")
-      .eq("integration_id", integrationId)
-      .eq("provider", provider)
-      .in("external_id", externalIds);
+    const { data: atomsToDelete } = await db.selectMany(
+      this.supabase,
+      "activity_atoms",
+      {
+        integration_id: integrationId,
+        provider,
+        external_id: externalIds,
+      },
+      { columns: "embedding_id" },
+    );
 
     // Collect unique embedding IDs (filter out nulls)
     const embeddingIds = [
@@ -701,12 +720,15 @@ export class SyncPipeline {
     ];
 
     // Delete the atoms
-    const { error: deleteAtomsError } = await this.supabase
-      .from("activity_atoms")
-      .delete()
-      .eq("integration_id", integrationId)
-      .eq("provider", provider)
-      .in("external_id", externalIds);
+    const { error: deleteAtomsError } = await db.remove(
+      this.supabase,
+      "activity_atoms",
+      {
+        integration_id: integrationId,
+        provider,
+        external_id: externalIds,
+      },
+    );
 
     if (deleteAtomsError) {
       console.error("[sync-pipeline] Error deleting atoms:", deleteAtomsError);
@@ -717,10 +739,12 @@ export class SyncPipeline {
     // Delete orphaned embeddings (only if no other atoms reference them)
     if (embeddingIds.length > 0) {
       // Check which embeddings are still referenced by other atoms
-      const { data: stillReferenced } = await this.supabase
-        .from("activity_atoms")
-        .select("embedding_id")
-        .in("embedding_id", embeddingIds);
+      const { data: stillReferenced } = await db.selectMany(
+        this.supabase,
+        "activity_atoms",
+        { embedding_id: embeddingIds },
+        { columns: "embedding_id" },
+      );
 
       const stillReferencedIds = new Set(
         (stillReferenced ?? []).map((a) => a.embedding_id),
@@ -732,10 +756,11 @@ export class SyncPipeline {
       );
 
       if (orphanedEmbeddingIds.length > 0) {
-        const { error: deleteEmbeddingsError } = await this.supabase
-          .from("embeddings")
-          .delete()
-          .in("id", orphanedEmbeddingIds);
+        const { error: deleteEmbeddingsError } = await db.remove(
+          this.supabase,
+          "embeddings",
+          { id: orphanedEmbeddingIds },
+        );
 
         if (deleteEmbeddingsError) {
           console.error(
@@ -763,29 +788,22 @@ export class SyncPipeline {
       since?: Date;
     },
   ): Promise<StoredActivityAtom[]> {
-    let query = this.supabase
-      .from("activity_atoms")
-      .select("*")
-      .eq("user_id", userId)
-      .order("occurred_at", { ascending: false });
+    const filters: Record<string, string> = { user_id: userId };
+    if (options?.provider) filters.provider = options.provider;
+    if (options?.atomType) filters.atom_type = options.atomType;
 
-    if (options?.provider) {
-      query = query.eq("provider", options.provider);
-    }
-
-    if (options?.atomType) {
-      query = query.eq("atom_type", options.atomType);
-    }
-
-    if (options?.since) {
-      query = query.gte("occurred_at", options.since.toISOString());
-    }
-
-    if (options?.limit) {
-      query = query.limit(options.limit);
-    }
-
-    const { data, error } = await query;
+    const { data, error } = await db.selectMany(
+      this.supabase,
+      "activity_atoms",
+      filters,
+      {
+        order: { column: "occurred_at", ascending: false },
+        limit: options?.limit,
+        rangeFilters: options?.since
+          ? { occurred_at: { gte: options.since.toISOString() } }
+          : undefined,
+      },
+    );
 
     if (error) {
       throw new Error(`Failed to fetch atoms: ${error.message}`);
@@ -836,10 +854,12 @@ export class SyncPipeline {
    * Get atom count by provider
    */
   async getAtomCounts(userId: string): Promise<Record<Provider, number>> {
-    const { data, error } = await this.supabase
-      .from("activity_atoms")
-      .select("provider")
-      .eq("user_id", userId);
+    const { data, error } = await db.selectMany(
+      this.supabase,
+      "activity_atoms",
+      { user_id: userId },
+      { columns: "provider" },
+    );
 
     if (error) {
       throw new Error(`Failed to get atom counts: ${error.message}`);
@@ -859,11 +879,12 @@ export class SyncPipeline {
    */
   async deleteAtomsForIntegration(integrationId: string): Promise<number> {
     // First get the atoms to delete their embeddings
-    const { data: atoms } = await this.supabase
-      .from("activity_atoms")
-      .select("embedding_id")
-      .eq("integration_id", integrationId)
-      .not("embedding_id", "is", null);
+    const { data: atoms } = await db.selectMany(
+      this.supabase,
+      "activity_atoms",
+      { integration_id: integrationId },
+      { columns: "embedding_id" },
+    );
 
     // Delete embeddings
     if (atoms && atoms.length > 0) {
@@ -872,16 +893,17 @@ export class SyncPipeline {
         .filter((id): id is string => id !== null && id !== undefined);
 
       if (embeddingIds.length > 0) {
-        await this.supabase.from("embeddings").delete().in("id", embeddingIds);
+        await db.remove(this.supabase, "embeddings", { id: embeddingIds });
       }
     }
 
     // Delete atoms
-    const { data, error } = await this.supabase
-      .from("activity_atoms")
-      .delete()
-      .eq("integration_id", integrationId)
-      .select("id");
+    const { data, error } = await db.remove(
+      this.supabase,
+      "activity_atoms",
+      { integration_id: integrationId },
+      { returning: true },
+    );
 
     if (error) {
       throw new Error(`Failed to delete atoms: ${error.message}`);

@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "@/types/supabase";
 import type { InsightSourceInsert } from "@/types/database";
+import * as db from "@/lib/supabase/db";
 import { generateEmbedding } from "@/lib/embeddings/generate";
 import { StoredActivityAtom } from "./sync-pipeline";
 
@@ -476,19 +477,22 @@ export class InsightGenerator {
     periodEnd: Date,
     provider?: string,
   ): Promise<StoredActivityAtom[]> {
-    let query = this.supabase
-      .from("activity_atoms")
-      .select("*")
-      .eq("user_id", userId)
-      .gte("occurred_at", periodStart.toISOString())
-      .lte("occurred_at", periodEnd.toISOString())
-      .order("occurred_at", { ascending: true });
-
-    if (provider) {
-      query = query.eq("provider", provider);
-    }
-
-    const { data, error } = await query;
+    const filters: Record<string, string> = { user_id: userId };
+    if (provider) filters.provider = provider;
+    const { data, error } = await db.selectMany(
+      this.supabase,
+      "activity_atoms",
+      filters,
+      {
+        order: { column: "occurred_at", ascending: true },
+        rangeFilters: {
+          occurred_at: {
+            gte: periodStart.toISOString(),
+            lte: periodEnd.toISOString(),
+          },
+        },
+      },
+    );
 
     if (error) {
       throw new Error(`Failed to fetch atoms: ${error.message}`);
@@ -503,14 +507,16 @@ export class InsightGenerator {
     granularity: string,
     periodStart: Date,
   ): Promise<InsightSource | null> {
-    const { data, error } = await this.supabase
-      .from("insight_sources")
-      .select("*")
-      .eq("user_id", userId)
-      .eq("source_type", sourceType)
-      .eq("granularity", granularity)
-      .eq("period_start", periodStart.toISOString().split("T")[0])
-      .single();
+    const { data, error } = await db.selectOne(
+      this.supabase,
+      "insight_sources",
+      {
+        user_id: userId,
+        source_type: sourceType,
+        granularity,
+        period_start: periodStart.toISOString().split("T")[0],
+      },
+    );
 
     if (error || !data) {
       return null;
@@ -540,9 +546,10 @@ export class InsightGenerator {
       const { embedding } = await generateEmbedding(data.summary);
       // Convert number array to PostgreSQL array string format for pgvector
       const embeddingString = `[${embedding.join(",")}]`;
-      const { data: embeddingData, error: embeddingError } = await this.supabase
-        .from("embeddings")
-        .insert({
+      const { data: embeddingData, error: embeddingError } = await db.insertOne(
+        this.supabase,
+        "embeddings",
+        {
           user_id: userId,
           content: data.summary,
           embedding: embeddingString,
@@ -552,9 +559,8 @@ export class InsightGenerator {
             granularity: data.granularity,
             period_start: data.periodStart.toISOString().split("T")[0],
           } as Json,
-        })
-        .select("id")
-        .single();
+        },
+      );
 
       if (!embeddingError && embeddingData) {
         embeddingId = embeddingData.id;
@@ -581,21 +587,22 @@ export class InsightGenerator {
       metadata: metadataJson,
     };
 
-    const { data: insightData, error: insertError } = await this.supabase
-      .from("insight_sources")
-      .upsert(insertData, {
+    const { data: insightRows, error: insertError } = await db.upsert(
+      this.supabase,
+      "insight_sources",
+      insertData,
+      {
         onConflict: "user_id,source_type,granularity,period_start",
-      })
-      .select()
-      .single();
+      },
+    );
 
-    if (insertError) {
+    if (insertError || !insightRows?.[0]) {
       throw new Error(
-        `Failed to create insight source: ${insertError.message}`,
+        `Failed to create insight source: ${insertError?.message ?? "Unknown error"}`,
       );
     }
 
-    return this.mapInsightSource(insightData);
+    return this.mapInsightSource(insightRows[0] as Record<string, unknown>);
   }
 
   /**
@@ -609,25 +616,18 @@ export class InsightGenerator {
       limit?: number;
     },
   ): Promise<InsightSource[]> {
-    let query = this.supabase
-      .from("insight_sources")
-      .select("*")
-      .eq("user_id", userId)
-      .order("period_start", { ascending: false });
-
-    if (options?.sourceType) {
-      query = query.eq("source_type", options.sourceType);
-    }
-
-    if (options?.granularity) {
-      query = query.eq("granularity", options.granularity);
-    }
-
-    if (options?.limit) {
-      query = query.limit(options.limit);
-    }
-
-    const { data, error } = await query;
+    const filters: Record<string, string> = { user_id: userId };
+    if (options?.sourceType) filters.source_type = options.sourceType;
+    if (options?.granularity) filters.granularity = options.granularity;
+    const { data, error } = await db.selectMany(
+      this.supabase,
+      "insight_sources",
+      filters,
+      {
+        order: { column: "period_start", ascending: false },
+        limit: options?.limit,
+      },
+    );
 
     if (error) {
       throw new Error(`Failed to fetch insights: ${error.message}`);

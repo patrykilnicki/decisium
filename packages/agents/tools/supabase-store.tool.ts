@@ -1,5 +1,6 @@
 import { DynamicStructuredTool } from "@langchain/core/tools";
 import { z } from "zod";
+import * as db from "@/lib/supabase/db";
 
 function formatEmbeddingValue(value: unknown): string | null | undefined {
   if (value == null) return value as null | undefined;
@@ -105,12 +106,18 @@ export const supabaseStoreTool = new DynamicStructuredTool({
       ? (await import("@/lib/supabase/admin")).createAdminClient()
       : await (await import("@/lib/supabase/server")).createClient();
 
-    const { data: result, error } = await supabase
-      .from(table)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic insert per table; schema validated above
-      .insert(data as any)
-      .select()
-      .single();
+    const { data: result, error } = await db.insertOne(
+      supabase,
+      table as
+        | "daily_events"
+        | "daily_summaries"
+        | "weekly_summaries"
+        | "monthly_summaries"
+        | "ask_threads"
+        | "ask_messages"
+        | "embeddings",
+      data as never,
+    );
 
     if (error) {
       throw new Error(`Failed to store data in ${table}: ${error.message}`);

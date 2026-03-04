@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import * as db from "@/lib/supabase/db";
 
 export interface UserContext {
   userId: string;
@@ -42,17 +43,22 @@ export async function getUserContext(): Promise<UserContext> {
   const supabase = await createClient();
   const user = await getAuthenticatedUser();
   const currentDate = new Date().toISOString().split("T")[0];
-  const { data: profile } = await supabase
-    .from("users")
-    .select("preferred_llm_model")
-    .eq("id", user.id)
-    .maybeSingle();
+  const { data: profile } = await db.selectOne(
+    supabase,
+    "users",
+    { id: user.id },
+    {
+      columns: "preferred_llm_model",
+    },
+  );
 
   return {
     userId: user.id,
     currentDate,
     userEmail: user.email,
-    preferredModel: profile?.preferred_llm_model ?? undefined,
+    preferredModel:
+      (profile as { preferred_llm_model?: string } | null)
+        ?.preferred_llm_model ?? undefined,
   };
 }
 
@@ -64,16 +70,21 @@ export async function getUserContextWithDate(
 ): Promise<UserContext> {
   const supabase = await createClient();
   const user = await getAuthenticatedUser();
-  const { data: profile } = await supabase
-    .from("users")
-    .select("preferred_llm_model")
-    .eq("id", user.id)
-    .maybeSingle();
+  const { data: profile } = await db.selectOne(
+    supabase,
+    "users",
+    { id: user.id },
+    {
+      columns: "preferred_llm_model",
+    },
+  );
 
   return {
     userId: user.id,
     currentDate: date,
     userEmail: user.email,
-    preferredModel: profile?.preferred_llm_model ?? undefined,
+    preferredModel:
+      (profile as { preferred_llm_model?: string } | null)
+        ?.preferred_llm_model ?? undefined,
   };
 }

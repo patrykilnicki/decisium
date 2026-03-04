@@ -1,6 +1,7 @@
 import { DynamicStructuredTool } from "@langchain/core/tools";
 import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
+import * as db from "@/lib/supabase/db";
 import { getTaskContext } from "../lib/task-context";
 
 /**
@@ -40,18 +41,22 @@ export const listCalendarEventsTool = new DynamicStructuredTool({
     }
 
     const supabase = createAdminClient();
-    const { data, error } = await supabase
-      .from("activity_atoms")
-      .select(
-        "id, title, occurred_at, duration_minutes, participants, source_url, content, metadata",
-      )
-      .eq("user_id", userId)
-      .eq("atom_type", "event")
-      .eq("provider", "google_calendar")
-      .gte("occurred_at", timeMin)
-      .lte("occurred_at", timeMax)
-      .order("occurred_at", { ascending: true })
-      .limit(maxResults);
+    const { data, error } = await db.selectMany(
+      supabase,
+      "activity_atoms",
+      {
+        user_id: userId,
+        atom_type: "event",
+        provider: "google_calendar",
+      },
+      {
+        columns:
+          "id, title, occurred_at, duration_minutes, participants, source_url, content, metadata",
+        rangeFilters: { occurred_at: { gte: timeMin, lte: timeMax } },
+        order: { column: "occurred_at", ascending: true },
+        limit: maxResults,
+      },
+    );
 
     if (error) {
       throw new Error(`Failed to list calendar events: ${error.message}`);

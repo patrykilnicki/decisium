@@ -8,6 +8,7 @@
 import "dotenv/config";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "../types/supabase";
+import * as db from "../lib/supabase/db";
 import { storeEmbedding } from "../lib/embeddings/store";
 
 const supabase = createClient<Database>(
@@ -16,21 +17,29 @@ const supabase = createClient<Database>(
 );
 
 async function backfillDailyEvents() {
-  const { data: events, error } = await supabase
-    .from("daily_events")
-    .select("id, user_id, date, content, role, type")
-    .eq("role", "user")
-    .in("type", ["note", "question", "note+question"])
-    .order("created_at", { ascending: true });
+  const { data: events, error } = await db.selectMany(
+    supabase,
+    "daily_events",
+    {
+      role: "user",
+      type: ["note", "question", "note+question"],
+    },
+    {
+      columns: "id, user_id, date, content, role, type",
+      order: { column: "created_at", ascending: true },
+    },
+  );
 
   if (error) {
     throw new Error(`Failed to fetch daily events: ${error.message}`);
   }
 
-  const { data: existingEmbeddings } = await supabase
-    .from("embeddings")
-    .select("metadata")
-    .eq("metadata->>type", "daily_event");
+  const { data: existingEmbeddings } = await db.selectMany(
+    supabase,
+    "embeddings",
+    { "metadata->>type": "daily_event" },
+    { columns: "metadata" },
+  );
 
   const embeddedSourceIds = new Set(
     (existingEmbeddings || [])
@@ -99,20 +108,27 @@ async function backfillSummaries() {
 
   let total = 0;
   for (const { table, type, dateCol } of types) {
-    const { data: summaries, error } = await supabase
-      .from(table)
-      .select("id, user_id, content, " + dateCol)
-      .order(dateCol, { ascending: false });
+    const { data: summaries, error } = await db.selectMany(
+      supabase,
+      table,
+      {},
+      {
+        columns: `id, user_id, content, ${dateCol}`,
+        order: { column: dateCol, ascending: false },
+      },
+    );
 
     if (error) {
       console.error(`[backfill] Failed to fetch ${table}:`, error);
       continue;
     }
 
-    const { data: existing } = await supabase
-      .from("embeddings")
-      .select("metadata")
-      .eq("metadata->>type", type);
+    const { data: existing } = await db.selectMany(
+      supabase,
+      "embeddings",
+      { "metadata->>type": type },
+      { columns: "metadata" },
+    );
 
     const embeddedIds = new Set(
       (existing || [])

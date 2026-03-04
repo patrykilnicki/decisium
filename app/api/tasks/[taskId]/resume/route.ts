@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import * as db from "@/lib/supabase/db";
 import { createTaskEvent } from "@/lib/tasks/task-events";
 import { resolveRootTaskId } from "@/lib/tasks/task-repository";
 import type { Task } from "@/types/database";
@@ -20,11 +21,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     const adminClient = createAdminClient();
-    const { data: taskData, error } = await adminClient
-      .from("tasks")
-      .select("*")
-      .eq("id", taskId)
-      .single();
+    const { data: taskData, error } = await db.selectOne(adminClient, "tasks", {
+      id: taskId,
+    });
 
     if (error || !taskData) {
       return NextResponse.json({ error: "Task not found" }, { status: 404 });
@@ -34,15 +33,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const { data: updated, error: updateError } = await adminClient
-      .from("tasks")
-      .update({
-        status: "pending",
-        last_error: null,
-      })
-      .eq("id", taskId)
-      .select()
-      .single();
+    const { data: updated, error: updateError } = await db.update(
+      adminClient,
+      "tasks",
+      { id: taskId },
+      { status: "pending", last_error: null },
+      { returning: "single" },
+    );
 
     if (updateError || !updated) {
       return NextResponse.json(
@@ -51,22 +48,23 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
+    const taskRow = updated as Task;
     const jobId = await resolveRootTaskId(adminClient, taskId);
     await createTaskEvent(adminClient, {
       taskId,
-      sessionId: updated.session_id,
-      userId: updated.user_id,
+      sessionId: taskRow.session_id,
+      userId: taskRow.user_id,
       eventType: "job_resumed",
       nodeKey: "job",
       payload: {
         jobId,
         taskId,
-        sessionId: updated.session_id,
-        taskType: updated.task_type,
+        sessionId: taskRow.session_id,
+        taskType: taskRow.task_type,
       },
     });
 
-    return NextResponse.json(updated as Task);
+    return NextResponse.json(taskRow);
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Failed to resume task";

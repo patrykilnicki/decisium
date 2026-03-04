@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { createClient } from "@/lib/supabase/client";
+import * as db from "@/lib/supabase/db";
 import { cn } from "@/lib/utils";
 import {
   Calendar,
@@ -396,14 +397,21 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
       end.setDate(end.getDate() + 1);
       end.setHours(0, 0, 0, 0);
 
-      const { data, error } = await supabase
-        .from("activity_atoms")
-        .select("id, title, occurred_at, duration_minutes, categories")
-        .eq("user_id", userId)
-        .eq("atom_type", "event")
-        .gte("occurred_at", start.toISOString())
-        .lt("occurred_at", end.toISOString())
-        .order("occurred_at", { ascending: true });
+      const { data, error } = await db.selectMany(
+        supabase as unknown as Parameters<typeof db.selectMany>[0],
+        "activity_atoms",
+        { user_id: userId, atom_type: "event" },
+        {
+          columns: "id, title, occurred_at, duration_minutes, categories",
+          rangeFilters: {
+            occurred_at: {
+              gte: start.toISOString(),
+              lt: end.toISOString(),
+            },
+          },
+          order: { column: "occurred_at", ascending: true },
+        },
+      );
 
       if (error) {
         console.error("[HomeContent] Failed to fetch calendar events:", error);

@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "@/types/supabase";
 import type { IntegrationAuditLogInsert } from "@/types/database";
+import * as db from "@/lib/supabase/db";
 import { encryptToken, decryptToken } from "./crypto";
 import {
   Provider,
@@ -83,21 +84,23 @@ export class OAuthManager {
     for (let attempt = 0; attempt <= retries; attempt++) {
       try {
         // Wrap query in Promise.race with timeout
-        const queryPromise = this.supabase
-          .from("integrations")
-          .select(
-            "id, user_id, provider, status, scopes, external_user_id, external_email, metadata, connected_at, last_sync_at, last_sync_status, last_sync_error, sync_cursor, created_at, updated_at",
-          )
-          .eq("id", integrationId)
-          .maybeSingle();
+        const queryPromise = db.selectOne(
+          this.supabase,
+          "integrations",
+          { id: integrationId },
+          {
+            columns:
+              "id, user_id, provider, status, scopes, external_user_id, external_email, metadata, connected_at, last_sync_at, last_sync_status, last_sync_error, sync_cursor, created_at, updated_at",
+          },
+        );
 
         const timeoutPromise = new Promise<{
           data: null;
-          error: { message: string };
+          error: Error;
         }>((resolve) =>
           setTimeout(
             () =>
-              resolve({ data: null, error: { message: "Query timeout (8s)" } }),
+              resolve({ data: null, error: new Error("Query timeout (8s)") }),
             QUERY_TIMEOUT_MS,
           ),
         );
@@ -179,12 +182,10 @@ export class OAuthManager {
     userId: string,
     provider: Provider,
   ): Promise<Integration | null> {
-    const { data, error } = await this.supabase
-      .from("integrations")
-      .select("*")
-      .eq("user_id", userId)
-      .eq("provider", provider)
-      .single();
+    const { data, error } = await db.selectOne(this.supabase, "integrations", {
+      user_id: userId,
+      provider,
+    });
 
     if (error || !data) {
       return null;
@@ -197,11 +198,12 @@ export class OAuthManager {
    * Get all integrations for a user
    */
   async getUserIntegrations(userId: string): Promise<Integration[]> {
-    const { data, error } = await this.supabase
-      .from("integrations")
-      .select("*")
-      .eq("user_id", userId)
-      .order("created_at", { ascending: false });
+    const { data, error } = await db.selectMany(
+      this.supabase,
+      "integrations",
+      { user_id: userId },
+      { order: { column: "created_at", ascending: false } },
+    );
 
     if (error || !data) {
       return [];
@@ -253,40 +255,45 @@ export class OAuthManager {
 
     if (existing) {
       // Update existing integration
-      const { data, error } = await this.supabase
-        .from("integrations")
-        .update({
+      const { data, error } = await db.update(
+        this.supabase,
+        "integrations",
+        { id: existing.id },
+        {
           status: "pending",
           scopes: config.scopes,
           updated_at: new Date().toISOString(),
-        })
-        .eq("id", existing.id)
-        .select()
-        .single();
+        },
+        { returning: "single" },
+      );
 
-      if (error) {
-        throw new Error(`Failed to update integration: ${error.message}`);
+      if (error || !data) {
+        throw new Error(
+          `Failed to update integration: ${error?.message ?? "Unknown error"}`,
+        );
       }
 
-      integration = this.mapIntegration(data);
+      integration = this.mapIntegration(data as Record<string, unknown>);
     } else {
       // Create new integration
-      const { data, error } = await this.supabase
-        .from("integrations")
-        .insert({
+      const { data, error } = await db.insertOne(
+        this.supabase,
+        "integrations",
+        {
           user_id: userId,
           provider,
           status: "pending",
           scopes: config.scopes,
-        })
-        .select()
-        .single();
+        },
+      );
 
-      if (error) {
-        throw new Error(`Failed to create integration: ${error.message}`);
+      if (error || !data) {
+        throw new Error(
+          `Failed to create integration: ${error?.message ?? "Unknown error"}`,
+        );
       }
 
-      integration = this.mapIntegration(data);
+      integration = this.mapIntegration(data as Record<string, unknown>);
     }
 
     // Generate state with integration ID for callback
@@ -361,21 +368,24 @@ export class OAuthManager {
     await this.storeTokens(integrationId, tokens);
 
     // Update integration to active
-    const { data, error } = await this.supabase
-      .from("integrations")
-      .update({
+    const { data, error } = await db.update(
+      this.supabase,
+      "integrations",
+      { id: integrationId },
+      {
         status: "active",
         external_user_id: externalUserId,
         external_email: externalEmail,
         connected_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
-      })
-      .eq("id", integrationId)
-      .select()
-      .single();
+      },
+      { returning: "single" },
+    );
 
-    if (error) {
-      throw new Error(`Failed to activate integration: ${error.message}`);
+    if (error || !data) {
+      throw new Error(
+        `Failed to activate integration: ${error?.message ?? "Unknown error"}`,
+      );
     }
 
     // Log audit event
@@ -387,7 +397,7 @@ export class OAuthManager {
       metadata: { externalEmail },
     });
 
-    return this.mapIntegration(data);
+    return this.mapIntegration(data as Record<string, unknown>);
   }
 
   /**
@@ -413,19 +423,20 @@ export class OAuthManager {
     }
 
     // Delete credentials
-    await this.supabase
-      .from("integration_credentials")
-      .delete()
-      .eq("integration_id", integrationId);
+    await db.remove(this.supabase, "integration_credentials", {
+      integration_id: integrationId,
+    });
 
     // Update integration status
-    await this.supabase
-      .from("integrations")
-      .update({
+    await db.update(
+      this.supabase,
+      "integrations",
+      { id: integrationId },
+      {
         status: "revoked",
         updated_at: new Date().toISOString(),
-      })
-      .eq("id", integrationId);
+      },
+    );
 
     // Log audit event
     await this.logAuditEvent({
@@ -452,21 +463,21 @@ export class OAuthManager {
       ? encryptToken(tokens.refreshToken)
       : null;
 
-    const { error } = await this.supabase
-      .from("integration_credentials")
-      .upsert(
-        {
-          integration_id: integrationId,
-          access_token_encrypted: encryptedAccess,
-          refresh_token_encrypted: encryptedRefresh,
-          token_type: tokens.tokenType,
-          expires_at: tokens.expiresAt.toISOString(),
-          updated_at: new Date().toISOString(),
-        },
-        {
-          onConflict: "integration_id",
-        },
-      );
+    const { error } = await db.upsert(
+      this.supabase,
+      "integration_credentials",
+      {
+        integration_id: integrationId,
+        access_token_encrypted: encryptedAccess,
+        refresh_token_encrypted: encryptedRefresh,
+        token_type: tokens.tokenType,
+        expires_at: tokens.expiresAt.toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+      {
+        onConflict: "integration_id",
+      },
+    );
 
     if (error) {
       throw new Error(`Failed to store tokens: ${error.message}`);
@@ -477,11 +488,11 @@ export class OAuthManager {
    * Get decrypted tokens for an integration
    */
   async getTokens(integrationId: string): Promise<OAuthTokens | null> {
-    const { data, error } = await this.supabase
-      .from("integration_credentials")
-      .select("*")
-      .eq("integration_id", integrationId)
-      .single();
+    const { data, error } = await db.selectOne(
+      this.supabase,
+      "integration_credentials",
+      { integration_id: integrationId },
+    );
 
     if (error || !data || !data.expires_at) {
       return null;
@@ -544,14 +555,16 @@ export class OAuthManager {
     // Token is expired, try to refresh
     if (!tokens.refreshToken) {
       // Mark integration as error state
-      await this.supabase
-        .from("integrations")
-        .update({
+      await db.update(
+        this.supabase,
+        "integrations",
+        { id: integrationId },
+        {
           status: "error",
           last_sync_error: "Token expired and no refresh token available",
           updated_at: new Date().toISOString(),
-        })
-        .eq("id", integrationId);
+        },
+      );
 
       throw new Error("Token expired and no refresh token available");
     }
@@ -575,14 +588,16 @@ export class OAuthManager {
       return newTokens.accessToken;
     } catch (error) {
       // Mark integration as error state
-      await this.supabase
-        .from("integrations")
-        .update({
+      await db.update(
+        this.supabase,
+        "integrations",
+        { id: integrationId },
+        {
           status: "error",
           last_sync_error: `Token refresh failed: ${error instanceof Error ? error.message : "Unknown error"}`,
           updated_at: new Date().toISOString(),
-        })
-        .eq("id", integrationId);
+        },
+      );
 
       await this.logAuditEvent({
         userId: integration.userId,
@@ -654,10 +669,12 @@ export class OAuthManager {
       }
     }
 
-    await this.supabase
-      .from("integrations")
-      .update(updateData)
-      .eq("id", integrationId);
+    await db.update(
+      this.supabase,
+      "integrations",
+      { id: integrationId },
+      updateData as never,
+    );
 
     // Get integration for audit log
     const integration = await this.getIntegration(integrationId);
@@ -695,7 +712,7 @@ export class OAuthManager {
       provider: entry.provider,
       metadata: (entry.metadata ?? {}) as Json,
     };
-    await this.supabase.from("integration_audit_logs").insert(insertData);
+    await db.insertOne(this.supabase, "integration_audit_logs", insertData);
   }
 
   /**
@@ -708,21 +725,17 @@ export class OAuthManager {
       provider?: Provider;
     },
   ): Promise<AuditLogEntry[]> {
-    let query = this.supabase
-      .from("integration_audit_logs")
-      .select("*")
-      .eq("user_id", userId)
-      .order("created_at", { ascending: false });
-
-    if (options?.provider) {
-      query = query.eq("provider", options.provider);
-    }
-
-    if (options?.limit) {
-      query = query.limit(options.limit);
-    }
-
-    const { data } = await query;
+    const filters: Record<string, string> = { user_id: userId };
+    if (options?.provider) filters.provider = options.provider;
+    const { data } = await db.selectMany(
+      this.supabase,
+      "integration_audit_logs",
+      filters,
+      {
+        order: { column: "created_at", ascending: false },
+        limit: options?.limit,
+      },
+    );
 
     return (data ?? []).map((log) => ({
       userId: log.user_id,

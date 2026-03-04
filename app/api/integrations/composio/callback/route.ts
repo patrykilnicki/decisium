@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import type { Database } from "@/types/supabase";
+import * as db from "@/lib/supabase/db";
 import { getAppUrl } from "@/lib/utils/app-url";
 import {
   listComposioConnectedAccounts,
@@ -73,15 +73,12 @@ export async function GET(request: NextRequest) {
     const connectedAccount = accounts[0];
     const resolvedProvider = TOOLKIT_TO_PROVIDER[toolkit] ?? "google_calendar";
 
-    const typedSupabase =
-      supabase as import("@supabase/supabase-js").SupabaseClient<Database>;
-
-    const { data: existing } = await typedSupabase
-      .from("integrations")
-      .select("id")
-      .eq("user_id", user.id)
-      .eq("provider", resolvedProvider)
-      .maybeSingle();
+    const { data: existing } = await db.selectOne(
+      supabase,
+      "integrations",
+      { user_id: user.id, provider: resolvedProvider },
+      { columns: "id" },
+    );
 
     const updatePayload = {
       status: "active",
@@ -103,29 +100,27 @@ export async function GET(request: NextRequest) {
     let integrationId: string | undefined;
 
     if (existing) {
-      await typedSupabase
-        .from("integrations")
-        .update(updatePayload)
-        .eq("id", existing.id);
-      integrationId = existing.id;
+      await db.update(
+        supabase,
+        "integrations",
+        { id: (existing as { id: string }).id },
+        updatePayload,
+      );
+      integrationId = (existing as { id: string }).id;
     } else {
       const metadata: import("@/types/supabase").Json = {
         composio_connected_account_id: connectedAccount.id,
       };
-      const { data: inserted } = await typedSupabase
-        .from("integrations")
-        .insert({
-          user_id: user.id,
-          provider: resolvedProvider,
-          status: "active",
-          metadata,
-          external_email:
-            (connectedAccount as { appName?: string }).appName ?? null,
-          connected_at: new Date().toISOString(),
-        })
-        .select("id")
-        .single();
-      integrationId = inserted?.id;
+      const { data: inserted } = await db.insertOne(supabase, "integrations", {
+        user_id: user.id,
+        provider: resolvedProvider,
+        status: "active",
+        metadata,
+        external_email:
+          (connectedAccount as { appName?: string }).appName ?? null,
+        connected_at: new Date().toISOString(),
+      });
+      integrationId = inserted ? (inserted as { id: string }).id : undefined;
     }
 
     // Set up real-time trigger for Google Calendar
@@ -155,16 +150,18 @@ export async function GET(request: NextRequest) {
         );
 
         if (triggerId) {
-          await typedSupabase
-            .from("integrations")
-            .update({
+          await db.update(
+            supabase,
+            "integrations",
+            { id: integrationId },
+            {
               metadata: {
                 composio_connected_account_id: connectedAccount.id,
                 composio_trigger_id: triggerId,
               } as import("@/types/supabase").Json,
               updated_at: new Date().toISOString(),
-            })
-            .eq("id", integrationId);
+            },
+          );
           console.log(
             `[composio/callback] Created trigger ${triggerId} for integration ${integrationId}`,
           );

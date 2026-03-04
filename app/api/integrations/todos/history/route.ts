@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import * as db from "@/lib/supabase/db";
 
 /**
  * GET /api/integrations/todos/history
@@ -27,12 +28,16 @@ export async function GET(request: NextRequest) {
       Number.parseInt(searchParams.get("offset") ?? "0", 10) || 0,
     );
 
-    const { data, error } = await supabase
-      .from("todo_snapshots")
-      .select("*")
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: false })
-      .range(offset, offset + limit - 1);
+    const { data, error } = await db.selectMany(
+      supabase,
+      "todo_snapshots",
+      { user_id: user.id },
+      {
+        order: { column: "created_at", ascending: false },
+        limit,
+        offset,
+      },
+    );
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
