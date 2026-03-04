@@ -875,6 +875,68 @@ export type Database = {
           },
         ]
       }
+      todo_generation_logs: {
+        Row: {
+          id: string
+          user_id: string
+          date: string
+          run_type: string
+          generated_from_event: string | null
+          signals_count: number
+          signals_summary: Json
+          llm_system_prompt_preview: string | null
+          llm_user_content_preview: string | null
+          llm_raw_response: string | null
+          extracted_count: number
+          extracted_items: Json
+          duration_ms: number | null
+          error_message: string | null
+          created_at: string | null
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          date: string
+          run_type: string
+          generated_from_event?: string | null
+          signals_count?: number
+          signals_summary?: Json
+          llm_system_prompt_preview?: string | null
+          llm_user_content_preview?: string | null
+          llm_raw_response?: string | null
+          extracted_count?: number
+          extracted_items?: Json
+          duration_ms?: number | null
+          error_message?: string | null
+          created_at?: string | null
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          date?: string
+          run_type?: string
+          generated_from_event?: string | null
+          signals_count?: number
+          signals_summary?: Json
+          llm_system_prompt_preview?: string | null
+          llm_user_content_preview?: string | null
+          llm_raw_response?: string | null
+          extracted_count?: number
+          extracted_items?: Json
+          duration_ms?: number | null
+          error_message?: string | null
+          created_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "todo_generation_logs_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       todo_snapshots: {
         Row: {
           created_at: string | null
