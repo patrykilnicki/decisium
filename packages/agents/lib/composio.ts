@@ -343,6 +343,7 @@ export async function executeGmailFetchEmails(
       query: params.query ?? "",
       max_results: params.max_results ?? 50,
       user_id: "me",
+      verbose: false,
     };
     if (params.page_token) {
       args.page_token = params.page_token;

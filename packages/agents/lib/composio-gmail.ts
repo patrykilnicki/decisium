@@ -208,7 +208,7 @@ export async function fetchGmailEmailsPaginated(
 export function parseGmailMessage(
   msg: Record<string, unknown>,
 ): ParsedGmailMessage {
-  const rawSnippet = String(msg.messageText ?? msg.snippet ?? "");
+  const rawSnippet = String(msg.snippet ?? msg.messageText ?? "");
   return {
     subject: String(msg.subject ?? ""),
     sender: String(msg.sender ?? ""),
