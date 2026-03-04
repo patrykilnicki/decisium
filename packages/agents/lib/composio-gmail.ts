@@ -10,6 +10,8 @@ import {
   listComposioConnectedAccounts,
   executeGmailFetchEmails,
   executeGmailFetchThread,
+  executeGmailFetchMessageByThreadId,
+  executeGmailFetchMessageByMessageId,
 } from "./composio";
 
 // ─── Constants ─────────────────────────────────────────────────────────────
@@ -17,6 +19,8 @@ import {
 export const DEFAULT_GMAIL_PAGE_SIZE = 50;
 export const DEFAULT_GMAIL_MAX_PAGES = 10;
 export const THREAD_FETCH_CONCURRENCY = 6;
+/** Concurrency for fallback fetch-by-message-id when thread/snippet are empty. */
+const MESSAGE_BY_ID_FETCH_CONCURRENCY = 4;
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -118,6 +122,118 @@ function summarizeThreadPayload(payload: Record<string, unknown>): string {
     snippets.push(`${from}: ${cleanBody.slice(0, 180)}`);
   }
   return snippets.join(" || ").slice(0, 900);
+}
+
+/** Extract plaintext body from GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID response. */
+function extractBodyFromMessagePayload(
+  payload: Record<string, unknown>,
+): string {
+  const preview = payload.data_preview as Record<string, unknown> | undefined;
+  const raw =
+    toNonEmptyString(payload.messageText) ??
+    toNonEmptyString(preview?.messageText) ??
+    toNonEmptyString(payload.body) ??
+    toNonEmptyString(payload.textPlain) ??
+    toNonEmptyString(payload.text) ??
+    toNonEmptyString(payload.snippet) ??
+    (() => {
+      const data = payload.data ?? payload.response;
+      if (data && typeof data === "object") {
+        return extractBodyFromMessagePayload(data as Record<string, unknown>);
+      }
+      const results = payload.results as
+        | Array<Record<string, unknown>>
+        | undefined;
+      const first = results?.[0]?.response ?? results?.[0];
+      if (first && typeof first === "object") {
+        return extractBodyFromMessagePayload(first as Record<string, unknown>);
+      }
+      return "";
+    })();
+  return raw ? stripHtmlAndJunk(raw) : "";
+}
+
+/**
+ * For messages with no snippet and no threadContext: first try
+ * GMAIL_FETCH_MESSAGE_BY_THREAD_ID per thread, then GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID for any still missing.
+ */
+async function enrichMessagesWithMessageBodyFallback(
+  userId: string,
+  connectedAccountId: string,
+  messages: ParsedGmailMessage[],
+): Promise<ParsedGmailMessage[]> {
+  const needFallback = messages.filter(
+    (m) =>
+      m.messageId &&
+      !(m.snippet ?? "").trim() &&
+      !(m.threadContext ?? "").trim(),
+  );
+  if (needFallback.length === 0) return messages;
+
+  const threadContextByThreadId = new Map<string, string>();
+  const threadIds = [
+    ...new Set(
+      needFallback
+        .map((m) => m.threadId)
+        .filter((id): id is string => Boolean(id?.trim())),
+    ),
+  ];
+
+  await mapConcurrent(threadIds, THREAD_FETCH_CONCURRENCY, async (threadId) => {
+    const res = await executeGmailFetchMessageByThreadId(
+      userId,
+      connectedAccountId,
+      { threadId },
+    ).catch(() => null);
+    if (!res?.successful || !res.data) return;
+    const summary = summarizeThreadPayload(res.data);
+    if (summary) threadContextByThreadId.set(threadId, summary);
+  });
+
+  const enriched = messages.map((msg) => {
+    if (!msg.threadId) return msg;
+    const threadContext = threadContextByThreadId.get(msg.threadId);
+    if (!threadContext) return msg;
+    return {
+      ...msg,
+      snippet: threadContext.slice(0, 300),
+      threadContext: threadContext.slice(0, 900),
+    };
+  });
+
+  const stillNeedFallback = enriched.filter(
+    (m) =>
+      m.messageId &&
+      !(m.snippet ?? "").trim() &&
+      !(m.threadContext ?? "").trim(),
+  );
+  if (stillNeedFallback.length === 0) return enriched;
+
+  const bodyByMessageId = new Map<string, string>();
+  await mapConcurrent(
+    stillNeedFallback,
+    MESSAGE_BY_ID_FETCH_CONCURRENCY,
+    async (msg) => {
+      const res = await executeGmailFetchMessageByMessageId(
+        userId,
+        connectedAccountId,
+        { messageId: msg.messageId },
+      ).catch(() => null);
+      if (!res?.successful || !res.data) return;
+      const body = extractBodyFromMessagePayload(res.data);
+      if (body) bodyByMessageId.set(msg.messageId, body);
+    },
+  );
+
+  return enriched.map((msg) => {
+    const body = bodyByMessageId.get(msg.messageId);
+    if (!body) return msg;
+    return {
+      ...msg,
+      snippet: body.slice(0, 300),
+      threadContext: body.slice(0, 900),
+    };
+  });
 }
 
 async function mapConcurrent<T, R>(
@@ -289,7 +405,12 @@ export async function fetchGmailEmailsFull(
   if (parsed.length === 0) return [];
 
   if (options.withThreadContext) {
-    return enrichGmailMessagesWithThreadContext(userId, accountId, parsed);
+    const withThread = await enrichGmailMessagesWithThreadContext(
+      userId,
+      accountId,
+      parsed,
+    );
+    return enrichMessagesWithMessageBodyFallback(userId, accountId, withThread);
   }
   return parsed;
 }

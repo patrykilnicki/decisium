@@ -27,21 +27,6 @@ import {
 } from "../lib/composio";
 import { createAdminClient } from "@/lib/supabase/admin";
 
-/**
- * Strip model reasoning/thought blocks that leak into the response (e.g. Gemini "thinking").
- * Removes: leading "model" line, blocks like "> {thought\n}..." so only user-facing text remains.
- */
-function stripReasoningFromContent(raw: string): string {
-  if (!raw || typeof raw !== "string") return raw;
-  let out = raw.trim();
-  // Remove multiline {thought ... } block (may include newlines)
-  out = out.replace(/\s*>\s*\{\s*thought[\s\S]*?\}\s*/gi, " ").trim();
-  // Remove single-line {thought } or { thought }
-  out = out.replace(/\s*\{\s*thought\s*\}\s*/gi, " ").trim();
-  // Remove leading line that is only a single word (e.g. "model")
-  out = out.replace(/^\s*[a-zA-Z0-9_-]+\s*\n?/, "").trim();
-  return out;
-}
 import { createTodoGenerator } from "@/lib/integrations";
 
 // ═══════════════════════════════════════════════════════════════
@@ -114,7 +99,7 @@ async function agentNode(
     }
 
     // No tool calls - extract final response
-    let content =
+    const content =
       typeof response.content === "string"
         ? response.content
         : Array.isArray(response.content)
@@ -126,8 +111,6 @@ async function agentNode(
               )
               .join("")
           : "";
-    content = stripReasoningFromContent(content);
-
     // Collect tools used from messages (AIMessages with tool_calls)
     const toolsUsed: string[] = [];
     for (const msg of state.messages) {
