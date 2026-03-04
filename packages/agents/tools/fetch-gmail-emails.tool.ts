@@ -64,12 +64,14 @@ export const fetchGmailEmailsTool = new DynamicStructuredTool({
       messages: capped.map((m) => ({
         subject: m.subject,
         sender: m.sender,
-        snippet: m.snippet,
+        snippet: m.snippet.slice(0, 200),
         timestamp: m.timestamp,
         messageId: m.messageId,
         threadId: m.threadId,
         labels: m.labels,
-        ...(m.threadContext && { threadContext: m.threadContext }),
+        ...(m.threadContext && {
+          threadContext: m.threadContext.slice(0, 300),
+        }),
       })),
       count: capped.length,
     });

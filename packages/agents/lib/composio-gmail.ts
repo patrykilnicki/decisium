@@ -33,6 +33,30 @@ export interface ParsedGmailMessage {
 
 // ─── Helpers (internal; used by summarizeThreadPayload and parseGmailMessage) ─
 
+/**
+ * Strip HTML tags, base64 blobs, tracking URLs, zero-width characters,
+ * and excessive whitespace from email content to produce clean plaintext.
+ */
+function stripHtmlAndJunk(raw: string): string {
+  let out = raw;
+  // Remove HTML tags
+  out = out.replace(/<[^>]*>/g, " ");
+  // Remove HTML entities
+  out = out.replace(/&[a-zA-Z0-9#]+;/g, " ");
+  // Remove base64 blobs (eyJ..., data:image/..., long hex strings)
+  out = out.replace(
+    /(?:eyJ[A-Za-z0-9+/=]{40,}|data:[a-z]+\/[a-z]+;base64,[A-Za-z0-9+/=]+)/g,
+    "[...]",
+  );
+  // Remove tracking URLs (very long URLs with utm params / encoded data)
+  out = out.replace(/https?:\/\/[^\s]{200,}/g, "[link]");
+  // Remove zero-width spaces and invisible Unicode
+  out = out.replace(/[\u200B-\u200F\u202A-\u202E\uFEFF\u00AD]+/g, "");
+  // Collapse whitespace
+  out = out.replace(/\s+/g, " ");
+  return out.trim();
+}
+
 function toNonEmptyString(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
@@ -81,15 +105,17 @@ function summarizeThreadPayload(payload: Record<string, unknown>): string {
         return toNonEmptyString(fromHeader?.value);
       })() ??
       "Unknown sender";
-    const body =
+    const rawBody =
       toNonEmptyString(row.snippet) ??
       toNonEmptyString(row.messageText) ??
       toNonEmptyString(row.body) ??
       toNonEmptyString(row.textPlain) ??
       toNonEmptyString(row.text) ??
       "";
-    if (!body) continue;
-    snippets.push(`${from}: ${body.slice(0, 180)}`);
+    if (!rawBody) continue;
+    const cleanBody = stripHtmlAndJunk(rawBody);
+    if (!cleanBody) continue;
+    snippets.push(`${from}: ${cleanBody.slice(0, 180)}`);
   }
   return snippets.join(" || ").slice(0, 900);
 }
@@ -182,10 +208,11 @@ export async function fetchGmailEmailsPaginated(
 export function parseGmailMessage(
   msg: Record<string, unknown>,
 ): ParsedGmailMessage {
+  const rawSnippet = String(msg.messageText ?? msg.snippet ?? "");
   return {
     subject: String(msg.subject ?? ""),
     sender: String(msg.sender ?? ""),
-    snippet: String(msg.messageText ?? msg.snippet ?? "").slice(0, 300),
+    snippet: stripHtmlAndJunk(rawSnippet).slice(0, 300),
     timestamp: String(msg.messageTimestamp ?? ""),
     messageId: String(msg.messageId ?? ""),
     threadId: toNonEmptyString(msg.threadId) ?? toNonEmptyString(msg.thread_id),

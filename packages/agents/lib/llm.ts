@@ -36,6 +36,9 @@ export function createLLM(config: LLMConfig = {}): ChatModel {
     modelName: model,
     temperature,
     ...(maxTokens != null && { maxTokens }),
+    modelKwargs: {
+      ...(maxTokens != null && { max_tokens: maxTokens }),
+    },
     // ChatOpenAI reads apiKey from configuration (or fields.apiKey), not openAIApiKey when using custom baseURL
     configuration: {
       apiKey: resolvedKey,
