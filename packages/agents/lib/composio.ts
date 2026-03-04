@@ -400,15 +400,14 @@ export async function executeGmailFetchMessageByThreadId(
   }
 
   try {
+    // Docs: https://docs.composio.dev/toolkits/gmail — only thread_id (required) and user_id (optional)
     const result = await client.tools.execute(
       "GMAIL_FETCH_MESSAGE_BY_THREAD_ID",
       {
         userId,
         connectedAccountId,
         arguments: {
-          thread_id: params.threadId,
-          threadId: params.threadId,
-          id: params.threadId,
+          thread_id: params.threadId.trim(),
           user_id: "me",
         },
       },
@@ -463,15 +462,22 @@ export async function executeGmailFetchThread(
     "GMAIL_GET_EMAIL_THREAD",
   ];
 
+  const threadId = params.threadId.trim();
+  // GMAIL_FETCH_MESSAGE_BY_THREAD_ID: thread_id (required), user_id (optional). See https://docs.composio.dev/toolkits/gmail
+  const argsByTool: Record<string, Record<string, string>> = {
+    GMAIL_FETCH_MESSAGE_BY_THREAD_ID: { thread_id: threadId, user_id: "me" },
+    GMAIL_GET_THREAD: { thread_id: threadId, id: threadId, user_id: "me" },
+    GMAIL_FETCH_THREAD: { thread_id: threadId, threadId, user_id: "me" },
+    GMAIL_GET_EMAIL_THREAD: { thread_id: threadId, threadId, user_id: "me" },
+  };
+
   for (const toolName of toolCandidates) {
     try {
       const result = await client.tools.execute(toolName, {
         userId,
         connectedAccountId,
-        arguments: {
-          thread_id: params.threadId,
-          threadId: params.threadId,
-          id: params.threadId,
+        arguments: argsByTool[toolName] ?? {
+          thread_id: threadId,
           user_id: "me",
         },
       });

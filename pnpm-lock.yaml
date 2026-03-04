@@ -201,11 +201,11 @@ importers:
   packages/agents:
     dependencies:
       '@composio/core':
-        specifier: ^0.6.0
-        version: 0.6.3(ws@8.19.0)(zod@3.25.76)
+        specifier: ^0.6.4
+        version: 0.6.4(ws@8.19.0)(zod@3.25.76)
       '@composio/langchain':
-        specifier: ^0.6.0
-        version: 0.6.3(@composio/core@0.6.3(ws@8.19.0)(zod@3.25.76))(@langchain/core@1.1.17(openai@4.104.0(ws@8.19.0)(zod@3.25.76)))
+        specifier: ^0.6.4
+        version: 0.6.4(@composio/core@0.6.4(ws@8.19.0)(zod@3.25.76))(@langchain/core@1.1.17(openai@4.104.0(ws@8.19.0)(zod@3.25.76)))
       '@langchain/core':
         specifier: ^1.1.17
         version: 1.1.17(openai@4.104.0(ws@8.19.0)(zod@3.25.76))
@@ -428,11 +428,11 @@ packages:
   '@cfworker/json-schema@4.1.1':
     resolution: {integrity: sha512-gAmrUZSGtKc3AiBL71iNWxDsyUC5uMaKKGdvzYsBoTW/xi42JQHl7eKV2OYzCUqvc+D2RCcf7EXY2iCyFIk6og==}
 
-  '@composio/client@0.1.0-alpha.56':
-    resolution: {integrity: sha512-hNgChB5uhdvT4QXNzzfUuvtG6vrfanQQFY2hPyKwbeR4x6mEmIGFiZ4y2qynErdUWldAZiB/7pY/MBMg6Q9E0g==}
+  '@composio/client@0.1.0-alpha.60':
+    resolution: {integrity: sha512-i1/S+GX7ATzdQK0UzoaPdWqP4lmn/sCWF4ojGdq26k+cyEiq3aWN4HZFKYBp1jmwD1Sxn02RX9iTL09YAPn3Rg==}
 
-  '@composio/core@0.6.3':
-    resolution: {integrity: sha512-PZm4LQGMaaDFHWUouMHqKPg5fNfgjM2l0zF0Vw/vfWJ34KYyo1ne6YjhGvBDmOIKPByT6Dal4/ff7AHpjedL/w==}
+  '@composio/core@0.6.4':
+    resolution: {integrity: sha512-WwC2fegW7T76IoJze5hNCXO0IwU4L8jruLmLfULaexwnUxK2M52whM69wVps1MWOuHUaE3D4YxrycyPzIbzVoQ==}
     peerDependencies:
       zod: ^3.25 || ^4
 
@@ -441,10 +441,10 @@ packages:
     peerDependencies:
       zod: '>=3.25.76 <5'
 
-  '@composio/langchain@0.6.3':
-    resolution: {integrity: sha512-vVzzx+20h+6G6GzVyqECf4XnsitmTEwo5m3MUUU15ipmOZnHM4KAw5aUvrChZWXBFTymdGv0+nJmZWNRe5BqFw==}
+  '@composio/langchain@0.6.4':
+    resolution: {integrity: sha512-7KPKQeuTLb/Eao9AZ3Q95gjGP0SmKAs+e3TK6Jzz+9eFLGtKZaja6mGstQy02LBB8MgFQCZl/yIQoZRHFoyUBg==}
     peerDependencies:
-      '@composio/core': 0.6.3
+      '@composio/core': 0.6.4
       '@langchain/core': ^1.1.17
 
   '@date-fns/tz@1.4.1':
@@ -5649,11 +5649,11 @@ snapshots:
 
   '@cfworker/json-schema@4.1.1': {}
 
-  '@composio/client@0.1.0-alpha.56': {}
+  '@composio/client@0.1.0-alpha.60': {}
 
-  '@composio/core@0.6.3(ws@8.19.0)(zod@3.25.76)':
+  '@composio/core@0.6.4(ws@8.19.0)(zod@3.25.76)':
     dependencies:
-      '@composio/client': 0.1.0-alpha.56
+      '@composio/client': 0.1.0-alpha.60
       '@composio/json-schema-to-zod': 0.1.20(zod@3.25.76)
       '@types/json-schema': 7.0.15
       chalk: 4.1.2
@@ -5669,9 +5669,9 @@ snapshots:
     dependencies:
       zod: 3.25.76
 
-  '@composio/langchain@0.6.3(@composio/core@0.6.3(ws@8.19.0)(zod@3.25.76))(@langchain/core@1.1.17(openai@4.104.0(ws@8.19.0)(zod@3.25.76)))':
+  '@composio/langchain@0.6.4(@composio/core@0.6.4(ws@8.19.0)(zod@3.25.76))(@langchain/core@1.1.17(openai@4.104.0(ws@8.19.0)(zod@3.25.76)))':
     dependencies:
-      '@composio/core': 0.6.3(ws@8.19.0)(zod@3.25.76)
+      '@composio/core': 0.6.4(ws@8.19.0)(zod@3.25.76)
       '@langchain/core': 1.1.17(openai@4.104.0(ws@8.19.0)(zod@3.25.76))
 
   '@date-fns/tz@1.4.1': {}

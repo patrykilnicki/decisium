@@ -13,8 +13,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@composio/core": "^0.6.0",
-    "@composio/langchain": "^0.6.0",
+    "@composio/core": "^0.6.4",
+    "@composio/langchain": "^0.6.4",
     "deepagents": "^1.6.0",
     "@langchain/core": "^1.1.17",
     "@langchain/langgraph": "^0.2.0",
