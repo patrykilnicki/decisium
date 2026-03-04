@@ -47,7 +47,9 @@ interface IntegrationTodoItem {
   id: string;
   title: string;
   summary: string;
-  priority: "low" | "medium" | "high" | "urgent";
+  priority: "normal" | "urgent";
+  /** When priority is urgent, short reason (e.g. Anna waiting for new version). */
+  urgentReason?: string;
   status: "open" | "in_progress" | "done";
   dueAt: string | null;
   sourceProvider?: string;
@@ -58,9 +60,7 @@ type TodoItemWithMeta = IntegrationTodoItem & { snapshotDate?: string };
 
 const PRIORITY_ORDER: Record<IntegrationTodoItem["priority"], number> = {
   urgent: 0,
-  high: 1,
-  medium: 2,
-  low: 3,
+  normal: 1,
 };
 
 function sortTasksByPriority<T extends IntegrationTodoItem>(tasks: T[]): T[] {
@@ -72,6 +72,21 @@ function sortTasksByPriority<T extends IntegrationTodoItem>(tasks: T[]): T[] {
 interface IntegrationTodoListResponse {
   items: IntegrationTodoItem[];
   hasSnapshot?: boolean;
+}
+
+/** Normalize priority from API (supports legacy low/medium/high -> normal). */
+function normalizeTodoItem(item: IntegrationTodoItem): IntegrationTodoItem {
+  const p = item.priority;
+  const priority: IntegrationTodoItem["priority"] =
+    p === "urgent" ? "urgent" : "normal";
+  return {
+    ...item,
+    priority,
+    urgentReason:
+      "urgentReason" in item && typeof item.urgentReason === "string"
+        ? item.urgentReason
+        : undefined,
+  };
 }
 
 const JOURNAL_ENTRIES = [
@@ -143,9 +158,19 @@ function TaskRow({
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-2">
-        {task.priority === "urgent" || task.priority === "high" ? (
-          <span className="text-[13px] font-medium tracking-tight text-destructive">
-            {task.priority === "urgent" ? "Urgent" : "High"}
+        {task.priority === "urgent" ? (
+          <span className="flex flex-col items-end text-right">
+            <span className="text-[13px] font-medium tracking-tight text-destructive">
+              Urgent
+            </span>
+            {task.urgentReason ? (
+              <span
+                className="text-xs text-muted-foreground max-w-[180px] truncate"
+                title={task.urgentReason}
+              >
+                {task.urgentReason}
+              </span>
+            ) : null}
           </span>
         ) : null}
         <DropdownMenu>
@@ -328,7 +353,7 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
       .then((r) => (r.ok ? r.json() : null))
       .then((payload: Partial<IntegrationTodoListResponse> | null) => {
         if (payload && Array.isArray(payload.items)) {
-          setIntegrationTasks(payload.items);
+          setIntegrationTasks(payload.items.map(normalizeTodoItem));
           setHasSnapshot(true);
         }
       });
@@ -336,14 +361,20 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
 
   const refetchOverdue = useCallback(() => {
     if (!userId) return;
-    fetch("/api/integrations/todos/overdue?days=2", {
+    const today = toLocalDateString(new Date());
+    fetch(`/api/integrations/todos/overdue?days=2&today=${today}`, {
       cache: "no-store",
       credentials: "include",
     })
       .then((r) => (r.ok ? r.json() : null))
       .then((data: { items?: TodoItemWithMeta[] } | null) => {
-        if (data && Array.isArray(data.items)) setOverdueItems(data.items);
-      });
+        if (data && Array.isArray(data.items)) {
+          setOverdueItems(
+            data.items.map(normalizeTodoItem) as TodoItemWithMeta[],
+          );
+        }
+      })
+      .catch(() => setOverdueItems([]));
   }, [userId]);
 
   async function patchItem(
@@ -481,7 +512,11 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
         }
         const payload =
           (await response.json()) as Partial<IntegrationTodoListResponse>;
-        setIntegrationTasks(Array.isArray(payload.items) ? payload.items : []);
+        setIntegrationTasks(
+          Array.isArray(payload.items)
+            ? payload.items.map(normalizeTodoItem)
+            : [],
+        );
         setHasSnapshot(payload.hasSnapshot ?? true);
       } catch (err) {
         if ((err as { name?: string }).name !== "AbortError") {
@@ -507,20 +542,28 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
   useEffect(() => {
     if (!userId || !isToday) {
       setOverdueItems([]);
+      setOverdueLoading(false);
       return;
     }
     const controller = new AbortController();
     setOverdueLoading(true);
-    fetch("/api/integrations/todos/overdue?days=2", {
+    const today = toLocalDateString(new Date());
+    fetch(`/api/integrations/todos/overdue?days=2&today=${today}`, {
       cache: "no-store",
       credentials: "include",
       signal: controller.signal,
     })
       .then((r) => (r.ok ? r.json() : null))
       .then((data: { items?: TodoItemWithMeta[] } | null) => {
-        if (data && Array.isArray(data.items)) setOverdueItems(data.items);
+        if (data && Array.isArray(data.items)) {
+          setOverdueItems(
+            data.items.map(normalizeTodoItem) as TodoItemWithMeta[],
+          );
+        } else {
+          setOverdueItems([]);
+        }
       })
-      .catch(() => {})
+      .catch(() => setOverdueItems([]))
       .finally(() => setOverdueLoading(false));
     return () => controller.abort();
   }, [userId, isToday]);
@@ -538,7 +581,11 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
       if (!response.ok) return;
       const payload =
         (await response.json()) as Partial<IntegrationTodoListResponse>;
-      setIntegrationTasks(Array.isArray(payload.items) ? payload.items : []);
+      setIntegrationTasks(
+        Array.isArray(payload.items)
+          ? payload.items.map(normalizeTodoItem)
+          : [],
+      );
       setHasSnapshot(true);
     } finally {
       setGeneratingTasks(false);

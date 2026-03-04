@@ -27,8 +27,9 @@ export async function GET(request: NextRequest) {
         parseInt(request.nextUrl.searchParams.get("days") ?? "2", 10),
       ),
     );
+    const today = request.nextUrl.searchParams.get("today") ?? undefined;
     const generator = createTodoGenerator(createAdminClient());
-    const items = await generator.getOverdueItems(user.id, { days });
+    const items = await generator.getOverdueItems(user.id, { days, today });
     return NextResponse.json({ items });
   } catch (error) {
     return NextResponse.json(

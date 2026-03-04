@@ -30,7 +30,7 @@ export interface TodoGenerateOptions {
 }
 
 function buildStats(items: TodoItem[]): TodoListOutput["stats"] {
-  const byPriority = { low: 0, medium: 0, high: 0, urgent: 0 };
+  const byPriority = { normal: 0, urgent: 0 };
   const byProvider: Record<string, number> = {};
   for (const item of items) {
     byPriority[item.priority] += 1;
@@ -38,6 +38,40 @@ function buildStats(items: TodoItem[]): TodoListOutput["stats"] {
       (byProvider[item.sourceProvider] ?? 0) + 1;
   }
   return { total: items.length, byPriority, byProvider };
+}
+
+/** Normalize legacy snapshot payload (old priority keys) to current schema for parse. */
+function normalizeLegacyTodoPayload(payload: unknown): unknown {
+  if (!payload || typeof payload !== "object") return payload;
+  const raw = payload as Record<string, unknown>;
+  const items = Array.isArray(raw.items) ? raw.items : [];
+  const normalizedItems = items.map((it: unknown) => {
+    const item = it as Record<string, unknown>;
+    const p = item.priority as string | undefined;
+    const normal =
+      p === "low" || p === "medium" || p === "high" || !p ? "normal" : "urgent";
+    return { ...item, priority: normal };
+  });
+  const byPriority = { normal: 0, urgent: 0 };
+  for (const it of normalizedItems) {
+    const p = (it as { priority: string }).priority;
+    byPriority[p === "urgent" ? "urgent" : "normal"] += 1;
+  }
+  const byProvider: Record<string, number> = {};
+  for (const it of normalizedItems) {
+    const prov = (it as { sourceProvider?: string }).sourceProvider ?? "";
+    byProvider[prov] = (byProvider[prov] ?? 0) + 1;
+  }
+  return {
+    ...raw,
+    items: normalizedItems,
+    stats: {
+      ...(typeof raw.stats === "object" && raw.stats ? raw.stats : {}),
+      total: normalizedItems.length,
+      byPriority,
+      byProvider,
+    },
+  };
 }
 
 function toDateString(date: Date): string {
@@ -242,13 +276,14 @@ RULES:
 8. Do NOT duplicate tasks for the same item.
 9. Be selective — quality over quantity.
 10. Write titles as concise action items (start with a verb). Keep in source language.
-11. Priority: urgent (must do today), high (important), medium (should do), low (can wait).
+11. Priority: only two levels — "normal" (default) or "urgent". Use "urgent" only when something truly cannot wait (e.g. someone explicitly waiting for reply/action, deadline today, blocking others). When you set "urgent", you MUST set "urgentReason": a short explanation why (max ~80 chars), e.g. "Anna waiting for new version" or "Client call at 3pm".
 
 Return a JSON array. Each object:
 {
   "title": "short actionable title (max 80 chars)",
   "summary": "one sentence explaining what needs to be done",
-  "priority": "low" | "medium" | "high" | "urgent",
+  "priority": "normal" or "urgent",
+  "urgentReason": "required only when priority is urgent — short reason (e.g. Anna waiting for new version)",
   "sourceProvider": "google_calendar" or "gmail",
   "sourceType": "calendar_event" or "message",
   "sourceExternalId": "ID from the source signal",
@@ -261,7 +296,8 @@ Return ONLY the JSON array. No markdown, no explanation. If nothing actionable, 
 interface LlmExtractedTask {
   title: string;
   summary: string;
-  priority: "low" | "medium" | "high" | "urgent";
+  priority: "normal" | "urgent";
+  urgentReason?: string;
   sourceProvider: string;
   sourceType: string;
   sourceExternalId?: string;
@@ -270,11 +306,16 @@ interface LlmExtractedTask {
 }
 
 function llmTaskToTodoItem(task: LlmExtractedTask, date: string): TodoItem {
+  const priority = task.priority === "urgent" ? "urgent" : "normal";
   return {
     id: crypto.randomUUID(),
     title: task.title.slice(0, 120),
     summary: task.summary.slice(0, 500),
-    priority: task.priority,
+    priority,
+    urgentReason:
+      priority === "urgent" && task.urgentReason
+        ? task.urgentReason.slice(0, 200)
+        : undefined,
     status: "open",
     dueAt: `${date}T00:00:00.000Z`,
     sourceProvider: task.sourceProvider,
@@ -475,13 +516,17 @@ export class TodoGenerator {
   /**
    * Overdue = open items from previous days. Returns items with snapshotDate so UI can show "From yesterday".
    * Fetches all relevant snapshots in one query (user_id + date in [yesterday, ...]) then parses payloads.
+   * @param options.today - Reference date YYYY-MM-DD (e.g. client's local today); if omitted uses server date.
    */
   async getOverdueItems(
     userId: string,
-    options?: { days?: number },
+    options?: { days?: number; today?: string },
   ): Promise<Array<TodoItem & { snapshotDate: string }>> {
     const days = options?.days ?? 2;
-    const today = toDateString(new Date());
+    const today =
+      options?.today && /^\d{4}-\d{2}-\d{2}$/.test(options.today)
+        ? options.today
+        : toDateString(new Date());
     const dateStrings: string[] = [];
     for (let i = 1; i <= days; i++) {
       const d = new Date(today + "T12:00:00Z");
@@ -511,7 +556,9 @@ export class TodoGenerator {
       const payload = (row as { payload: unknown }).payload;
       if (!dateStr || !payload) continue;
       try {
-        const snapshot = TodoListOutputSchema.parse(payload);
+        const snapshot = TodoListOutputSchema.parse(
+          normalizeLegacyTodoPayload(payload),
+        );
         for (const item of snapshot.items) {
           if (item.status !== "done") {
             result.push({ ...item, snapshotDate: dateStr });
@@ -652,7 +699,9 @@ export class TodoGenerator {
     if (error || !data) return null;
 
     try {
-      return TodoListOutputSchema.parse((data as { payload: unknown }).payload);
+      return TodoListOutputSchema.parse(
+        normalizeLegacyTodoPayload((data as { payload: unknown }).payload),
+      );
     } catch {
       return null;
     }
@@ -711,7 +760,7 @@ export class TodoGenerator {
       items: [],
       stats: {
         total: 0,
-        byPriority: { low: 0, medium: 0, high: 0, urgent: 0 },
+        byPriority: { normal: 0, urgent: 0 },
         byProvider: {},
       },
       version: "1.0",
