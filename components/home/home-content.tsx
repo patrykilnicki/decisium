@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { CentralIcon } from "@/components/ui/central-icon";
@@ -18,7 +19,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Checkbox } from "@/components/ui/checkbox";
 import { createClient } from "@/lib/supabase/client";
 import * as db from "@/lib/supabase/db";
 import { cn } from "@/lib/utils";
@@ -156,7 +156,11 @@ function TaskRow({
               className="size-8 shrink-0"
               aria-label="Task actions"
             >
-              <CentralIcon name="IconBarsThree" size={16} className="text-muted-foreground" />
+              <CentralIcon
+                name="IconBarsThree"
+                size={16}
+                className="text-muted-foreground"
+              />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
@@ -258,21 +262,27 @@ function SourceLogo({ provider }: { provider?: string }) {
   const iconClass = "size-3";
   const logoSrc = provider ? PROVIDER_LOGO[provider] : null;
   const content = logoSrc ? (
-    <img
+    <Image
       src={logoSrc}
       alt=""
       className="size-full object-contain"
       width={18}
       height={18}
     />
-  ) : (() => {
-    switch (provider) {
-      case "linear":
-        return <CentralIcon name="IconChecklist" size={18} className={iconClass} />;
-      default:
-        return <CentralIcon name="IconCircle" size={18} className={iconClass} />;
-    }
-  })();
+  ) : (
+    (() => {
+      switch (provider) {
+        case "linear":
+          return (
+            <CentralIcon name="IconChecklist" size={18} className={iconClass} />
+          );
+        default:
+          return (
+            <CentralIcon name="IconCircle" size={18} className={iconClass} />
+          );
+      }
+    })()
+  );
   return (
     <div
       className="flex size-[18px] shrink-0 items-center justify-center overflow-hidden rounded-[6px] border border-input text-muted-foreground"
@@ -545,392 +555,395 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
         backgroundSize: "auto 50vh",
       }}
     >
-    <div className="flex flex-1 flex-col items-center gap-14 px-4 py-8 md:px-8 lg:px-32">
-      {/* Header: greeting + date navigation */}
-      <header className="flex w-full max-w-[720px] flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-3xl text-foreground">
-          {getGreeting()}, {displayName}
-        </h1>
-        
-        <div className="flex items-center gap-2">
-        <div className="text-sm font-medium text-foreground">
-            {formatDisplayDate(selectedDate)}
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setSelectedDate(new Date())}
-            aria-label="Go to today"
-            className="ml-1"
-          >
-            Today
-          </Button>
-          <div className="flex items-center">
-          <Button
-            variant="ghost"
-            size="icon"
-           
-            onClick={goPrevDay}
-            aria-label="Previous day"
-          >
-            <CentralIcon
-              name="IconChevronLeft"
-              iconFill="outlined"
-              iconStroke="2"
-              size={20}
-            />
-          </Button>
-       
-          <Button
-            variant="ghost"
-            size="icon"
-         
-            onClick={goNextDay}
-            aria-label="Next day"
-          >
-            <CentralIcon
-              name="IconChevronRight"
-              iconFill="outlined"
-              iconStroke="2"
-              size={20}
-            />
-          </Button>
-        </div>
-        </div>
-      </header>
+      <div className="flex flex-1 flex-col items-center gap-14 px-4 py-8 md:px-8 lg:px-32">
+        {/* Header: greeting + date navigation */}
+        <header className="flex w-full max-w-[720px] flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <h1 className="text-3xl text-foreground">
+            {getGreeting()}, {displayName}
+          </h1>
 
-      {/* Tasks section */}
-      <section className="flex w-full max-w-[720px] flex-col gap-4">
-        <h2 className="text-xl font-serif">
-          Tasks
-        </h2>
-
-        {/* Overdue block – only when viewing today */}
-        {isToday && (overdueLoading || overdueItems.length > 0) && (
-          <div className="overflow-hidden rounded-2xl border border-destructive/30 bg-destructive/5">
-            <div className="border-b border-destructive/20 bg-destructive/10 px-4 py-2">
-              <span className="flex items-center gap-2 text-sm font-medium text-destructive">
-                <CentralIcon name="IconCalendarClock" size={16} />
-                Overdue
-              </span>
+          <div className="flex items-center gap-2">
+            <div className="text-sm font-medium text-foreground">
+              {formatDisplayDate(selectedDate)}
             </div>
-            <div className="divide-y divide-border">
-              {overdueLoading ? (
-                <p className="px-5 py-4 text-sm text-muted-foreground">
-                  Loading overdue…
-                </p>
-              ) : (
-                sortTasksByPriority(overdueItems).map((task) => (
-                  <TaskRow
-                    key={task.id}
-                    task={task}
-                    date={task.snapshotDate ?? toLocalDateString(new Date())}
-                    isOverdue
-                    onActionOpen={(type) =>
-                      setActionDialog({
-                        type,
-                        task,
-                        date:
-                          task.snapshotDate ?? toLocalDateString(new Date()),
-                      })
-                    }
-                    onMarkResolved={() =>
-                      patchItem(
-                        task.snapshotDate ?? toLocalDateString(new Date()),
-                        task.id,
-                        "update",
-                        { status: "done" },
-                      )
-                    }
-                    onDelete={() =>
-                      patchItem(
-                        task.snapshotDate ?? toLocalDateString(new Date()),
-                        task.id,
-                        "delete",
-                      )
-                    }
-                  />
-                ))
-              )}
-            </div>
-          </div>
-        )}
-
-        <div className="overflow-hidden rounded-2xl border border-border bg-card">
-          {tasksLoading ? (
-            <p className="px-5 py-4 text-sm text-muted-foreground">
-              Loading tasks...
-            </p>
-          ) : !isToday && hasSnapshot === false ? (
-            <div className="flex flex-col gap-4 px-5 py-6">
-              <p className="text-sm text-muted-foreground">
-                No tasks generated yet for this day.
-              </p>
-              <Button
-                variant="secondary"
-                size="sm"
-                className="w-fit"
-                onClick={generateTasksForSelectedDay}
-                disabled={generatingTasks}
-              >
-                {generatingTasks
-                  ? "Generating…"
-                  : "Generate tasks for this day"}
-              </Button>
-            </div>
-          ) : integrationTasks.length === 0 ? (
-            <p className="px-5 py-4 text-sm text-muted-foreground">
-              No tasks for this day
-            </p>
-          ) : (
-            sortTasksByPriority(integrationTasks).map((task) => (
-              <TaskRow
-                key={task.id}
-                task={task}
-                date={toLocalDateString(selectedDate)}
-                isOverdue={false}
-                onActionOpen={(type) =>
-                  setActionDialog({
-                    type,
-                    task,
-                    date: toLocalDateString(selectedDate),
-                  })
-                }
-                onMarkResolved={() =>
-                  patchItem(
-                    toLocalDateString(selectedDate),
-                    task.id,
-                    "update",
-                    {
-                      status: "done",
-                    },
-                  )
-                }
-                onDelete={() =>
-                  patchItem(toLocalDateString(selectedDate), task.id, "delete")
-                }
-              />
-            ))
-          )}
-          <button
-            type="button"
-            className="flex w-full items-center gap-2 px-5 py-3 text-left text-sm font-normal text-muted-foreground transition-colors hover:bg-muted/50"
-          >
-            <div className="flex size-[18px] items-center justify-center rounded-[6px] border border-input">
-              <CentralIcon
-                name="IconPlusSmall"
-                iconFill="outlined"
-                iconStroke="2"
-                size={16}
-              />
-            </div>
-            New task
-          </button>
-        </div>
-      </section>
-
-      {/* Task action dialogs */}
-      <Dialog
-        open={!!actionDialog}
-        onOpenChange={(open) => !open && setActionDialog(null)}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>
-              {actionDialog?.type === "date" ? "Change date" : "Change name"}
-            </DialogTitle>
-          </DialogHeader>
-          {actionDialog?.type === "date" && (
-            <div className="flex flex-col gap-3">
-              <Input
-                type="date"
-                value={changeDateTo}
-                onChange={(e) => setChangeDateTo(e.target.value)}
-              />
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setChangeDateTo(toLocalDateString(new Date()))}
-                >
-                  Today
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    const t = new Date();
-                    t.setDate(t.getDate() + 1);
-                    setChangeDateTo(toLocalDateString(t));
-                  }}
-                >
-                  Tomorrow
-                </Button>
-              </div>
-            </div>
-          )}
-          {actionDialog?.type === "name" && (
-            <Input
-              value={changeNameTo}
-              onChange={(e) => setChangeNameTo(e.target.value)}
-              placeholder="Task name"
-            />
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setActionDialog(null)}>
-              Cancel
-            </Button>
             <Button
-              disabled={actionPending}
-              onClick={() => {
-                if (!actionDialog) return;
-                if (actionDialog.type === "date") {
-                  patchItem(actionDialog.date, actionDialog.task.id, "move", {
-                    toDate: changeDateTo,
-                  });
-                } else {
-                  patchItem(actionDialog.date, actionDialog.task.id, "update", {
-                    title: changeNameTo.trim() || actionDialog.task.title,
-                  });
-                }
-              }}
+              variant="outline"
+              size="sm"
+              onClick={() => setSelectedDate(new Date())}
+              aria-label="Go to today"
+              className="ml-1"
             >
-              {actionDialog?.type === "date" ? "Move" : "Save"}
+              Today
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Calendar section */}
-      <section className="flex w-full max-w-[720px] flex-col gap-4">
-        <h2 className="text-xl font-serif">
-          Calendar
-        </h2>
-        <div className="flex flex-col gap-1">
-          {calendarLoading ? (
-            <p className="py-4 text-sm text-muted-foreground">
-              Loading calendar...
-            </p>
-          ) : calendarEvents.length === 0 ? (
-            <p className="py-4 text-sm text-muted-foreground">
-              No events for this day
-            </p>
-          ) : (
-            calendarEvents.map((event) => (
-              <div
-                key={event.id}
-                className={cn(
-                  "flex gap-3 rounded-xl px-2 py-2",
-                  event.color === "green"
-                    ? "bg-emerald-500/10"
-                    : "bg-primary/5",
-                )}
-              >
-                <div
-                  className={cn(
-                    "w-[3px] shrink-0 self-stretch rounded",
-                    event.color === "green" ? "bg-emerald-600" : "bg-primary",
-                  )}
-                />
-                <div className="flex min-w-0 flex-1 flex-col justify-center py-0.5">
-                  <p className="text-sm font-medium leading-5 text-foreground">
-                    {event.title}
-                  </p>
-                  <p className="text-xs leading-4 tracking-wide text-muted-foreground">
-                    {event.time}
-                  </p>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      </section>
-
-      {/* Journal section */}
-      <section className="flex w-full max-w-[720px] flex-col gap-4">
-        <h2 className="text-xl font-serif">
-          Journal
-        </h2>
-        <div className="flex flex-col gap-4 rounded-[20px] border border-border bg-card p-4 shadow-sm">
-          <div className="min-h-[52px] rounded-lg p-2">
-            <Textarea
-              placeholder="Add notes, ideas or reflections"
-              value={journalValue}
-              onChange={(e) => setJournalValue(e.target.value)}
-              className="min-h-[80px] resize-none border-0 bg-transparent text-sm placeholder:text-muted-foreground focus-visible:ring-0"
-            />
-          </div>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center">
               <Button
-                variant="secondary"
+                variant="ghost"
                 size="icon"
-                className="size-8 rounded-full"
-                aria-label="Voice input"
+                onClick={goPrevDay}
+                aria-label="Previous day"
               >
                 <CentralIcon
-                  name="IconMicrophone"
+                  name="IconChevronLeft"
                   iconFill="outlined"
                   iconStroke="2"
                   size={20}
                 />
               </Button>
+
               <Button
-                variant="secondary"
-                size="sm"
-                className="rounded-full px-3 py-1.5 text-[13px] font-medium"
+                variant="ghost"
+                size="icon"
+                onClick={goNextDay}
+                aria-label="Next day"
               >
-                Generate from App Stack
+                <CentralIcon
+                  name="IconChevronRight"
+                  iconFill="outlined"
+                  iconStroke="2"
+                  size={20}
+                />
               </Button>
             </div>
-            <Button
-              size="icon"
-              className="size-8 rounded-full opacity-50"
-              aria-label="Send"
-            >
-              <CentralIcon
-                name="IconArrowUp"
-                iconFill="filled"
-                iconStroke="2"
-                size={20}
-                className="text-primary-foreground"
-              />
-            </Button>
           </div>
-        </div>
-        <div className="overflow-hidden rounded-2xl border border-border bg-card">
-          {JOURNAL_ENTRIES.map((entry) => (
-            <div
-              key={entry.id}
-              className="flex gap-5 border-b border-border px-5 py-4 last:border-b-0"
-            >
-              <p className="w-12 shrink-0 text-sm font-medium text-muted-foreground">
-                {entry.time}
-              </p>
-              <div className="flex min-w-0 flex-1 flex-col gap-2">
-                <p className="text-sm font-normal leading-5 text-foreground">
-                  {entry.text}
-                </p>
-                {entry.comment && (
-                  <div className="flex items-center gap-2">
-                    <CentralIcon
-                      name="IconNote1"
-                      iconFill="outlined"
-                      iconStroke="2"
-                      size={16}
-                      className="text-muted-foreground"
+        </header>
+
+        {/* Tasks section */}
+        <section className="flex w-full max-w-[720px] flex-col gap-4">
+          <h2 className="text-xl font-serif">Tasks</h2>
+
+          {/* Overdue block – only when viewing today */}
+          {isToday && (overdueLoading || overdueItems.length > 0) && (
+            <div className="overflow-hidden rounded-2xl border border-destructive/30 bg-destructive/5">
+              <div className="border-b border-destructive/20 bg-destructive/10 px-4 py-2">
+                <span className="flex items-center gap-2 text-sm font-medium text-destructive">
+                  <CentralIcon name="IconCalendarClock" size={16} />
+                  Overdue
+                </span>
+              </div>
+              <div className="divide-y divide-border">
+                {overdueLoading ? (
+                  <p className="px-5 py-4 text-sm text-muted-foreground">
+                    Loading overdue…
+                  </p>
+                ) : (
+                  sortTasksByPriority(overdueItems).map((task) => (
+                    <TaskRow
+                      key={task.id}
+                      task={task}
+                      date={task.snapshotDate ?? toLocalDateString(new Date())}
+                      isOverdue
+                      onActionOpen={(type) =>
+                        setActionDialog({
+                          type,
+                          task,
+                          date:
+                            task.snapshotDate ?? toLocalDateString(new Date()),
+                        })
+                      }
+                      onMarkResolved={() =>
+                        patchItem(
+                          task.snapshotDate ?? toLocalDateString(new Date()),
+                          task.id,
+                          "update",
+                          { status: "done" },
+                        )
+                      }
+                      onDelete={() =>
+                        patchItem(
+                          task.snapshotDate ?? toLocalDateString(new Date()),
+                          task.id,
+                          "delete",
+                        )
+                      }
                     />
-                    <span className="text-xs font-medium tracking-wide text-muted-foreground">
-                      {entry.comment}
-                    </span>
-                  </div>
+                  ))
                 )}
               </div>
             </div>
-          ))}
-        </div>
-      </section>
-    </div>
+          )}
+
+          <div className="overflow-hidden rounded-2xl border border-border bg-card">
+            {tasksLoading ? (
+              <p className="px-5 py-4 text-sm text-muted-foreground">
+                Loading tasks...
+              </p>
+            ) : !isToday && hasSnapshot === false ? (
+              <div className="flex flex-col gap-4 px-5 py-6">
+                <p className="text-sm text-muted-foreground">
+                  No tasks generated yet for this day.
+                </p>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="w-fit"
+                  onClick={generateTasksForSelectedDay}
+                  disabled={generatingTasks}
+                >
+                  {generatingTasks
+                    ? "Generating…"
+                    : "Generate tasks for this day"}
+                </Button>
+              </div>
+            ) : integrationTasks.length === 0 ? (
+              <p className="px-5 py-4 text-sm text-muted-foreground">
+                No tasks for this day
+              </p>
+            ) : (
+              sortTasksByPriority(integrationTasks).map((task) => (
+                <TaskRow
+                  key={task.id}
+                  task={task}
+                  date={toLocalDateString(selectedDate)}
+                  isOverdue={false}
+                  onActionOpen={(type) =>
+                    setActionDialog({
+                      type,
+                      task,
+                      date: toLocalDateString(selectedDate),
+                    })
+                  }
+                  onMarkResolved={() =>
+                    patchItem(
+                      toLocalDateString(selectedDate),
+                      task.id,
+                      "update",
+                      {
+                        status: "done",
+                      },
+                    )
+                  }
+                  onDelete={() =>
+                    patchItem(
+                      toLocalDateString(selectedDate),
+                      task.id,
+                      "delete",
+                    )
+                  }
+                />
+              ))
+            )}
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 px-5 py-3 text-left text-sm font-normal text-muted-foreground transition-colors hover:bg-muted/50"
+            >
+              <div className="flex size-[18px] items-center justify-center rounded-[6px] border border-input">
+                <CentralIcon
+                  name="IconPlusSmall"
+                  iconFill="outlined"
+                  iconStroke="2"
+                  size={16}
+                />
+              </div>
+              New task
+            </button>
+          </div>
+        </section>
+
+        {/* Task action dialogs */}
+        <Dialog
+          open={!!actionDialog}
+          onOpenChange={(open) => !open && setActionDialog(null)}
+        >
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>
+                {actionDialog?.type === "date" ? "Change date" : "Change name"}
+              </DialogTitle>
+            </DialogHeader>
+            {actionDialog?.type === "date" && (
+              <div className="flex flex-col gap-3">
+                <Input
+                  type="date"
+                  value={changeDateTo}
+                  onChange={(e) => setChangeDateTo(e.target.value)}
+                />
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      setChangeDateTo(toLocalDateString(new Date()))
+                    }
+                  >
+                    Today
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const t = new Date();
+                      t.setDate(t.getDate() + 1);
+                      setChangeDateTo(toLocalDateString(t));
+                    }}
+                  >
+                    Tomorrow
+                  </Button>
+                </div>
+              </div>
+            )}
+            {actionDialog?.type === "name" && (
+              <Input
+                value={changeNameTo}
+                onChange={(e) => setChangeNameTo(e.target.value)}
+                placeholder="Task name"
+              />
+            )}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setActionDialog(null)}>
+                Cancel
+              </Button>
+              <Button
+                disabled={actionPending}
+                onClick={() => {
+                  if (!actionDialog) return;
+                  if (actionDialog.type === "date") {
+                    patchItem(actionDialog.date, actionDialog.task.id, "move", {
+                      toDate: changeDateTo,
+                    });
+                  } else {
+                    patchItem(
+                      actionDialog.date,
+                      actionDialog.task.id,
+                      "update",
+                      {
+                        title: changeNameTo.trim() || actionDialog.task.title,
+                      },
+                    );
+                  }
+                }}
+              >
+                {actionDialog?.type === "date" ? "Move" : "Save"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Calendar section */}
+        <section className="flex w-full max-w-[720px] flex-col gap-4">
+          <h2 className="text-xl font-serif">Calendar</h2>
+          <div className="flex flex-col gap-1">
+            {calendarLoading ? (
+              <p className="py-4 text-sm text-muted-foreground">
+                Loading calendar...
+              </p>
+            ) : calendarEvents.length === 0 ? (
+              <p className="py-4 text-sm text-muted-foreground">
+                No events for this day
+              </p>
+            ) : (
+              calendarEvents.map((event) => (
+                <div
+                  key={event.id}
+                  className={cn(
+                    "flex gap-3 rounded-xl px-2 py-2",
+                    event.color === "green"
+                      ? "bg-emerald-500/10"
+                      : "bg-primary/5",
+                  )}
+                >
+                  <div
+                    className={cn(
+                      "w-[3px] shrink-0 self-stretch rounded",
+                      event.color === "green" ? "bg-emerald-600" : "bg-primary",
+                    )}
+                  />
+                  <div className="flex min-w-0 flex-1 flex-col justify-center py-0.5">
+                    <p className="text-sm font-medium leading-5 text-foreground">
+                      {event.title}
+                    </p>
+                    <p className="text-xs leading-4 tracking-wide text-muted-foreground">
+                      {event.time}
+                    </p>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </section>
+
+        {/* Journal section */}
+        <section className="flex w-full max-w-[720px] flex-col gap-4">
+          <h2 className="text-xl font-serif">Journal</h2>
+          <div className="flex flex-col gap-4 rounded-[20px] border border-border bg-card p-4 shadow-sm">
+            <div className="min-h-[52px] rounded-lg p-2">
+              <Textarea
+                placeholder="Add notes, ideas or reflections"
+                value={journalValue}
+                onChange={(e) => setJournalValue(e.target.value)}
+                className="min-h-[80px] resize-none border-0 bg-transparent text-sm placeholder:text-muted-foreground focus-visible:ring-0"
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="secondary"
+                  size="icon"
+                  className="size-8 rounded-full"
+                  aria-label="Voice input"
+                >
+                  <CentralIcon
+                    name="IconMicrophone"
+                    iconFill="outlined"
+                    iconStroke="2"
+                    size={20}
+                  />
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="rounded-full px-3 py-1.5 text-[13px] font-medium"
+                >
+                  Generate from App Stack
+                </Button>
+              </div>
+              <Button
+                size="icon"
+                className="size-8 rounded-full opacity-50"
+                aria-label="Send"
+              >
+                <CentralIcon
+                  name="IconArrowUp"
+                  iconFill="filled"
+                  iconStroke="2"
+                  size={20}
+                  className="text-primary-foreground"
+                />
+              </Button>
+            </div>
+          </div>
+          <div className="overflow-hidden rounded-2xl border border-border bg-card">
+            {JOURNAL_ENTRIES.map((entry) => (
+              <div
+                key={entry.id}
+                className="flex gap-5 border-b border-border px-5 py-4 last:border-b-0"
+              >
+                <p className="w-12 shrink-0 text-sm font-medium text-muted-foreground">
+                  {entry.time}
+                </p>
+                <div className="flex min-w-0 flex-1 flex-col gap-2">
+                  <p className="text-sm font-normal leading-5 text-foreground">
+                    {entry.text}
+                  </p>
+                  {entry.comment && (
+                    <div className="flex items-center gap-2">
+                      <CentralIcon
+                        name="IconNote1"
+                        iconFill="outlined"
+                        iconStroke="2"
+                        size={16}
+                        className="text-muted-foreground"
+                      />
+                      <span className="text-xs font-medium tracking-wide text-muted-foreground">
+                        {entry.comment}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      </div>
     </div>
   );
 }

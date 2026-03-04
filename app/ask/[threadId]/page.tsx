@@ -104,7 +104,11 @@ export default function ThreadPage() {
           {initialLoading ? (
             <div className="flex-1 flex items-center justify-center min-h-0">
               <div className="flex flex-col items-center gap-3 text-muted-foreground">
-                <CentralIcon name="IconLoader" size={24} className="animate-spin" />
+                <CentralIcon
+                  name="IconLoader"
+                  size={24}
+                  className="animate-spin"
+                />
                 <span className="text-sm">Loading messages...</span>
               </div>
             </div>

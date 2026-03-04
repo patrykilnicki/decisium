@@ -9,7 +9,9 @@ export const vaultUpdateDocumentTool = new DynamicStructuredTool({
   description:
     "Update an existing document in the user's Collections. Use when the user asks to edit, update, or add to an existing document. Pass userId, document_id (get from vault_search results or from prior context), and at least one of: title and/or content_md. When content_md changes, the document is re-indexed for search.",
   schema: z.object({
-    userId: z.string().describe("The user ID (tenant) who owns the Collections"),
+    userId: z
+      .string()
+      .describe("The user ID (tenant) who owns the Collections"),
     document_id: z.string().uuid().describe("The document ID to update"),
     title: z
       .string()

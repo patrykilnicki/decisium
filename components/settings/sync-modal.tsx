@@ -110,7 +110,11 @@ export function SyncModal({
         <div className="flex items-center justify-center py-8">
           {status === "syncing" && (
             <div className="flex flex-col items-center gap-4">
-              <CentralIcon name="IconLoader" size={48} className="animate-spin text-primary" />
+              <CentralIcon
+                name="IconLoader"
+                size={48}
+                className="animate-spin text-primary"
+              />
               <p className="text-sm text-muted-foreground">
                 This may take a moment...
               </p>
@@ -118,7 +122,11 @@ export function SyncModal({
           )}
           {status === "success" && (
             <div className="flex flex-col items-center gap-4">
-              <CentralIcon name="IconCheckCircle2" size={48} className="text-green-500" />
+              <CentralIcon
+                name="IconCheckCircle2"
+                size={48}
+                className="text-green-500"
+              />
               <p className="text-sm text-muted-foreground">
                 Closing automatically...
               </p>
@@ -126,7 +134,11 @@ export function SyncModal({
           )}
           {status === "error" && (
             <div className="flex flex-col items-center gap-4">
-              <CentralIcon name="IconCircleX" size={48} className="text-red-500" />
+              <CentralIcon
+                name="IconCircleX"
+                size={48}
+                className="text-red-500"
+              />
               <p className="text-sm text-muted-foreground">
                 Please try again later.
               </p>

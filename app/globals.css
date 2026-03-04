@@ -125,7 +125,7 @@
   body {
     @apply bg-background text-foreground;
   }
- 
+
   .text-xl,
   .text-2xl,
   .text-3xl,

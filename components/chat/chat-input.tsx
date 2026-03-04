@@ -109,7 +109,11 @@ export function ChatInput({
             aria-label="Send message"
           >
             {isSending || isLoading ? (
-              <CentralIcon name="IconLoader" size={20} className="animate-spin" />
+              <CentralIcon
+                name="IconLoader"
+                size={20}
+                className="animate-spin"
+              />
             ) : (
               <CentralIcon name="IconArrowUp" size={20} />
             )}
@@ -163,7 +167,11 @@ export function ChatInput({
             aria-label="Send message"
           >
             {isSending || isLoading ? (
-              <CentralIcon name="IconLoader" size={20} className="animate-spin" />
+              <CentralIcon
+                name="IconLoader"
+                size={20}
+                className="animate-spin"
+              />
             ) : (
               <CentralIcon name="IconArrowUp" size={20} />
             )}

@@ -7,7 +7,9 @@ export const vaultSearchTool = new DynamicStructuredTool({
   description:
     "Search the user's Collections documents semantically. Use when the user asks about notes, documents, or knowledge stored in their Collections. Pass userId and query.",
   schema: z.object({
-    userId: z.string().describe("The user ID to search Collections documents for"),
+    userId: z
+      .string()
+      .describe("The user ID to search Collections documents for"),
     query: z
       .string()
       .describe("The search query to find relevant Collections content"),

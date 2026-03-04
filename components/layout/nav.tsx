@@ -25,7 +25,11 @@ const navItems: NavItem[] = [
   { href: "/home", name: "IconHomeOpen", label: "Home" },
   { href: "/ask", name: "IconSparkle", label: "Ask AI" },
   { href: "/summaries", name: "IconCalendarClock", label: "Summaries" },
-  { href: "/collections", name: "IconSearchlinesSparkle", label: "Collections" },
+  {
+    href: "/collections",
+    name: "IconSearchlinesSparkle",
+    label: "Collections",
+  },
   { href: "/settings", name: "IconSettingsGear2", label: "Settings" },
 ];
 
@@ -78,10 +82,7 @@ export function Nav() {
       aria-label="Main navigation"
     >
       {/* Primary action - green gradient button with logo */}
-      <Link
-        href="/ask"
-        aria-label="Ask AI"
-      >
+      <Link href="/ask" aria-label="Ask AI">
         <Image
           src="/logo.svg"
           alt="Ask AI"

@@ -14,11 +14,29 @@ import type {
 function StepIcon({ status }: { status: ThinkingStepStatus }) {
   switch (status) {
     case "running":
-      return <CentralIcon name="IconLoader" size={16} className="animate-spin text-primary" />;
+      return (
+        <CentralIcon
+          name="IconLoader"
+          size={16}
+          className="animate-spin text-primary"
+        />
+      );
     case "completed":
-      return <CentralIcon name="IconCheckmark1" size={16} className="text-green-500" />;
+      return (
+        <CentralIcon
+          name="IconCheckmark1"
+          size={16}
+          className="text-green-500"
+        />
+      );
     case "error":
-      return <CentralIcon name="IconBubbleAlert" size={16} className="text-destructive" />;
+      return (
+        <CentralIcon
+          name="IconBubbleAlert"
+          size={16}
+          className="text-destructive"
+        />
+      );
     default:
       return null;
   }

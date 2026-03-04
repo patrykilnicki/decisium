@@ -9,7 +9,9 @@ export const vaultCreateDocumentTool = new DynamicStructuredTool({
   description:
     "Create a new document in the user's Collections (personal knowledge base). Use when the user asks to save a summary, note, or any content to Collections (e.g. 'save this to my collections', 'add a summary'). Pass userId, title, and content_md (markdown). Optional: collection_id to put the document in a specific collection.",
   schema: z.object({
-    userId: z.string().describe("The user ID (tenant) who owns the Collections"),
+    userId: z
+      .string()
+      .describe("The user ID (tenant) who owns the Collections"),
     title: z
       .string()
       .describe("Short document title (e.g. 'Meeting summary Mar 3 2025')"),

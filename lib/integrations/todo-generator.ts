@@ -498,7 +498,10 @@ export class TodoGenerator {
     );
 
     if (error) {
-      console.warn("[todo-generator] getOverdueItems selectMany error:", error.message);
+      console.warn(
+        "[todo-generator] getOverdueItems selectMany error:",
+        error.message,
+      );
       return [];
     }
 
