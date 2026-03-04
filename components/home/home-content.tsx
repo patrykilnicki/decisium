@@ -594,7 +594,7 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
 
   return (
     <div
-      className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-background p-4"
+      className="relative flex min-h-screen flex-col items-center bg-background p-4"
       style={{
         backgroundImage: "url(/bg.svg)",
         backgroundRepeat: "no-repeat",
@@ -602,7 +602,7 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
         backgroundSize: "auto 50vh",
       }}
     >
-      <div className="flex flex-1 flex-col items-center gap-14 px-4 py-8 md:px-8 lg:px-32">
+      <div className="flex w-full max-w-[720px] flex-1 flex-col items-stretch gap-14 px-4 py-8 md:px-8 md:py-10 lg:px-32">
         {/* Header: greeting + date navigation */}
         <header className="flex w-full max-w-[720px] flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <h1 className="text-3xl text-foreground">

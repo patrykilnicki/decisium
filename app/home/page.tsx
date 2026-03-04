@@ -34,7 +34,7 @@ export default function HomePage() {
   return (
     <ProtectedRoute>
       <AppLayout>
-        <div className="flex h-full flex-col overflow-y-auto">
+        <div className="flex h-full min-h-0 flex-col overflow-y-auto overflow-x-hidden overscroll-y-auto scroll-smooth">
           <HomeContent userName={userName} userId={userId} />
         </div>
       </AppLayout>
