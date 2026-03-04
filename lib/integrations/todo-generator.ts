@@ -341,7 +341,9 @@ Return a JSON array. Each object:
   "tags": ["relevant", "tags"]
 }
 
-Return ONLY the JSON array. No markdown, no explanation. If nothing actionable, return [].`;
+Return ONLY the JSON array. No markdown, no explanation.
+Create tasks for clear action items (e.g. meetings to prepare for, emails that need reply, payments to confirm).
+Return [] only when no signal implies a concrete user action.`;
 
 interface LlmExtractedTask {
   title: string;
@@ -426,6 +428,16 @@ export interface TodoExtractionLog {
   extractedItemsForLog: unknown[];
 }
 
+/** Strip model reasoning/thought blocks so we parse only the JSON array. */
+function stripReasoningFromResponse(raw: string): string {
+  if (!raw || typeof raw !== "string") return raw;
+  let out = raw.trim();
+  out = out.replace(/\s*>\s*\{\s*thought[\s\S]*?\}\s*/gi, " ").trim();
+  out = out.replace(/\s*\{\s*thought\s*\}\s*/gi, " ").trim();
+  out = out.replace(/^\s*[a-zA-Z0-9_-]+\s*\n?/, "").trim();
+  return out;
+}
+
 async function extractTasksWithLlm(
   signals: IntegrationSignal[],
   date: string,
@@ -434,7 +446,7 @@ async function extractTasksWithLlm(
     return { items: [], extractionLog: null };
   }
 
-  const llm = createLLM({ temperature: 0.15 });
+  const llm = createLLM({ temperature: 0.15, maxTokens: 4096 });
   const systemPrompt = TASK_EXTRACTION_PROMPT.replace(
     /\{\{targetDate\}\}/g,
     date,
@@ -447,7 +459,7 @@ async function extractTasksWithLlm(
     { role: "user", content: userContent },
   ]);
 
-  const text =
+  let text =
     typeof response.content === "string"
       ? response.content
       : Array.isArray(response.content)
@@ -457,6 +469,7 @@ async function extractTasksWithLlm(
             )
             .join("")
         : "";
+  text = stripReasoningFromResponse(text);
 
   const jsonMatch = text.match(/\[[\s\S]*\]/);
   if (!jsonMatch) {

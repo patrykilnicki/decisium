@@ -5,6 +5,7 @@ const DEFAULT_MODEL = "openai/gpt-4o";
 export interface LLMConfig {
   model?: string;
   temperature?: number;
+  maxTokens?: number;
   apiKey?: string;
 }
 
@@ -20,6 +21,7 @@ export function createLLM(config: LLMConfig = {}): ChatModel {
   const {
     model = process.env.LLM_MODEL || DEFAULT_MODEL,
     temperature = 0.7,
+    maxTokens,
     apiKey,
   } = config;
 
@@ -33,6 +35,7 @@ export function createLLM(config: LLMConfig = {}): ChatModel {
   return new ChatOpenAI({
     modelName: model,
     temperature,
+    ...(maxTokens != null && { maxTokens }),
     // ChatOpenAI reads apiKey from configuration (or fields.apiKey), not openAIApiKey when using custom baseURL
     configuration: {
       apiKey: resolvedKey,

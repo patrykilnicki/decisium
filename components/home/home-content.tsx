@@ -346,7 +346,7 @@ function SourceLogo({ provider }: { provider?: string }) {
   );
   return (
     <div
-      className="flex size-[18px] shrink-0 items-center justify-center overflow-hidden rounded-[6px] border border-input text-muted-foreground"
+      className="flex size-[18px] shrink-0 items-center justify-center overflow-hidden"
       title={provider ?? "Unknown source"}
     >
       {content}
