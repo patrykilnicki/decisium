@@ -69,6 +69,28 @@ function sortTasksByPriority<T extends IntegrationTodoItem>(tasks: T[]): T[] {
   );
 }
 
+/** Sort merged list: overdue first (oldest first), then by priority within group. */
+function sortMergedTasks(
+  tasks: TodoItemWithMeta[],
+  selectedDateStr: string,
+): TodoItemWithMeta[] {
+  return [...tasks].sort((a, b) => {
+    const aOverdue =
+      a.snapshotDate != null && a.snapshotDate !== selectedDateStr;
+    const bOverdue =
+      b.snapshotDate != null && b.snapshotDate !== selectedDateStr;
+    if (aOverdue && !bOverdue) return -1;
+    if (!aOverdue && bOverdue) return 1;
+    if (aOverdue && bOverdue) {
+      const dateCmp = (a.snapshotDate ?? "").localeCompare(
+        b.snapshotDate ?? "",
+      );
+      if (dateCmp !== 0) return dateCmp;
+    }
+    return PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority];
+  });
+}
+
 interface IntegrationTodoListResponse {
   items: IntegrationTodoItem[];
   hasSnapshot?: boolean;
@@ -228,14 +250,29 @@ function toLocalDateString(date: Date): string {
   return `${y}-${m}-${d}`;
 }
 
+/** Format past date as "Yesterday", "Mon 02 Feb", or "Last month". */
 function formatOverdueLabel(snapshotDate: string): string {
   const today = toLocalDateString(new Date());
-  const yesterday = new Date(new Date().setDate(new Date().getDate() - 1));
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
   const yesterdayStr = toLocalDateString(yesterday);
+
   if (snapshotDate === yesterdayStr) return "Yesterday";
   if (snapshotDate === today) return "Today";
+
   const d = new Date(snapshotDate + "T12:00:00");
-  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  const now = new Date();
+  const isLastMonth =
+    d.getFullYear() < now.getFullYear() ||
+    d.getMonth() < now.getMonth();
+
+  if (isLastMonth) return "Last month";
+
+  return d.toLocaleDateString("en-GB", {
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+  });
 }
 
 function formatTimeRange(
@@ -362,7 +399,7 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
   const refetchOverdue = useCallback(() => {
     if (!userId) return;
     const today = toLocalDateString(new Date());
-    fetch(`/api/integrations/todos/overdue?days=2&today=${today}`, {
+    fetch(`/api/integrations/todos/overdue?days=31&today=${today}`, {
       cache: "no-store",
       credentials: "include",
     })
@@ -548,7 +585,7 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
     const controller = new AbortController();
     setOverdueLoading(true);
     const today = toLocalDateString(new Date());
-    fetch(`/api/integrations/todos/overdue?days=2&today=${today}`, {
+    fetch(`/api/integrations/todos/overdue?days=31&today=${today}`, {
       cache: "no-store",
       credentials: "include",
       signal: controller.signal,
@@ -658,59 +695,8 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
         <section className="flex w-full flex-col gap-4">
           <h2 className="text-xl font-serif">Tasks</h2>
 
-          {/* Overdue block – only when viewing today */}
-          {isToday && (overdueLoading || overdueItems.length > 0) && (
-            <div className="overflow-hidden rounded-2xl border border-destructive/30 bg-destructive/5">
-              <div className="border-b border-destructive/20 bg-destructive/10 px-4 py-2">
-                <span className="flex items-center gap-2 text-sm font-medium text-destructive">
-                  <CentralIcon name="IconCalendarClock" size={16} />
-                  Overdue
-                </span>
-              </div>
-              <div className="divide-y divide-border">
-                {overdueLoading ? (
-                  <p className="px-5 py-4 text-sm text-muted-foreground">
-                    Loading overdue…
-                  </p>
-                ) : (
-                  sortTasksByPriority(overdueItems).map((task) => (
-                    <TaskRow
-                      key={task.id}
-                      task={task}
-                      date={task.snapshotDate ?? toLocalDateString(new Date())}
-                      isOverdue
-                      onActionOpen={(type) =>
-                        setActionDialog({
-                          type,
-                          task,
-                          date:
-                            task.snapshotDate ?? toLocalDateString(new Date()),
-                        })
-                      }
-                      onMarkResolved={() =>
-                        patchItem(
-                          task.snapshotDate ?? toLocalDateString(new Date()),
-                          task.id,
-                          "update",
-                          { status: "done" },
-                        )
-                      }
-                      onDelete={() =>
-                        patchItem(
-                          task.snapshotDate ?? toLocalDateString(new Date()),
-                          task.id,
-                          "delete",
-                        )
-                      }
-                    />
-                  ))
-                )}
-              </div>
-            </div>
-          )}
-
           <div className="overflow-hidden rounded-2xl border border-border bg-card w-full">
-            {tasksLoading ? (
+            {tasksLoading || (isToday && overdueLoading) ? (
               <p className="px-5 py-4 text-sm text-muted-foreground">
                 Loading tasks...
               </p>
@@ -731,44 +717,67 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
                     : "Generate tasks for this day"}
                 </Button>
               </div>
-            ) : integrationTasks.length === 0 ? (
-              <p className="px-5 py-4 text-sm text-muted-foreground">
-                No tasks for this day
-              </p>
-            ) : (
-              sortTasksByPriority(integrationTasks).map((task) => (
-                <TaskRow
-                  key={task.id}
-                  task={task}
-                  date={toLocalDateString(selectedDate)}
-                  isOverdue={false}
-                  onActionOpen={(type) =>
-                    setActionDialog({
-                      type,
-                      task,
-                      date: toLocalDateString(selectedDate),
-                    })
-                  }
-                  onMarkResolved={() =>
-                    patchItem(
-                      toLocalDateString(selectedDate),
-                      task.id,
-                      "update",
-                      {
-                        status: "done",
-                      },
-                    )
-                  }
-                  onDelete={() =>
-                    patchItem(
-                      toLocalDateString(selectedDate),
-                      task.id,
-                      "delete",
-                    )
-                  }
-                />
-              ))
-            )}
+            ) : (() => {
+              const selectedStr = toLocalDateString(selectedDate);
+              const mergedTasks: TodoItemWithMeta[] = isToday
+                ? [
+                    ...overdueItems,
+                    ...integrationTasks.map((t) => ({
+                      ...t,
+                      snapshotDate: selectedStr,
+                    })),
+                  ]
+                : integrationTasks.map((t) => ({
+                    ...t,
+                    snapshotDate: selectedStr,
+                  }));
+              const sorted = isToday
+                ? sortMergedTasks(mergedTasks, selectedStr)
+                : sortTasksByPriority(mergedTasks);
+
+              if (sorted.length === 0) {
+                return (
+                  <p className="px-5 py-4 text-sm text-muted-foreground">
+                    No tasks for this day
+                  </p>
+                );
+              }
+
+              return (
+                <>
+                  {sorted.map((task) => {
+                    const taskDate =
+                      task.snapshotDate ?? selectedStr;
+                    const isOverdue =
+                      task.snapshotDate != null &&
+                      task.snapshotDate !== selectedStr;
+                    return (
+                      <TaskRow
+                        key={task.id}
+                        task={task}
+                        date={taskDate}
+                        isOverdue={isOverdue}
+                        onActionOpen={(type) =>
+                          setActionDialog({
+                            type,
+                            task,
+                            date: taskDate,
+                          })
+                        }
+                        onMarkResolved={() =>
+                          patchItem(taskDate, task.id, "update", {
+                            status: "done",
+                          })
+                        }
+                        onDelete={() =>
+                          patchItem(taskDate, task.id, "delete")
+                        }
+                      />
+                    );
+                  })}
+                </>
+              );
+            })()}
             <button
               type="button"
               className="flex w-full items-center gap-2 px-5 py-3 text-left text-sm font-normal text-muted-foreground transition-colors hover:bg-muted/50"

@@ -4,9 +4,9 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createTodoGenerator } from "@/lib/integrations";
 
 /**
- * GET /api/integrations/todos/overdue?days=2
+ * GET /api/integrations/todos/overdue?days=31
  * Returns open (non-done) tasks from the previous N days for the current user.
- * Used on Today view to show "Overdue" section.
+ * Used on Today view to show "Overdue" section. Max 31 days (~1 month).
  */
 export async function GET(request: NextRequest) {
   try {
@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
     }
 
     const days = Math.min(
-      7,
+      31,
       Math.max(
         1,
         parseInt(request.nextUrl.searchParams.get("days") ?? "2", 10),
