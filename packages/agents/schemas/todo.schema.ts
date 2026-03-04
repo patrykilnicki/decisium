@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const TodoPrioritySchema = z.enum(["low", "medium", "high", "urgent"]);
+export const TodoPrioritySchema = z.enum(["normal", "urgent"]);
 export type TodoPriority = z.infer<typeof TodoPrioritySchema>;
 
 export const TodoStatusSchema = z.enum(["open", "in_progress", "done"]);
@@ -19,6 +19,8 @@ export const TodoItemSchema = z.object({
   title: z.string().min(1),
   summary: z.string().min(1),
   priority: TodoPrioritySchema,
+  /** When priority is "urgent", short explanation why (e.g. "Anna waiting for new version"). */
+  urgentReason: z.string().max(200).optional(),
   status: TodoStatusSchema.default("open"),
   dueAt: z.string().nullable(),
   sourceProvider: z.string(),
@@ -33,9 +35,7 @@ export type TodoItem = z.infer<typeof TodoItemSchema>;
 export const TodoListStatsSchema = z.object({
   total: z.number().int().nonnegative(),
   byPriority: z.object({
-    low: z.number().int().nonnegative(),
-    medium: z.number().int().nonnegative(),
-    high: z.number().int().nonnegative(),
+    normal: z.number().int().nonnegative(),
     urgent: z.number().int().nonnegative(),
   }),
   byProvider: z.record(z.number().int().nonnegative()),
