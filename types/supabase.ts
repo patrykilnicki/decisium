@@ -1220,6 +1220,7 @@ export type Database = {
       vault_documents: {
         Row: {
           collection_id: string | null
+          content_markdown: string | null
           created_at: string | null
           created_by: string | null
           id: string
@@ -1230,6 +1231,7 @@ export type Database = {
         }
         Insert: {
           collection_id?: string | null
+          content_markdown?: string | null
           created_at?: string | null
           created_by?: string | null
           id?: string
@@ -1240,6 +1242,7 @@ export type Database = {
         }
         Update: {
           collection_id?: string | null
+          content_markdown?: string | null
           created_at?: string | null
           created_by?: string | null
           id?: string

@@ -322,6 +322,7 @@ export async function executeGmailFetchEmails(
   params: {
     query?: string;
     max_results?: number;
+    page_token?: string;
   },
 ): Promise<{
   data?: {
@@ -338,14 +339,20 @@ export async function executeGmailFetchEmails(
   }
 
   try {
+    const args: Record<string, unknown> = {
+      query: params.query ?? "",
+      max_results: params.max_results ?? 50,
+      user_id: "me",
+    };
+    if (params.page_token) {
+      args.page_token = params.page_token;
+      args.pageToken = params.page_token;
+    }
+
     const result = await client.tools.execute("GMAIL_FETCH_EMAILS", {
       userId,
       connectedAccountId,
-      arguments: {
-        query: params.query ?? "",
-        max_results: params.max_results ?? 50,
-        user_id: "me",
-      },
+      arguments: args,
     });
 
     const data = result.data as Record<string, unknown> | undefined;
