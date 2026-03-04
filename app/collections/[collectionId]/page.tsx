@@ -13,7 +13,7 @@ interface VaultDocument {
   updated_at: string | null;
 }
 
-export default function VaultCollectionPage() {
+export default function CollectionPage() {
   const params = useParams();
   const collectionId = params.collectionId as string;
   const [documents, setDocuments] = useState<VaultDocument[]>([]);
@@ -36,10 +36,10 @@ export default function VaultCollectionPage() {
         <div className="flex h-full flex-col overflow-y-auto p-6">
           <div className="mb-6">
             <Link
-              href="/vault"
+              href="/collections"
               className="text-sm text-muted-foreground hover:text-foreground"
             >
-              ← Back to Vault
+              ← Back to Collections
             </Link>
           </div>
 
@@ -64,7 +64,7 @@ export default function VaultCollectionPage() {
                   {documents.map((doc) => (
                     <li key={doc.id}>
                       <Link
-                        href={`/vault/documents/${doc.id}`}
+                        href={`/collections/documents/${doc.id}`}
                         className="block rounded-md border p-3 transition-colors hover:bg-muted/50"
                       >
                         <span className="font-medium">{doc.title}</span>

@@ -20,7 +20,7 @@ interface VaultCollection {
   name: string;
 }
 
-export default function VaultPage() {
+export default function CollectionsPage() {
   const [documents, setDocuments] = useState<VaultDocument[]>([]);
   const [collections, setCollections] = useState<VaultCollection[]>([]);
   const [loading, setLoading] = useState(true);
@@ -47,8 +47,8 @@ export default function VaultPage() {
       <AppLayout>
         <div className="flex h-full flex-col overflow-y-auto p-6">
           <div className="mb-6 flex items-center justify-between">
-            <h1 className="text-2xl font-semibold">Vault</h1>
-            <Link href="/vault/documents/new">
+            <h1 className="text-2xl font-semibold">Collections</h1>
+            <Link href="/collections/documents/new">
               <Button>
                 <CentralIcon name="IconPlusSmall" size={18} className="mr-2" />
                 New Document
@@ -76,7 +76,7 @@ export default function VaultPage() {
                 ) : (
                   <nav className="flex flex-col gap-1">
                     <Link
-                      href="/vault"
+                      href="/collections"
                       className="rounded-md px-2 py-1.5 text-sm hover:bg-muted"
                     >
                       All documents
@@ -84,7 +84,7 @@ export default function VaultPage() {
                     {collections.map((c) => (
                       <Link
                         key={c.id}
-                        href={`/vault/collections/${c.id}`}
+                        href={`/collections/${c.id}`}
                         className="rounded-md px-2 py-1.5 text-sm hover:bg-muted"
                       >
                         {c.name}
@@ -107,7 +107,7 @@ export default function VaultPage() {
                     {documents.map((doc) => (
                       <li key={doc.id}>
                         <Link
-                          href={`/vault/documents/${doc.id}`}
+                          href={`/collections/documents/${doc.id}`}
                           className="block rounded-md border p-3 transition-colors hover:bg-muted/50"
                         >
                           <span className="font-medium">{doc.title}</span>

@@ -7,9 +7,11 @@ import { chunkAndEmbedDocument } from "@/lib/vault/chunker";
 export const vaultCreateDocumentTool = new DynamicStructuredTool({
   name: "vault_create_document",
   description:
-    "Create a new document in the user's Vault (personal knowledge base). Use when the user asks to save a summary, note, or any content to the Vault (e.g. 'save this to my vault', 'add a summary'). Pass userId, title, and content_md (markdown). Optional: collection_id to put the document in a specific collection.",
+    "Create a new document in the user's Collections (personal knowledge base). Use when the user asks to save a summary, note, or any content to Collections (e.g. 'save this to my collections', 'add a summary'). Pass userId, title, and content_md (markdown). Optional: collection_id to put the document in a specific collection.",
   schema: z.object({
-    userId: z.string().describe("The user ID (tenant) who owns the Vault"),
+    userId: z
+      .string()
+      .describe("The user ID (tenant) who owns the Collections"),
     title: z
       .string()
       .describe("Short document title (e.g. 'Meeting summary Mar 3 2025')"),
@@ -22,7 +24,7 @@ export const vaultCreateDocumentTool = new DynamicStructuredTool({
       .string()
       .uuid()
       .optional()
-      .describe("Optional Vault collection ID to store the document in"),
+      .describe("Optional collection ID to store the document in"),
   }),
   func: async ({ userId, title, content_md, collection_id }) => {
     try {
@@ -66,7 +68,7 @@ export const vaultCreateDocumentTool = new DynamicStructuredTool({
         success: true,
         document_id: doc.id,
         title: doc.title,
-        message: "Document saved to Vault and indexed for search.",
+        message: "Document saved to Collections and indexed for search.",
       });
     } catch (error) {
       console.error("[vault_create_document] Error:", error);

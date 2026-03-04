@@ -51,7 +51,7 @@ async function fetchRecentAtoms(
   return (data ?? []) as ActivityAtom[];
 }
 
-const SYSTEM_PROMPT = `You analyze integration events (calendar meetings, notes, emails) and decide which should be added to the user's Vault (personal knowledge base).
+const SYSTEM_PROMPT = `You analyze integration events (calendar meetings, notes, emails) and decide which should be added to the user's Collections (personal knowledge base).
 
 For each relevant event, output a create_document action with:
 - title: concise document title (e.g. "Meeting notes: Project Kickoff")
@@ -84,7 +84,7 @@ export async function runVaultFromEventsAgent(
     { role: "system", content: SYSTEM_PROMPT },
     {
       role: "user",
-      content: `Recent integration events:\n\n${atomsContext}\n\nWhich should become Vault documents? Output JSON array of create_document actions.`,
+      content: `Recent integration events:\n\n${atomsContext}\n\nWhich should become Collections documents? Output JSON array of create_document actions.`,
     },
   ]);
 

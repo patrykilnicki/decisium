@@ -125,6 +125,7 @@
   body {
     @apply bg-background text-foreground;
   }
+
   .text-xl,
   .text-2xl,
   .text-3xl,
@@ -134,7 +135,9 @@
   .text-7xl,
   .text-8xl,
   .text-9xl {
-    font-family: var(--font-serif), serif;
+    font-family: var(--font-sans), ui-sans-serif, sans-serif;
+    font-weight: 650;
+    letter-spacing: -0.02em;
   }
 }
 

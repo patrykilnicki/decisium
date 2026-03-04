@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback, useEffect, KeyboardEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowUp, Loader2, Mic } from "lucide-react";
+import { CentralIcon } from "@/components/ui/central-icon";
 import { cn } from "@/lib/utils";
 import type { ChatInputProps } from "./types";
 
@@ -98,7 +98,7 @@ export function ChatInput({
             className="size-10 rounded-full bg-muted text-muted-foreground"
             aria-label="Voice input"
           >
-            <Mic className="size-5" />
+            <CentralIcon name="IconMicrophone" size={20} />
           </Button>
           <Button
             type="button"
@@ -109,9 +109,13 @@ export function ChatInput({
             aria-label="Send message"
           >
             {isSending || isLoading ? (
-              <Loader2 className="size-5 animate-spin" />
+              <CentralIcon
+                name="IconLoader"
+                size={20}
+                className="animate-spin"
+              />
             ) : (
-              <ArrowUp className="size-5" />
+              <CentralIcon name="IconArrowUp" size={20} />
             )}
           </Button>
         </div>
@@ -152,7 +156,7 @@ export function ChatInput({
             className="size-10 rounded-full bg-muted text-muted-foreground"
             aria-label="Voice input"
           >
-            <Mic className="size-5" />
+            <CentralIcon name="IconMicrophone" size={20} />
           </Button>
           <Button
             type="button"
@@ -163,9 +167,13 @@ export function ChatInput({
             aria-label="Send message"
           >
             {isSending || isLoading ? (
-              <Loader2 className="size-5 animate-spin" />
+              <CentralIcon
+                name="IconLoader"
+                size={20}
+                className="animate-spin"
+              />
             ) : (
-              <ArrowUp className="size-5" />
+              <CentralIcon name="IconArrowUp" size={20} />
             )}
           </Button>
         </div>

@@ -25,14 +25,14 @@ function clampLimit(value: number): number {
 }
 
 /**
- * Unified search across memory (summaries, events, Ask messages) and Vault documents.
+ * Unified search across memory (summaries, events, Ask messages) and Collections documents.
  * Implements adaptive retrieval: when results are few, auto-expands with lower threshold.
  * Agent can use expandSearch: true for "list all" or when suggest_follow_up was true.
  */
 export const knowledgeSearchTool = new DynamicStructuredTool({
   name: "knowledge_search",
   description:
-    "Search across all user knowledge: memory (summaries, events, history) AND Vault documents. Use for broad queries (e.g. 'what do I know about X'). When suggest_follow_up is true, call again with expandSearch: true for broader search. Set minResults when user expects at least N results.",
+    "Search across all user knowledge: memory (summaries, events, history) AND Collections documents. Use for broad queries (e.g. 'what do I know about X'). When suggest_follow_up is true, call again with expandSearch: true for broader search. Set minResults when user expects at least N results.",
   schema: z.object({
     userId: z.string().describe("The user ID to search knowledge for"),
     query: z.string().describe("The search query"),

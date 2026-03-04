@@ -86,9 +86,9 @@ const FRIENDLY_TOOL_LABELS: Record<
     failed: "Could not load tasks",
   },
   vault_search: {
-    started: "Searching Vault...",
-    completed: "Vault search done",
-    failed: "Vault search failed",
+    started: "Searching Collections...",
+    completed: "Collections search done",
+    failed: "Collections search failed",
   },
   knowledge_search: {
     started: "Searching knowledge...",
@@ -96,12 +96,12 @@ const FRIENDLY_TOOL_LABELS: Record<
     failed: "Search failed",
   },
   vault_create_document: {
-    started: "Saving to Vault...",
-    completed: "Saved to Vault",
-    failed: "Could not save to Vault",
+    started: "Saving to Collections...",
+    completed: "Saved to Collections",
+    failed: "Could not save to Collections",
   },
   vault_update_document: {
-    started: "Updating Vault document...",
+    started: "Updating Collections document...",
     completed: "Document updated",
     failed: "Could not update document",
   },

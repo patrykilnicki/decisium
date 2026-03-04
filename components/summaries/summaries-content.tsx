@@ -11,7 +11,7 @@ import { DaySummaryCard } from "@/components/daily/day-summary-card";
 import { WeeklySummaryCard } from "@/components/summaries/weekly-summary-card";
 import { MonthlySummaryCard } from "@/components/summaries/monthly-summary-card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2 } from "lucide-react";
+import { CentralIcon } from "@/components/ui/central-icon";
 import type {
   DailySummaryContent,
   WeeklySummaryContent,
@@ -87,7 +87,7 @@ export function SummariesContent() {
         </header>
         <div className="flex-1 flex items-center justify-center">
           <div className="flex flex-col items-center gap-3 text-muted-foreground">
-            <Loader2 className="size-6 animate-spin" />
+            <CentralIcon name="IconLoader" size={24} className="animate-spin" />
             <span className="text-sm">Loading summaries...</span>
           </div>
         </div>

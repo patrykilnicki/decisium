@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { CentralIcon } from "@/components/ui/central-icon";
@@ -11,20 +12,25 @@ import { cn } from "@/lib/utils";
 interface NavItem {
   href: string;
   name:
-    | "IconHome"
-    | "IconStar"
-    | "IconChart1"
+    | "IconHomeOpen"
+    | "IconSparkle"
+    | "IconSearchlinesSparkle"
     | "IconNote1"
-    | "IconSettingsGear1";
+    | "IconCalendarClock"
+    | "IconSettingsGear2";
   label: string;
 }
 
 const navItems: NavItem[] = [
-  { href: "/home", name: "IconHome", label: "Home" },
-  { href: "/ask", name: "IconStar", label: "Ask AI" },
-  { href: "/summaries", name: "IconChart1", label: "Summaries" },
-  { href: "/vault", name: "IconNote1", label: "Vault" },
-  { href: "/settings", name: "IconSettingsGear1", label: "Settings" },
+  { href: "/home", name: "IconHomeOpen", label: "Home" },
+  { href: "/ask", name: "IconSparkle", label: "Ask AI" },
+  { href: "/summaries", name: "IconCalendarClock", label: "Summaries" },
+  {
+    href: "/collections",
+    name: "IconSearchlinesSparkle",
+    label: "Collections",
+  },
+  { href: "/settings", name: "IconSettingsGear2", label: "Settings" },
 ];
 
 export function Nav() {
@@ -75,16 +81,13 @@ export function Nav() {
       className="flex w-16 flex-col items-center justify-between gap-6 border-r border-border/40 bg-background py-6 shadow-sm"
       aria-label="Main navigation"
     >
-      {/* Primary action - green gradient button with sparkle */}
-      <Link
-        href="/ask"
-        className="flex size-10 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-400 to-teal-500 text-white shadow-sm transition-opacity hover:opacity-90"
-        aria-label="Ask AI"
-      >
-        <CentralIcon
-          name="IconSparkle"
-          iconFill="filled"
-          size={24}
+      {/* Primary action - green gradient button with logo */}
+      <Link href="/ask" aria-label="Ask AI">
+        <Image
+          src="/logo.svg"
+          alt="Ask AI"
+          width={32}
+          height={32}
           className="text-white"
         />
       </Link>

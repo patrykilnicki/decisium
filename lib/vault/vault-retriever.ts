@@ -39,7 +39,7 @@ export async function searchVaultChunks(
   });
 
   if (error) {
-    throw new Error(`Vault search failed: ${error.message}`);
+    throw new Error(`Collections search failed: ${error.message}`);
   }
 
   return (data ?? []) as VaultChunkResult[];

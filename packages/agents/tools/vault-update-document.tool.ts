@@ -7,9 +7,11 @@ import { chunkAndEmbedDocument } from "@/lib/vault/chunker";
 export const vaultUpdateDocumentTool = new DynamicStructuredTool({
   name: "vault_update_document",
   description:
-    "Update an existing document in the user's Vault. Use when the user asks to edit, update, or add to an existing document. Pass userId, document_id (get from vault_search results or from prior context), and at least one of: title and/or content_md. When content_md changes, the document is re-indexed for search.",
+    "Update an existing document in the user's Collections. Use when the user asks to edit, update, or add to an existing document. Pass userId, document_id (get from vault_search results or from prior context), and at least one of: title and/or content_md. When content_md changes, the document is re-indexed for search.",
   schema: z.object({
-    userId: z.string().describe("The user ID (tenant) who owns the Vault"),
+    userId: z
+      .string()
+      .describe("The user ID (tenant) who owns the Collections"),
     document_id: z.string().uuid().describe("The document ID to update"),
     title: z
       .string()
@@ -86,7 +88,7 @@ export const vaultUpdateDocumentTool = new DynamicStructuredTool({
         success: true,
         document_id: doc.id,
         title: doc.title,
-        message: "Document updated in Vault.",
+        message: "Document updated in Collections.",
       });
     } catch (error) {
       console.error("[vault_update_document] Error:", error);

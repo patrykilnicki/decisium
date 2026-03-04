@@ -17,7 +17,7 @@ interface DocumentData {
   content_markdown: string | null;
 }
 
-export default function VaultDocumentPage() {
+export default function CollectionDocumentPage() {
   const params = useParams();
   const _router = useRouter();
   const documentId = params.documentId as string;
@@ -74,8 +74,8 @@ export default function VaultDocumentPage() {
         <AppLayout>
           <div className="flex h-full flex-col items-center justify-center gap-4 p-8">
             <p className="text-destructive">{error ?? "Document not found"}</p>
-            <Link href="/vault">
-              <Button variant="outline">Back to Vault</Button>
+            <Link href="/collections">
+              <Button variant="outline">Back to Collections</Button>
             </Link>
           </div>
         </AppLayout>
@@ -89,10 +89,10 @@ export default function VaultDocumentPage() {
         <div className="flex h-full flex-col overflow-hidden">
           <header className="flex items-center gap-4 border-b px-4 py-3">
             <Link
-              href="/vault"
+              href="/collections"
               className="text-sm text-muted-foreground hover:text-foreground"
             >
-              ← Vault
+              ← Collections
             </Link>
             <Input
               value={title}
