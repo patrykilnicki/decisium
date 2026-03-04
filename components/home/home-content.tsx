@@ -263,8 +263,7 @@ function formatOverdueLabel(snapshotDate: string): string {
   const d = new Date(snapshotDate + "T12:00:00");
   const now = new Date();
   const isLastMonth =
-    d.getFullYear() < now.getFullYear() ||
-    d.getMonth() < now.getMonth();
+    d.getFullYear() < now.getFullYear() || d.getMonth() < now.getMonth();
 
   if (isLastMonth) return "Last month";
 
@@ -717,67 +716,68 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
                     : "Generate tasks for this day"}
                 </Button>
               </div>
-            ) : (() => {
-              const selectedStr = toLocalDateString(selectedDate);
-              const mergedTasks: TodoItemWithMeta[] = isToday
-                ? [
-                    ...overdueItems,
-                    ...integrationTasks.map((t) => ({
+            ) : (
+              (() => {
+                const selectedStr = toLocalDateString(selectedDate);
+                const mergedTasks: TodoItemWithMeta[] = isToday
+                  ? [
+                      ...overdueItems,
+                      ...integrationTasks.map((t) => ({
+                        ...t,
+                        snapshotDate: selectedStr,
+                      })),
+                    ]
+                  : integrationTasks.map((t) => ({
                       ...t,
                       snapshotDate: selectedStr,
-                    })),
-                  ]
-                : integrationTasks.map((t) => ({
-                    ...t,
-                    snapshotDate: selectedStr,
-                  }));
-              const sorted = isToday
-                ? sortMergedTasks(mergedTasks, selectedStr)
-                : sortTasksByPriority(mergedTasks);
+                    }));
+                const sorted = isToday
+                  ? sortMergedTasks(mergedTasks, selectedStr)
+                  : sortTasksByPriority(mergedTasks);
 
-              if (sorted.length === 0) {
+                if (sorted.length === 0) {
+                  return (
+                    <p className="px-5 py-4 text-sm text-muted-foreground">
+                      No tasks for this day
+                    </p>
+                  );
+                }
+
                 return (
-                  <p className="px-5 py-4 text-sm text-muted-foreground">
-                    No tasks for this day
-                  </p>
+                  <>
+                    {sorted.map((task) => {
+                      const taskDate = task.snapshotDate ?? selectedStr;
+                      const isOverdue =
+                        task.snapshotDate != null &&
+                        task.snapshotDate !== selectedStr;
+                      return (
+                        <TaskRow
+                          key={task.id}
+                          task={task}
+                          date={taskDate}
+                          isOverdue={isOverdue}
+                          onActionOpen={(type) =>
+                            setActionDialog({
+                              type,
+                              task,
+                              date: taskDate,
+                            })
+                          }
+                          onMarkResolved={() =>
+                            patchItem(taskDate, task.id, "update", {
+                              status: "done",
+                            })
+                          }
+                          onDelete={() =>
+                            patchItem(taskDate, task.id, "delete")
+                          }
+                        />
+                      );
+                    })}
+                  </>
                 );
-              }
-
-              return (
-                <>
-                  {sorted.map((task) => {
-                    const taskDate =
-                      task.snapshotDate ?? selectedStr;
-                    const isOverdue =
-                      task.snapshotDate != null &&
-                      task.snapshotDate !== selectedStr;
-                    return (
-                      <TaskRow
-                        key={task.id}
-                        task={task}
-                        date={taskDate}
-                        isOverdue={isOverdue}
-                        onActionOpen={(type) =>
-                          setActionDialog({
-                            type,
-                            task,
-                            date: taskDate,
-                          })
-                        }
-                        onMarkResolved={() =>
-                          patchItem(taskDate, task.id, "update", {
-                            status: "done",
-                          })
-                        }
-                        onDelete={() =>
-                          patchItem(taskDate, task.id, "delete")
-                        }
-                      />
-                    );
-                  })}
-                </>
-              );
-            })()}
+              })()
+            )}
             <button
               type="button"
               className="flex w-full items-center gap-2 px-5 py-3 text-left text-sm font-normal text-muted-foreground transition-colors hover:bg-muted/50"
