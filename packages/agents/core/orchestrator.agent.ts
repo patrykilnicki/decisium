@@ -99,7 +99,7 @@ async function agentNode(
     }
 
     // No tool calls - extract final response
-    const content =
+    const rawContent =
       typeof response.content === "string"
         ? response.content
         : Array.isArray(response.content)
@@ -111,6 +111,10 @@ async function agentNode(
               )
               .join("")
           : "";
+    const content =
+      typeof rawContent === "string" && rawContent.trim().length > 0
+        ? rawContent
+        : "I apologize, but I couldn't generate a response.";
     // Collect tools used from messages (AIMessages with tool_calls)
     const toolsUsed: string[] = [];
     for (const msg of state.messages) {
@@ -199,15 +203,18 @@ async function saveMessagesNode(
       }
     }
 
-    // Save assistant message
+    // Save assistant message (always persist something when we reach saveMessages)
+    const FALLBACK_RESPONSE =
+      "I apologize, but I couldn't generate a response.";
+    const assistantContent = state.agentResponse?.trim() || FALLBACK_RESPONSE;
     let savedAssistantId: string | undefined = state.assistantMessageId;
-    if (state.agentResponse && !savedAssistantId) {
+    if (assistantContent && !savedAssistantId) {
       const savedAssistantStr = await supabaseStoreTool.invoke({
         table: "ask_messages",
         data: {
           thread_id: state.threadId,
           role: "assistant",
-          content: state.agentResponse,
+          content: assistantContent,
         },
       });
       const savedAssistant = JSON.parse(savedAssistantStr);
@@ -215,10 +222,10 @@ async function saveMessagesNode(
     }
 
     // Generate embedding for assistant message
-    if (savedAssistantId && state.agentResponse) {
+    if (savedAssistantId && assistantContent) {
       try {
         const embeddingResultStr = await embeddingGeneratorTool.invoke({
-          content: state.agentResponse,
+          content: assistantContent,
         });
         const embeddingResult = JSON.parse(embeddingResultStr);
 
@@ -227,7 +234,7 @@ async function saveMessagesNode(
             table: "embeddings",
             data: {
               user_id: state.userId,
-              content: state.agentResponse,
+              content: assistantContent,
               embedding: embeddingResult.embedding,
               metadata: {
                 type: "ask_message",

@@ -140,6 +140,42 @@ function clampConfidence(value: unknown, fallback = 0.75): number {
   return value;
 }
 
+/** Gmail web URL to open a thread (uses threadId in hash). */
+function buildGmailThreadUrl(threadId: string): string {
+  return `https://mail.google.com/mail/u/0/#inbox/${threadId}`;
+}
+
+/**
+ * For items sourced from Gmail, set sourceRef.sourceUrl so the UI can link to the email.
+ * Looks up threadId from signals by messageId (sourceRef.externalId).
+ */
+function enrichGmailItemsWithSourceUrl(
+  items: TodoItem[],
+  signals: IntegrationSignal[],
+): TodoItem[] {
+  const gmailByMessageId = new Map<string, GmailSignal>();
+  for (const s of signals) {
+    if (s.provider === "gmail") {
+      const g = s as GmailSignal;
+      if (g.messageId) gmailByMessageId.set(g.messageId, g);
+    }
+  }
+  return items.map((item) => {
+    if (item.sourceProvider !== "gmail" || !item.sourceRef?.externalId)
+      return item;
+    const gmail = gmailByMessageId.get(item.sourceRef.externalId);
+    const threadId = gmail?.threadId;
+    if (!threadId) return item;
+    return {
+      ...item,
+      sourceRef: {
+        ...item.sourceRef,
+        sourceUrl: buildGmailThreadUrl(threadId),
+      },
+    };
+  });
+}
+
 function buildTodoItemDedupKeys(item: {
   sourceProvider: string;
   sourceType: string;
@@ -567,9 +603,10 @@ async function extractTasksWithLlm(
       unique.set(stableKey, task);
     }
 
-    const items = [...unique.values()].map((task) =>
+    let items = [...unique.values()].map((task) =>
       llmTaskToTodoItem(task, date),
     );
+    items = enrichGmailItemsWithSourceUrl(items, signals);
     const extractedItemsForLog = items.map((item) => ({
       id: item.id,
       title: item.title,
