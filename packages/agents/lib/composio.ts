@@ -28,7 +28,7 @@ function getComposioClient(): Composio | null {
       provider: new LangchainProvider(),
       toolkitVersions: {
         GOOGLECALENDAR: "20260217_00",
-        GMAIL: "20260223_00",
+        GMAIL: "20260227_00",
       },
     }) as unknown as Composio;
     return composioClient;
@@ -52,7 +52,7 @@ function getComposioServerClient(): Composio | null {
       apiKey,
       toolkitVersions: {
         GOOGLECALENDAR: "20260217_00",
-        GMAIL: "20260223_00",
+        GMAIL: "20260227_00",
       },
     });
     return composioServerClient;
@@ -405,6 +405,7 @@ export async function executeGmailFetchThread(
   const toolCandidates = [
     "GMAIL_GET_THREAD",
     "GMAIL_FETCH_THREAD",
+    "GMAIL_FETCH_MESSAGE_BY_THREAD_ID",
     "GMAIL_GET_EMAIL_THREAD",
   ];
 
