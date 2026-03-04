@@ -201,6 +201,7 @@ export function useChat({
     if (!sessionId) return [];
     const response = await fetch(
       `${tasksEndpoint}?sessionId=${encodeURIComponent(sessionId)}`,
+      { credentials: "include" },
     );
     if (!response.ok) {
       const errorBody = await response.json().catch(() => ({}));
