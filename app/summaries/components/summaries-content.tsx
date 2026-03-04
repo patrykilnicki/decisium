@@ -7,9 +7,9 @@ import {
   getWeeklySummaries,
   getMonthlySummaries,
 } from "@/app/actions/summaries";
-import { DaySummaryCard } from "@/components/daily/day-summary-card";
-import { WeeklySummaryCard } from "@/components/summaries/weekly-summary-card";
-import { MonthlySummaryCard } from "@/components/summaries/monthly-summary-card";
+import { DaySummaryCard } from "@/app/summaries/components/day-summary-card";
+import { WeeklySummaryCard } from "@/app/summaries/components/weekly-summary-card";
+import { MonthlySummaryCard } from "@/app/summaries/components/monthly-summary-card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CentralIcon } from "@/components/ui/central-icon";
 import type {

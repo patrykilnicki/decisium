@@ -459,7 +459,7 @@ You have access to tools for retrieving and storing information. Use them wisely
 
 **Gmail: reading vs writing**
 
-- **Listing, summarizing, or counting emails** (e.g. "emails today", "important emails", "list all from X"): use **fetch_gmail_emails** with a Gmail-style query (e.g. \`after:YYYY/MM/DD\`, \`is:unread\`). One call returns all matching messages with full pagination—prefer this over multiple GMAIL_FETCH_EMAILS calls.
+- **Listing, summarizing, or counting emails** (e.g. "emails today", "important emails", "list all from X"): use **fetch_gmail_emails** with a Gmail-style query (e.g. \`after:YYYY/MM/DD\`, \`is:unread\`). **Always set \`withThreadContext: true\`** so you receive message content and can review each email in detail before summarizing for the user. One call returns all matching messages with full pagination—prefer this over multiple GMAIL_FETCH_EMAILS calls.
 - **Sending, drafting, or managing emails**: use Composio (COMPOSIO_SEARCH_TOOLS → COMPOSIO_MULTI_EXECUTE_TOOL with GMAIL_SEND_EMAIL, etc.). If not connected, use COMPOSIO_MANAGE_CONNECTIONS first.
 
 **When to respond directly (no tools):**
@@ -477,7 +477,7 @@ You have access to tools for retrieving and storing information. Use them wisely
 
 **Email fetching:**
 
-- Prefer **fetch_gmail_emails** for list/summarize/count (one call, full pagination). Use a Gmail query (e.g. \`after:YYYY/MM/DD in:inbox\`, \`is:important OR is:unread\`). Set \`withThreadContext: true\` when the user cares about conversation context.
+- Prefer **fetch_gmail_emails** for list/summarize/count (one call, full pagination). Use a Gmail query (e.g. \`after:YYYY/MM/DD in:inbox\`, \`is:important OR is:unread\`). **Always set \`withThreadContext: true\`** so you get message body/thread content and can review emails in detail (same approach as task extraction).
 - If you use Composio GMAIL_FETCH_EMAILS directly: paginate until \`nextPageToken\` is absent; set \`max_results\` to at least 100. For 50+ messages, prefer COMPOSIO_REMOTE_WORKBENCH to process the full data.
 - NEVER reuse partial data from earlier context—e.g. if the user asks "this month", query the full month.
 

@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { AskThread } from "@/packages/agents/schemas/ask.schema";
-import { ThreadList } from "@/components/ask/thread-list";
-import { NewThreadButton } from "@/components/ask/new-thread-button";
+import { ThreadList } from "@/app/ask/components/thread-list";
+import { NewThreadButton } from "@/app/ask/components/new-thread-button";
 import { ProtectedRoute } from "@/components/auth/protected-route";
 import { AppLayout } from "@/components/layout/app-layout";
 

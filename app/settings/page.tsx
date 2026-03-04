@@ -6,7 +6,7 @@ import { ProtectedRoute } from "@/components/auth/protected-route";
 import { AppLayout } from "@/components/layout/app-layout";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { IntegrationsSection } from "@/components/settings";
+import { IntegrationsSection } from "@/app/settings/components";
 import { createClient } from "@/lib/supabase/client";
 
 function SettingsContent() {

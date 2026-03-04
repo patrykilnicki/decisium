@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { ProtectedRoute } from "@/components/auth/protected-route";
 import { AppLayout } from "@/components/layout/app-layout";
-import { HomeContent } from "@/components/home/home-content";
+import { HomeContent } from "@/app/home/components/home-content";
 import { createClient } from "@/lib/supabase/client";
 
 export default function HomePage() {

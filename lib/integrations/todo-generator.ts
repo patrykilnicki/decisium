@@ -260,6 +260,10 @@ async function fetchAllSignals(
 // LLM-powered task extraction
 // ═══════════════════════════════════════════════════════════════
 
+/**
+ * Format integration signals for the LLM. Emails are structured so the model
+ * can read each message's content in detail (like ASK does) before deciding actionability.
+ */
 function signalsToPromptContext(signals: IntegrationSignal[]): string {
   return signals
     .map((signal) => {
@@ -279,18 +283,18 @@ function signalsToPromptContext(signals: IntegrationSignal[]): string {
         return parts.filter(Boolean).join(" | ");
       }
       const g = signal as GmailSignal;
-      const parts = [
-        `[EMAIL] Subject: "${g.subject}"`,
-        `From: ${g.sender}`,
-        `Date: ${g.timestamp}`,
-        `Labels: ${g.labels.join(", ")}`,
-        `Preview: ${g.snippet}`,
-        g.threadContext ? `Thread context: ${g.threadContext}` : "",
+      const contentParts: string[] = [];
+      if (g.snippet?.trim()) contentParts.push(g.snippet.trim());
+      if (g.threadContext?.trim()) contentParts.push(g.threadContext.trim());
+      const content =
+        contentParts.length > 0 ? contentParts.join("\n\n") : "(no body)";
+      return [
+        `[EMAIL] Subject: "${g.subject}" | From: ${g.sender} | Date: ${g.timestamp} | Labels: ${g.labels.join(", ")}`,
+        `Content: ${content}`,
         `ID: ${g.messageId}`,
-      ];
-      return parts.filter(Boolean).join(" | ");
+      ].join("\n");
     })
-    .join("\n");
+    .join("\n\n");
 }
 
 const TASK_EXTRACTION_PROMPT = `You are an intelligent task extraction system for a personal productivity app.
@@ -298,9 +302,10 @@ const TASK_EXTRACTION_PROMPT = `You are an intelligent task extraction system fo
 TARGET DATE: {{targetDate}}
 
 You receive signals from the user's connected integrations — calendar events and emails — for the target date.
-Some emails include thread context (previous messages in the conversation).
+Each email is shown with its content (preview and/or thread context). Use the same approach as when summarizing emails for the user: read each email's content in detail before deciding if it requires action.
 
 Your job: analyze every signal and decide whether it requires the user to take a concrete action.
+Read each email's content (Subject, From, and Content section) in full before judging actionability—do not rely on subject line alone.
 Use semantic understanding of the content, not keyword matching or hard-coded rules.
 There is no predefined list of "actionable" or "non-actionable" categories — you must reason about each signal individually.
 
@@ -308,8 +313,8 @@ DECISION FRAMEWORK — ask yourself for each signal:
 - Does this signal imply the user needs to DO something (reply, prepare, create, review, decide, deliver, follow up)?
 - Is there evidence in the content that someone is waiting for the user, or that the user committed to something?
 - For calendar events: does this meeting require preparation, deliverables, or follow-up — or is it passive attendance / personal time?
-- For emails: is the user expected to respond, take action, or make a decision — or is this informational / automated / marketing?
-- For email threads: read the full conversation flow. Who spoke last? Is the ball in the user's court?
+- For emails: read the Content section (preview and thread context) in full. Is the user expected to respond, take action, or make a decision — or is this informational / automated / marketing?
+- For email threads: read the full conversation flow in the Content. Who spoke last? Is the ball in the user's court?
 
 Skip pure marketing, newsletters, and automated notifications (e.g. CI/CD bot comments, promotional offers) unless they contain a personal request or deadline directed at the user.
 For everything else — create a task if there is any reasonable chance the user should act.

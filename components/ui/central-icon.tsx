@@ -21,9 +21,9 @@ interface CentralIconProps extends Omit<
 
 function CentralIcon({
   iconJoin = "round",
-  iconFill = "filled",
-  iconStroke = "1",
-  iconRadius = "1",
+  iconFill = "outlined",
+  iconStroke = "1.5",
+  iconRadius = "2",
   name,
   className,
   ...props

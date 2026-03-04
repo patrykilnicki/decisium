@@ -6,7 +6,7 @@ import {
   OnboardingLayout,
   StepProgress,
   StepConnectApps,
-} from "@/components/onboarding";
+} from "@/app/onboarding/components";
 import { completeOnboarding } from "@/app/actions/onboarding";
 
 const TOTAL_STEPS = 1;
