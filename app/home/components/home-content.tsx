@@ -54,6 +54,8 @@ interface IntegrationTodoItem {
   status: "open" | "in_progress" | "done";
   dueAt: string | null;
   sourceProvider?: string;
+  /** Link to source (e.g. Gmail thread URL for tasks from email). */
+  sourceRef?: { sourceUrl?: string };
 }
 
 /** Task that may be from a past day (overdue); snapshotDate is set for overdue items. */
@@ -219,6 +221,19 @@ function TaskRow({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
+          {task.sourceProvider === "gmail" && task.sourceRef?.sourceUrl ? (
+            <DropdownMenuItem asChild>
+              <a
+                href={task.sourceRef.sourceUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex cursor-pointer items-center gap-2"
+              >
+                <CentralIcon name="IconEmail1" size={16} />
+                Show mail
+              </a>
+            </DropdownMenuItem>
+          ) : null}
           <DropdownMenuItem onClick={onMarkResolved}>
             <CentralIcon name="IconCircleCheck" size={16} />
             Mark as resolved
