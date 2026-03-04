@@ -300,7 +300,7 @@ function signalsToPromptContext(signals: IntegrationSignal[]): string {
       const hasContent = snippet.length > 0 || threadContext.length > 0;
       const content = hasContent
         ? [snippet, threadContext].filter(Boolean).join("\n\n")
-        : "(No snippet or thread context for this message; subject and sender may still imply an action — e.g. personal reply, \"Re:\" thread.)";
+        : '(No snippet or thread context for this message; subject and sender may still imply an action — e.g. personal reply, "Re:" thread.)';
       return [
         `[EMAIL] Subject: "${g.subject}" | From: ${g.sender} | Date: ${g.timestamp} | Labels: ${g.labels.join(", ")}`,
         `Content: ${content}`,

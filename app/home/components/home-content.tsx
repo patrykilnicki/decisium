@@ -195,8 +195,7 @@ function TaskRow({
               className="shrink-0 text-destructive"
             />
             <span className="truncate">
-              {task.urgentReason?.trim() ||
-                "Priority from source (no details)"}
+              {task.urgentReason?.trim() || "Priority from source (no details)"}
             </span>
           </span>
         ) : null}
