@@ -338,8 +338,7 @@ DECISION FRAMEWORK — ask yourself for each signal:
 - Is there evidence in the content that someone is waiting for the user, or that the user committed to something?
 - For calendar events: does this meeting require preparation, deliverables, or follow-up — or is it passive attendance / personal time?
 - For emails: read the Content section (preview and thread context) in full. Is the user expected to respond, take action, or make a decision — or is this informational / automated / marketing?
-- For email threads: read the full conversation flow in the Content. Who spoke last? Is the ball in the user's court?
-- Replies from companies, support, or institutions that ask the user to send something (e.g. written request, scan, form) or to complete a concrete next step are actionable — create a task.
+- For email threads: read the full conversation flow in the Content. Who spoke last? Is the ball in the user's court? If the other party asked a question or is waiting for the user to reply, send something, or follow up — create a task. This includes Re: threads from colleagues, clients, or support.
 
 Skip pure marketing, newsletters, and automated notifications (e.g. CI/CD bot comments, promotional offers) unless they contain a personal request or deadline directed at the user.
 For everything else — create a task if there is any reasonable chance the user should act. When in doubt, include a task; missing an actionable signal is worse than including a borderline one.
@@ -372,8 +371,8 @@ Return a JSON array. Each object:
 }
 
 Return ONLY the JSON array. No markdown, no explanation.
-Create tasks for clear action items (e.g. meetings to prepare for, emails that need reply, payments to confirm, support replies that ask the user to send a document or complete a step).
-Output one task per actionable signal; do not cap the number of tasks — include every signal that meets the criteria above.
+Create tasks for clear action items (e.g. meetings to prepare for, emails that need reply, payments to confirm, support replies that ask the user to send a document or complete a step, messages from colleagues or clients asking for a response).
+You must output a task for every signal that meets the criteria above — do not limit how many tasks you return. If 10 signals are actionable, return 10 tasks. Omitting an actionable signal is an error.
 Return [] only when no signal implies a concrete user action.`;
 
 interface LlmExtractedTask {
