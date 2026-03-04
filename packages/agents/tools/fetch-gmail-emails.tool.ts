@@ -13,10 +13,10 @@ const schema = z.object({
     .number()
     .int()
     .min(1)
-    .max(500)
+    .max(2500)
     .optional()
     .describe(
-      "Optional cap on total messages to fetch (across all pages). Omit to fetch all pages up to internal limit.",
+      "Optional cap on total messages to fetch. Omit to fetch all matching messages (paginated up to 2500).",
     ),
   withThreadContext: z
     .boolean()
@@ -55,6 +55,7 @@ export const fetchGmailEmailsTool = new DynamicStructuredTool({
     const messages = await fetchGmailEmailsFull(userId, {
       query,
       maxPages,
+      pageSize: 50,
       withThreadContext,
     });
 

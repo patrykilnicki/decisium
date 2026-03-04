@@ -45,9 +45,20 @@ function normalizeLegacyTodoPayload(payload: unknown): unknown {
   const items = Array.isArray(raw.items) ? raw.items : [];
   const normalizedItems = items.map((it: unknown) => {
     const item = it as Record<string, unknown>;
-    const p = item.priority as string | undefined;
-    const normal =
-      p === "low" || p === "medium" || p === "high" || !p ? "normal" : "urgent";
+    const p = item.priority as string | number | undefined;
+    // Pass through current schema; only map legacy values (low/medium/high, numbers, etc.)
+    const normal: "normal" | "urgent" =
+      p === "normal"
+        ? "normal"
+        : p === "urgent"
+          ? "urgent"
+          : p === "low" ||
+              p === "medium" ||
+              p === "high" ||
+              p == null ||
+              p === ""
+            ? "normal"
+            : "urgent";
     return { ...item, priority: normal };
   });
   const byPriority = { normal: 0, urgent: 0 };
