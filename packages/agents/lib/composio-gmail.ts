@@ -10,7 +10,6 @@ import {
   listComposioConnectedAccounts,
   executeGmailFetchEmails,
   executeGmailFetchThread,
-  executeGmailFetchMessageByThreadId,
   executeGmailFetchMessageByMessageId,
 } from "./composio";
 
@@ -183,11 +182,9 @@ async function enrichMessagesWithMessageBodyFallback(
   ];
 
   await mapConcurrent(threadIds, THREAD_FETCH_CONCURRENCY, async (threadId) => {
-    const res = await executeGmailFetchMessageByThreadId(
-      userId,
-      connectedAccountId,
-      { threadId },
-    ).catch(() => null);
+    const res = await executeGmailFetchThread(userId, connectedAccountId, {
+      threadId,
+    }).catch(() => null);
     if (!res?.successful || !res.data) return;
     const summary = summarizeThreadPayload(res.data);
     if (summary) threadContextByThreadId.set(threadId, summary);
