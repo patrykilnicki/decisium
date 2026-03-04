@@ -180,17 +180,24 @@ function TaskRow({
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-2">
-        {task.priority === "urgent" && task.urgentReason ? (
+        {task.priority === "urgent" ? (
           <span
             className="flex max-w-[200px] items-center gap-1.5 truncate text-right text-xs text-muted-foreground"
-            title={task.urgentReason}
+            title={
+              task.urgentReason?.trim()
+                ? task.urgentReason
+                : "Priority marked by source (no reason provided)"
+            }
           >
             <CentralIcon
               name="IconExclamationTriangle"
               size={14}
               className="shrink-0 text-destructive"
             />
-            <span className="truncate">{task.urgentReason}</span>
+            <span className="truncate">
+              {task.urgentReason?.trim() ||
+                "Priority from source (no details)"}
+            </span>
           </span>
         ) : null}
         <DropdownMenu>
