@@ -2,7 +2,7 @@
 
 import { useRef, useEffect, useCallback, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { ArrowDown, MessageSquare } from "lucide-react";
+import { CentralIcon } from "@/components/ui/central-icon";
 import { ChatMessage } from "./chat-message";
 import { ThinkingMessage } from "./thinking-message";
 import { ChatInput } from "./chat-input";
@@ -77,7 +77,7 @@ export function ChatContainer({
           (emptyState ?? (
             <div className="flex flex-col items-center justify-center h-full p-8 text-center">
               <div className="size-16 rounded-full bg-muted flex items-center justify-center mb-4">
-                <MessageSquare className="size-8 text-muted-foreground" />
+                <CentralIcon name="IconBubbleText" size={32} className="text-muted-foreground" />
               </div>
               <h2 className="text-xl font-semibold mb-2">{emptyStateTitle}</h2>
               <p className="text-muted-foreground text-sm max-w-sm">
@@ -116,7 +116,7 @@ export function ChatContainer({
             onClick={scrollToBottom}
             className="rounded-full shadow-lg gap-1"
           >
-            <ArrowDown className="size-3.5" />
+            <CentralIcon name="IconArrowDown" size={14} />
             <span className="text-xs">New messages</span>
           </Button>
         </div>

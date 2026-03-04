@@ -18,21 +18,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { createClient } from "@/lib/supabase/client";
 import * as db from "@/lib/supabase/db";
 import { cn } from "@/lib/utils";
-import {
-  Calendar,
-  Mail,
-  FileText,
-  CheckSquare,
-  Circle,
-  MoreHorizontal,
-  CalendarClock,
-  Trash2,
-  CheckCircle,
-  Pencil,
-} from "lucide-react";
 
 interface HomeContentProps {
   userName: string | null;
@@ -167,24 +156,24 @@ function TaskRow({
               className="size-8 shrink-0"
               aria-label="Task actions"
             >
-              <MoreHorizontal className="size-4 text-muted-foreground" />
+              <CentralIcon name="IconBarsThree" size={16} className="text-muted-foreground" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem onClick={onMarkResolved}>
-              <CheckCircle className="size-4" />
+              <CentralIcon name="IconCircleCheck" size={16} />
               Mark as resolved
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => onActionOpen("date")}>
-              <Calendar className="size-4" />
+              <CentralIcon name="IconCalendar1" size={16} />
               Change date
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => onActionOpen("name")}>
-              <Pencil className="size-4" />
+              <CentralIcon name="IconPencil" size={16} />
               Change name
             </DropdownMenuItem>
             <DropdownMenuItem variant="destructive" onClick={onDelete}>
-              <Trash2 className="size-4" />
+              <CentralIcon name="IconTrashCan" size={16} />
               Delete
             </DropdownMenuItem>
           </DropdownMenuContent>
@@ -259,25 +248,34 @@ function getEventColor(
   return "indigo";
 }
 
+const PROVIDER_LOGO: Record<string, string> = {
+  google_calendar: "/app-logos/google_calendar.svg",
+  gmail: "/app-logos/gmail.svg",
+  notion: "/app-logos/notion.svg",
+};
+
 function SourceLogo({ provider }: { provider?: string }) {
   const iconClass = "size-3";
-  const content = (() => {
+  const logoSrc = provider ? PROVIDER_LOGO[provider] : null;
+  const content = logoSrc ? (
+    <img
+      src={logoSrc}
+      alt=""
+      className="size-full object-contain"
+      width={18}
+      height={18}
+    />
+  ) : (() => {
     switch (provider) {
-      case "google_calendar":
-        return <Calendar className={iconClass} />;
-      case "gmail":
-        return <Mail className={iconClass} />;
-      case "notion":
-        return <FileText className={iconClass} />;
       case "linear":
-        return <CheckSquare className={iconClass} />;
+        return <CentralIcon name="IconChecklist" size={18} className={iconClass} />;
       default:
-        return <Circle className={iconClass} />;
+        return <CentralIcon name="IconCircle" size={18} className={iconClass} />;
     }
   })();
   return (
     <div
-      className="flex size-[18px] shrink-0 items-center justify-center rounded-[6px] border border-input text-muted-foreground"
+      className="flex size-[18px] shrink-0 items-center justify-center overflow-hidden rounded-[6px] border border-input text-muted-foreground"
       title={provider ?? "Unknown source"}
     >
       {content}
@@ -538,17 +536,40 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
   }
 
   return (
+    <div
+      className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-background p-4"
+      style={{
+        backgroundImage: "url(/bg.svg)",
+        backgroundRepeat: "no-repeat",
+        backgroundPosition: "top left",
+        backgroundSize: "auto 50vh",
+      }}
+    >
     <div className="flex flex-1 flex-col items-center gap-14 px-4 py-8 md:px-8 lg:px-32">
       {/* Header: greeting + date navigation */}
       <header className="flex w-full max-w-[720px] flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-2xl font-semibold tracking-tight text-foreground md:text-[28px] md:leading-9">
+        <h1 className="text-3xl text-foreground">
           {getGreeting()}, {displayName}
         </h1>
-        <div className="flex items-center gap-1">
+        
+        <div className="flex items-center gap-2">
+        <div className="text-sm font-medium text-foreground">
+            {formatDisplayDate(selectedDate)}
+          </div>
           <Button
             variant="outline"
+            size="sm"
+            onClick={() => setSelectedDate(new Date())}
+            aria-label="Go to today"
+            className="ml-1"
+          >
+            Today
+          </Button>
+          <div className="flex items-center">
+          <Button
+            variant="ghost"
             size="icon"
-            className="size-9 rounded-xl shadow-sm"
+           
             onClick={goPrevDay}
             aria-label="Previous day"
           >
@@ -559,13 +580,11 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
               size={20}
             />
           </Button>
-          <div className="rounded-xl border border-border bg-card px-3 py-1.5 text-sm font-medium text-foreground shadow-sm">
-            {formatDisplayDate(selectedDate)}
-          </div>
+       
           <Button
-            variant="outline"
+            variant="ghost"
             size="icon"
-            className="size-9 rounded-xl shadow-sm"
+         
             onClick={goNextDay}
             aria-label="Next day"
           >
@@ -577,11 +596,12 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
             />
           </Button>
         </div>
+        </div>
       </header>
 
       {/* Tasks section */}
       <section className="flex w-full max-w-[720px] flex-col gap-4">
-        <h2 className="text-lg font-bold leading-8 tracking-tight text-foreground">
+        <h2 className="text-xl font-serif">
           Tasks
         </h2>
 
@@ -590,7 +610,7 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
           <div className="overflow-hidden rounded-2xl border border-destructive/30 bg-destructive/5">
             <div className="border-b border-destructive/20 bg-destructive/10 px-4 py-2">
               <span className="flex items-center gap-2 text-sm font-medium text-destructive">
-                <CalendarClock className="size-4" />
+                <CentralIcon name="IconCalendarClock" size={16} />
                 Overdue
               </span>
             </div>
@@ -783,7 +803,7 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
 
       {/* Calendar section */}
       <section className="flex w-full max-w-[720px] flex-col gap-4">
-        <h2 className="text-lg font-bold leading-8 tracking-tight text-foreground">
+        <h2 className="text-xl font-serif">
           Calendar
         </h2>
         <div className="flex flex-col gap-1">
@@ -828,7 +848,7 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
 
       {/* Journal section */}
       <section className="flex w-full max-w-[720px] flex-col gap-4">
-        <h2 className="text-lg font-bold leading-8 tracking-tight text-foreground">
+        <h2 className="text-xl font-serif">
           Journal
         </h2>
         <div className="flex flex-col gap-4 rounded-[20px] border border-border bg-card p-4 shadow-sm">
@@ -910,6 +930,7 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
           ))}
         </div>
       </section>
+    </div>
     </div>
   );
 }

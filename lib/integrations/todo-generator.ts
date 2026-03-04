@@ -474,6 +474,7 @@ export class TodoGenerator {
 
   /**
    * Overdue = open items from previous days. Returns items with snapshotDate so UI can show "From yesterday".
+   * Fetches all relevant snapshots in one query (user_id + date in [yesterday, ...]) then parses payloads.
    */
   async getOverdueItems(
     userId: string,
@@ -481,17 +482,40 @@ export class TodoGenerator {
   ): Promise<Array<TodoItem & { snapshotDate: string }>> {
     const days = options?.days ?? 2;
     const today = toDateString(new Date());
-    const result: Array<TodoItem & { snapshotDate: string }> = [];
+    const dateStrings: string[] = [];
     for (let i = 1; i <= days; i++) {
       const d = new Date(today + "T12:00:00Z");
       d.setUTCDate(d.getUTCDate() - i);
-      const dateStr = toDateString(d);
-      const snapshot = await this.getSnapshotForDate(userId, dateStr);
-      if (!snapshot) continue;
-      for (const item of snapshot.items) {
-        if (item.status !== "done") {
-          result.push({ ...item, snapshotDate: dateStr });
+      dateStrings.push(toDateString(d));
+    }
+    if (dateStrings.length === 0) return [];
+
+    const { data: rows, error } = await db.selectMany(
+      this.supabase,
+      "todo_snapshots",
+      { user_id: userId, date: dateStrings },
+      { columns: "date, payload" },
+    );
+
+    if (error) {
+      console.warn("[todo-generator] getOverdueItems selectMany error:", error.message);
+      return [];
+    }
+
+    const result: Array<TodoItem & { snapshotDate: string }> = [];
+    for (const row of rows ?? []) {
+      const dateStr = (row as { date: string }).date;
+      const payload = (row as { payload: unknown }).payload;
+      if (!dateStr || !payload) continue;
+      try {
+        const snapshot = TodoListOutputSchema.parse(payload);
+        for (const item of snapshot.items) {
+          if (item.status !== "done") {
+            result.push({ ...item, snapshotDate: dateStr });
+          }
         }
+      } catch {
+        // Skip snapshots with invalid or legacy payload shape
       }
     }
     return result;

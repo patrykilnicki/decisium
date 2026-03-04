@@ -2,7 +2,7 @@
 
 import { memo, useMemo } from "react";
 import { cn } from "@/lib/utils";
-import { Loader2, Check, AlertCircle } from "lucide-react";
+import { CentralIcon } from "@/components/ui/central-icon";
 import { MarkdownContent } from "./markdown-content";
 import { AnimatedSystemAvatar } from "./animated-system-avatar";
 import type {
@@ -14,11 +14,11 @@ import type {
 function StepIcon({ status }: { status: ThinkingStepStatus }) {
   switch (status) {
     case "running":
-      return <Loader2 className="size-4 animate-spin text-primary" />;
+      return <CentralIcon name="IconLoader" size={16} className="animate-spin text-primary" />;
     case "completed":
-      return <Check className="size-4 text-green-500" />;
+      return <CentralIcon name="IconCheckmark1" size={16} className="text-green-500" />;
     case "error":
-      return <AlertCircle className="size-4 text-destructive" />;
+      return <CentralIcon name="IconBubbleAlert" size={16} className="text-destructive" />;
     default:
       return null;
   }

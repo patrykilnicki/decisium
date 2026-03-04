@@ -9,12 +9,7 @@ import Link from "@tiptap/extension-link";
 import DragHandle from "@tiptap/extension-drag-handle-react";
 import NodeRange from "@tiptap/extension-node-range";
 import * as Y from "yjs";
-import {
-  Bold,
-  Italic,
-  Underline as UnderlineIcon,
-  Link as LinkIcon,
-} from "lucide-react";
+import { CentralIcon } from "@/components/ui/central-icon";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { markdownToHtml, htmlToMarkdown } from "@/lib/vault/markdown-utils";
@@ -59,7 +54,7 @@ function MenuBar({ editor }: { editor: Editor | null }) {
         onClick={() => editor.chain().focus().toggleBold().run()}
         aria-pressed={editor.isActive("bold")}
       >
-        <Bold className="size-4" />
+        <CentralIcon name="IconBold" size={16} />
       </Button>
       <Button
         type="button"
@@ -69,7 +64,7 @@ function MenuBar({ editor }: { editor: Editor | null }) {
         onClick={() => editor.chain().focus().toggleItalic().run()}
         aria-pressed={editor.isActive("italic")}
       >
-        <Italic className="size-4" />
+        <CentralIcon name="IconItalic" size={16} />
       </Button>
       <Button
         type="button"
@@ -79,7 +74,7 @@ function MenuBar({ editor }: { editor: Editor | null }) {
         onClick={() => editor.chain().focus().toggleUnderline().run()}
         aria-pressed={editor.isActive("underline")}
       >
-        <UnderlineIcon className="size-4" />
+        <CentralIcon name="IconUnderline" size={16} />
       </Button>
       <Button
         type="button"
@@ -89,7 +84,7 @@ function MenuBar({ editor }: { editor: Editor | null }) {
         onClick={setLink}
         aria-pressed={editor.isActive("link")}
       >
-        <LinkIcon className="size-4" />
+        <CentralIcon name="IconChainLink1" size={16} />
       </Button>
       <span className="mx-1 h-4 w-px bg-border" aria-hidden />
       <Button

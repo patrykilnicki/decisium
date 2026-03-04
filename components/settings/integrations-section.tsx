@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { IntegrationCard } from "./integration-card";
 import { SyncModal } from "./sync-modal";
-import { Calendar, Mail, FileText, CheckSquare } from "lucide-react";
+import { CentralIcon } from "@/components/ui/central-icon";
 
 interface Integration {
   id: string;
@@ -27,26 +27,26 @@ const INTEGRATIONS_CONFIG = [
     provider: "google_calendar",
     displayName: "Google Calendar",
     description: "Sync calendar events and meeting schedules",
-    icon: <Calendar className="h-6 w-6" />,
+    icon: <CentralIcon name="IconCalendar1" size={24} />,
   },
   {
     provider: "gmail",
     displayName: "Gmail",
     description: "Sync emails and communication history",
-    icon: <Mail className="h-6 w-6" />,
+    icon: <CentralIcon name="IconEmail1" size={24} />,
   },
   {
     provider: "notion",
     displayName: "Notion",
     description: "Sync pages, databases, and notes",
-    icon: <FileText className="h-6 w-6" />,
+    icon: <CentralIcon name="IconFileText" size={24} />,
     disabled: true, // Coming soon
   },
   {
     provider: "linear",
     displayName: "Linear",
     description: "Sync issues, projects, and tasks",
-    icon: <CheckSquare className="h-6 w-6" />,
+    icon: <CentralIcon name="IconChecklist" size={24} />,
     disabled: true, // Coming soon
   },
 ];

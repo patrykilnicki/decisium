@@ -492,7 +492,7 @@ function createToolsWithBoundUserId(userId: string): DynamicStructuredTool[] {
     new DynamicStructuredTool({
       name: "knowledge_search",
       description:
-        "Search across all user knowledge: memory (summaries, events, history) AND Vault documents. Use for broad queries (e.g. 'what do I know about X'). When suggest_follow_up is true, call again with expandSearch: true for broader search. Set minResults when user expects at least N results.",
+        "Search across all user knowledge: memory (summaries, events, history) AND Collections documents. Use for broad queries (e.g. 'what do I know about X'). When suggest_follow_up is true, call again with expandSearch: true for broader search. Set minResults when user expects at least N results.",
       schema: z.object({
         query: z.string().describe("The search query"),
         maxResults: z
@@ -531,18 +531,18 @@ function createToolsWithBoundUserId(userId: string): DynamicStructuredTool[] {
     new DynamicStructuredTool({
       name: "vault_search",
       description:
-        "Search the user's Vault documents semantically. Use when the user asks about notes, documents, or knowledge stored in their Vault. Pass query.",
+        "Search the user's Collections documents semantically. Use when the user asks about notes, documents, or knowledge stored in their Collections. Pass query.",
       schema: z.object({
         query: z
           .string()
-          .describe("The search query to find relevant vault content"),
+          .describe("The search query to find relevant Collections content"),
         maxResults: z
           .number()
           .int()
           .min(1)
           .max(20)
           .default(10)
-          .describe("Maximum number of vault chunks to return"),
+          .describe("Maximum number of Collections chunks to return"),
       }),
       func: async (args) =>
         vaultSearchTool.func({
@@ -554,7 +554,7 @@ function createToolsWithBoundUserId(userId: string): DynamicStructuredTool[] {
     new DynamicStructuredTool({
       name: "vault_create_document",
       description:
-        "Create a new document in the user's Vault (personal knowledge base). Use when the user asks to save a summary, note, or any content to the Vault. Pass title and content_md (markdown). Optional: collection_id.",
+        "Create a new document in the user's Collections (personal knowledge base). Use when the user asks to save a summary, note, or any content to Collections. Pass title and content_md (markdown). Optional: collection_id.",
       schema: z.object({
         title: z
           .string()
@@ -568,7 +568,7 @@ function createToolsWithBoundUserId(userId: string): DynamicStructuredTool[] {
           .string()
           .uuid()
           .optional()
-          .describe("Optional Vault collection ID to store the document in"),
+          .describe("Optional collection ID to store the document in"),
       }),
       func: async (args) =>
         vaultCreateDocumentTool.func({
@@ -581,13 +581,13 @@ function createToolsWithBoundUserId(userId: string): DynamicStructuredTool[] {
     new DynamicStructuredTool({
       name: "vault_update_document",
       description:
-        "Update an existing document in the user's Vault. Use when the user asks to edit, update, or add to an existing document. Pass document_id and at least one of: title and/or content_md.",
+        "Update an existing document in the user's Collections. Use when the user asks to edit, update, or add to an existing document. Pass document_id and at least one of: title and/or content_md.",
       schema: z.object({
         document_id: z
           .string()
           .uuid()
           .describe(
-            "The document ID to update (get from vault_search results or prior context)",
+            "The document ID to update (get from vault_search or prior context)",
           ),
         title: z
           .string()

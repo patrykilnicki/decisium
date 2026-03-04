@@ -6,7 +6,7 @@ import { ProtectedRoute } from "@/components/auth/protected-route";
 import { AppLayout } from "@/components/layout/app-layout";
 import { createDocument } from "@/app/actions/vault";
 
-export default function NewVaultDocumentPage() {
+export default function NewCollectionDocumentPage() {
   const router = useRouter();
 
   useEffect(() => {
@@ -16,11 +16,11 @@ export default function NewVaultDocumentPage() {
       });
       if (error) {
         console.error("Failed to create document:", error);
-        router.push("/vault");
+        router.push("/collections");
         return;
       }
       if (data?.id) {
-        router.replace(`/vault/documents/${data.id}`);
+        router.replace(`/collections/documents/${data.id}`);
       }
     }
     create();

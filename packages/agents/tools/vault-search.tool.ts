@@ -5,19 +5,19 @@ import { searchVaultChunks } from "@/lib/vault/vault-retriever";
 export const vaultSearchTool = new DynamicStructuredTool({
   name: "vault_search",
   description:
-    "Search the user's Vault documents semantically. Use when the user asks about notes, documents, or knowledge stored in their Vault. Pass userId and query.",
+    "Search the user's Collections documents semantically. Use when the user asks about notes, documents, or knowledge stored in their Collections. Pass userId and query.",
   schema: z.object({
-    userId: z.string().describe("The user ID to search vault documents for"),
+    userId: z.string().describe("The user ID to search Collections documents for"),
     query: z
       .string()
-      .describe("The search query to find relevant vault content"),
+      .describe("The search query to find relevant Collections content"),
     maxResults: z
       .number()
       .int()
       .min(1)
       .max(20)
       .default(10)
-      .describe("Maximum number of vault chunks to return"),
+      .describe("Maximum number of Collections chunks to return"),
   }),
   func: async ({ userId, query, maxResults }) => {
     try {

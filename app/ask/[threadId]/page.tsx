@@ -11,7 +11,7 @@ import {
 import { ProtectedRoute } from "@/components/auth/protected-route";
 import { AppLayout } from "@/components/layout/app-layout";
 import { Button } from "@/components/ui/button";
-import { Loader2 } from "lucide-react";
+import { CentralIcon } from "@/components/ui/central-icon";
 import Link from "next/link";
 import type { AskMessage } from "@/types/database";
 
@@ -104,7 +104,7 @@ export default function ThreadPage() {
           {initialLoading ? (
             <div className="flex-1 flex items-center justify-center min-h-0">
               <div className="flex flex-col items-center gap-3 text-muted-foreground">
-                <Loader2 className="size-6 animate-spin" />
+                <CentralIcon name="IconLoader" size={24} className="animate-spin" />
                 <span className="text-sm">Loading messages...</span>
               </div>
             </div>
