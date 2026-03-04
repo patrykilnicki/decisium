@@ -30,6 +30,44 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createTodoGenerator } from "@/lib/integrations";
 
 // ═══════════════════════════════════════════════════════════════
+// CONTENT EXTRACTION
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Extract text from AIMessage content. Handles various formats:
+ * - string
+ * - Array of blocks: { text }, { type: "text", text }, { parts: [{ text }] } (Gemini)
+ */
+function extractTextFromAIMessageContent(content: unknown): string {
+  if (content == null) return "";
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+
+  return content
+    .map((c: unknown) => {
+      if (typeof c === "string") return c;
+      if (c == null || typeof c !== "object") return "";
+      const block = c as Record<string, unknown>;
+      // Standard: { text: "..." } or { type: "text", text: "..." }
+      if (typeof block.text === "string") return block.text;
+      // Gemini-style: { parts: [{ text: "..." }] }
+      if (Array.isArray(block.parts)) {
+        return block.parts
+          .map((p: unknown) =>
+            typeof p === "string"
+              ? p
+              : p != null && typeof p === "object" && "text" in (p as object)
+                ? String((p as { text?: unknown }).text ?? "")
+                : "",
+          )
+          .join("");
+      }
+      return "";
+    })
+    .join("");
+}
+
+// ═══════════════════════════════════════════════════════════════
 // NODE IMPLEMENTATIONS
 // ═══════════════════════════════════════════════════════════════
 
@@ -98,23 +136,21 @@ async function agentNode(
       };
     }
 
-    // No tool calls - extract final response
-    const rawContent =
-      typeof response.content === "string"
-        ? response.content
-        : Array.isArray(response.content)
-          ? response.content
-              .map((c: unknown) =>
-                typeof c === "string"
-                  ? c
-                  : ((c as { text?: string }).text ?? ""),
-              )
-              .join("")
-          : "";
+    // No tool calls - extract final response (handles multiple content formats)
+    const rawContent = extractTextFromAIMessageContent(response.content);
     const content =
       typeof rawContent === "string" && rawContent.trim().length > 0
         ? rawContent
-        : "I apologize, but I couldn't generate a response.";
+        : (() => {
+            const model = state.preferredModel || process.env.LLM_MODEL;
+            console.warn(
+              `[agentNode] Empty LLM response for model ${model}. Response content type: ${typeof response.content}, ` +
+                (Array.isArray(response.content)
+                  ? `blocks: ${response.content.length}`
+                  : "not array"),
+            );
+            return "I couldn't generate a response. The model returned no output. Try a different model (e.g. GPT-4o or Gemini 2.0 Flash) or a shorter request.";
+          })();
     // Collect tools used from messages (AIMessages with tool_calls)
     const toolsUsed: string[] = [];
     for (const msg of state.messages) {

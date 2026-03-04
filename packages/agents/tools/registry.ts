@@ -623,10 +623,10 @@ function createToolsWithBoundUserId(userId: string): DynamicStructuredTool[] {
           .number()
           .int()
           .min(1)
-          .max(500)
+          .max(50)
           .optional()
           .describe(
-            "Optional cap on total messages to fetch (across all pages). Omit to fetch all pages up to internal limit.",
+            "Cap on messages to fetch. Default 30 when omitted. Use 20-50 to keep responses reliable; user can ask for more.",
           ),
         withThreadContext: z
           .boolean()
@@ -640,7 +640,7 @@ function createToolsWithBoundUserId(userId: string): DynamicStructuredTool[] {
         fetchGmailEmailsTool.func({
           userId,
           query: args.query,
-          maxResults: args.maxResults,
+          maxResults: args.maxResults ?? 30,
           withThreadContext: args.withThreadContext,
         }),
     }),
