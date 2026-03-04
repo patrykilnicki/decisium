@@ -7,6 +7,7 @@ import {
   isComposioEnabled,
   listComposioConnectedAccounts,
   executeGmailFetchEmails,
+  executeGmailFetchThread,
 } from "@/packages/agents/lib/composio";
 import {
   TodoListOutputSchema,
@@ -27,6 +28,8 @@ export interface TodoGenerateOptions {
   generatedFromEvent?: string;
   /** When merging, reason to set in payload.updatedBecause */
   updatedBecause?: TodoListOutput["updatedBecause"];
+  /** Log run_type (e.g. "regenerate"). Default in generateForDate is "initial_generation". */
+  runType?: string;
 }
 
 function buildStats(items: TodoItem[]): TodoListOutput["stats"] {
@@ -108,10 +111,85 @@ interface GmailSignal {
   snippet: string;
   timestamp: string;
   messageId: string;
+  threadId?: string;
+  threadContext?: string;
   labels: string[];
 }
 
 type IntegrationSignal = CalendarEventSignal | GmailSignal;
+
+function toNonEmptyString(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function normalizeTitleForKey(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function clampConfidence(value: unknown, fallback = 0.75): number {
+  if (typeof value !== "number" || Number.isNaN(value)) return fallback;
+  if (value < 0) return 0;
+  if (value > 1) return 1;
+  return value;
+}
+
+function buildTodoItemDedupKeys(item: {
+  sourceProvider: string;
+  sourceType: string;
+  title: string;
+  sourceRef?: { externalId?: string };
+}): string[] {
+  const keys = new Set<string>();
+  const normalizedTitle = normalizeTitleForKey(item.title);
+  if (normalizedTitle) {
+    keys.add(`provider_title:${item.sourceProvider}:${normalizedTitle}`);
+    keys.add(`title:${normalizedTitle}`);
+  }
+  const externalId = item.sourceRef?.externalId?.trim();
+  if (externalId) {
+    keys.add(
+      `external:${item.sourceProvider}:${item.sourceType}:${externalId}`,
+    );
+  }
+  return [...keys];
+}
+
+function summarizeThreadPayload(payload: Record<string, unknown>): string {
+  const possibleMessages = [
+    payload.messages,
+    (payload.thread as { messages?: unknown } | undefined)?.messages,
+    (payload.data as { messages?: unknown } | undefined)?.messages,
+  ];
+  const list = possibleMessages.find((value) => Array.isArray(value));
+  if (!Array.isArray(list) || list.length === 0) return "";
+
+  const snippets: string[] = [];
+  const lastMessages = list.slice(-4);
+  for (const message of lastMessages) {
+    if (!message || typeof message !== "object") continue;
+    const row = message as Record<string, unknown>;
+    const from =
+      toNonEmptyString(row.sender) ??
+      toNonEmptyString(row.from) ??
+      toNonEmptyString(row.author) ??
+      "Unknown sender";
+    const body =
+      toNonEmptyString(row.snippet) ??
+      toNonEmptyString(row.messageText) ??
+      toNonEmptyString(row.body) ??
+      "";
+    if (!body) continue;
+    snippets.push(`${from}: ${body.slice(0, 180)}`);
+  }
+  return snippets.join(" || ").slice(0, 900);
+}
 
 /**
  * Fetch calendar events from Supabase (activity_atoms). Sync from Google runs
@@ -190,15 +268,56 @@ async function fetchGmailSignals(
 
   if (!result.successful || !result.data?.messages) return [];
 
-  return result.data.messages.map((msg) => ({
+  const messages = result.data.messages.map((msg) => ({
     provider: "gmail" as const,
     subject: String(msg.subject ?? ""),
     sender: String(msg.sender ?? ""),
-    snippet: String(msg.messageText ?? "").slice(0, 200),
+    snippet: String(msg.messageText ?? msg.snippet ?? "").slice(0, 300),
     timestamp: String(msg.messageTimestamp ?? ""),
     messageId: String(msg.messageId ?? ""),
+    threadId: toNonEmptyString(msg.threadId) ?? toNonEmptyString(msg.thread_id),
     labels: Array.isArray(msg.labelIds) ? (msg.labelIds as string[]) : [],
   }));
+
+  return enrichGmailSignalsWithThreadContext(userId, accounts[0].id, messages);
+}
+
+async function enrichGmailSignalsWithThreadContext(
+  userId: string,
+  connectedAccountId: string,
+  signals: GmailSignal[],
+): Promise<GmailSignal[]> {
+  const threadIds = [
+    ...new Set(signals.map((s) => s.threadId).filter(Boolean)),
+  ];
+  if (threadIds.length === 0) return signals;
+
+  const limitedThreadIds = threadIds.slice(0, 12);
+  const threadMap = new Map<string, string>();
+
+  await Promise.all(
+    limitedThreadIds.map(async (threadId) => {
+      if (!threadId) return;
+      const response = await executeGmailFetchThread(
+        userId,
+        connectedAccountId,
+        {
+          threadId,
+        },
+      ).catch(() => null);
+      if (!response?.successful || !response.data) return;
+
+      const summary = summarizeThreadPayload(response.data);
+      if (summary) threadMap.set(threadId, summary);
+    }),
+  );
+
+  if (threadMap.size === 0) return signals;
+  return signals.map((signal) => {
+    if (!signal.threadId) return signal;
+    const threadContext = threadMap.get(signal.threadId);
+    return threadContext ? { ...signal, threadContext } : signal;
+  });
 }
 
 /** Fetch signals from all registered integrations. Calendar from Supabase; Gmail via Composio. */
@@ -252,6 +371,7 @@ function signalsToPromptContext(signals: IntegrationSignal[]): string {
         `Date: ${g.timestamp}`,
         `Labels: ${g.labels.join(", ")}`,
         `Preview: ${g.snippet}`,
+        g.threadContext ? `Thread context: ${g.threadContext}` : "",
         `ID: ${g.messageId}`,
       ];
       return parts.filter(Boolean).join(" | ");
@@ -259,35 +379,51 @@ function signalsToPromptContext(signals: IntegrationSignal[]): string {
     .join("\n");
 }
 
-const TASK_EXTRACTION_PROMPT = `You are an intelligent task extraction system for Decisium, a personal productivity app.
+const TASK_EXTRACTION_PROMPT = `You are an intelligent task extraction system for a personal productivity app.
 
-You receive data from the user's connected integrations for a specific date: calendar events from synced storage (Google Calendar), and emails from Gmail.
+TARGET DATE: {{targetDate}}
 
-Extract ONLY genuinely actionable tasks — things the user needs to DO, PREPARE FOR, FOLLOW UP on, or RESPOND to on this specific date.
+You receive signals from the user's connected integrations — calendar events and emails — for the target date.
+Some emails include thread context (previous messages in the conversation).
 
-RULES:
-1. Calendar events that are passive/personal (gym, barber, lunch, dinner, church, training) are NOT tasks.
-2. Calendar meetings that need preparation (client call, presentation, project review, website work) ARE tasks.
-3. Emails needing a reply, action, or decision ARE tasks. Promotional newsletters and marketing emails are NOT.
-4. GitHub/Vercel notifications needing review ARE tasks.
-5. Package delivery notifications needing action ARE tasks.
-6. Billing/subscription issues needing resolution ARE tasks.
-7. Each task dueAt MUST be set to the requested date: {{targetDate}}T00:00:00.000Z
-8. Do NOT duplicate tasks for the same item.
-9. Be selective — quality over quantity.
-10. Write titles as concise action items (start with a verb). Keep in source language.
-11. Priority: only two levels — "normal" (default) or "urgent". Use "urgent" only when something truly cannot wait (e.g. someone explicitly waiting for reply/action, deadline today, blocking others). When you set "urgent", you MUST set "urgentReason": a short explanation why (max ~80 chars), e.g. "Anna waiting for new version" or "Client call at 3pm".
+Your job: analyze every signal and decide whether it requires the user to take a concrete action.
+Use semantic understanding of the content, not keyword matching or hard-coded rules.
+There is no predefined list of "actionable" or "non-actionable" categories — you must reason about each signal individually.
+
+DECISION FRAMEWORK — ask yourself for each signal:
+- Does this signal imply the user needs to DO something (reply, prepare, create, review, decide, deliver, follow up)?
+- Is there evidence in the content that someone is waiting for the user, or that the user committed to something?
+- For calendar events: does this meeting require preparation, deliverables, or follow-up — or is it passive attendance / personal time?
+- For emails: is the user expected to respond, take action, or make a decision — or is this informational / automated / marketing?
+- For email threads: read the full conversation flow. Who spoke last? Is the ball in the user's court?
+
+If you cannot identify a specific action the user must take, do NOT create a task.
+When in doubt, skip it. Quality over quantity.
+
+TASK RULES:
+1. Each task dueAt MUST be "{{targetDate}}T00:00:00.000Z".
+2. Do NOT create duplicate tasks for the same underlying action.
+3. Write titles as concise action items starting with a verb. Keep the source language of the signal.
+4. Set confidence (0.0–1.0) reflecting how certain you are that user action is truly required.
+5. Set actionabilityEvidence: a short quote or fact from the signal that proves the user must act.
+
+PRIORITY — two levels:
+- "normal" (default): most tasks.
+- "urgent": ONLY when you find explicit evidence of time pressure in the signal content — someone directly waiting for the user, a hard same-day deadline, or a scheduled commitment today with a specific time. You MUST set "urgentReason" with a concrete fact from the signal.
+  If you cannot quote a specific sentence or fact that proves it cannot wait, use "normal".
 
 Return a JSON array. Each object:
 {
   "title": "short actionable title (max 80 chars)",
   "summary": "one sentence explaining what needs to be done",
   "priority": "normal" or "urgent",
-  "urgentReason": "required only when priority is urgent — short reason (e.g. Anna waiting for new version)",
+  "urgentReason": "only when urgent — concrete fact from the signal, max ~80 chars. Omit for normal.",
   "sourceProvider": "google_calendar" or "gmail",
   "sourceType": "calendar_event" or "message",
   "sourceExternalId": "ID from the source signal",
-  "suggestedNextAction": "concrete next step",
+  "actionabilityEvidence": "short quote or fact proving user action is required",
+  "confidence": 0.0 to 1.0,
+  "suggestedNextAction": "concrete next step the user should take",
   "tags": ["relevant", "tags"]
 }
 
@@ -301,21 +437,29 @@ interface LlmExtractedTask {
   sourceProvider: string;
   sourceType: string;
   sourceExternalId?: string;
+  actionabilityEvidence?: string;
+  confidence?: number;
   suggestedNextAction: string;
   tags?: string[];
 }
 
 function llmTaskToTodoItem(task: LlmExtractedTask, date: string): TodoItem {
-  const priority = task.priority === "urgent" ? "urgent" : "normal";
+  // Urgent only if model set urgent AND gave a concrete reason (from thread); otherwise force normal
+  const hasUrgentReason =
+    typeof task.urgentReason === "string" &&
+    task.urgentReason.trim().length >= 5;
+  const priority =
+    task.priority === "urgent" && hasUrgentReason ? "urgent" : "normal";
+  const urgentReason =
+    priority === "urgent" && task.urgentReason
+      ? task.urgentReason.trim().slice(0, 200)
+      : undefined;
   return {
     id: crypto.randomUUID(),
     title: task.title.slice(0, 120),
     summary: task.summary.slice(0, 500),
     priority,
-    urgentReason:
-      priority === "urgent" && task.urgentReason
-        ? task.urgentReason.slice(0, 200)
-        : undefined,
+    urgentReason,
     status: "open",
     dueAt: `${date}T00:00:00.000Z`,
     sourceProvider: task.sourceProvider,
@@ -323,28 +467,70 @@ function llmTaskToTodoItem(task: LlmExtractedTask, date: string): TodoItem {
     sourceRef: {
       externalId: task.sourceExternalId || undefined,
     },
-    confidence: 0.85,
+    confidence: clampConfidence(task.confidence, 0.8),
     tags: task.tags ?? [task.sourceProvider],
     suggestedNextAction: task.suggestedNextAction,
   };
 }
 
+function buildExtractedTaskDedupKeys(task: LlmExtractedTask): string[] {
+  return buildTodoItemDedupKeys({
+    sourceProvider: task.sourceProvider || "unknown",
+    sourceType: task.sourceType || "unknown",
+    title: task.title,
+    sourceRef: { externalId: task.sourceExternalId },
+  });
+}
+
+function isActionableExtractedTask(task: LlmExtractedTask): boolean {
+  const confidence = clampConfidence(task.confidence, 0.7);
+  const evidenceLength = task.actionabilityEvidence?.trim().length ?? 0;
+  return confidence >= 0.45 || evidenceLength >= 12;
+}
+
+function chooseBetterExtractedTask(
+  current: LlmExtractedTask,
+  incoming: LlmExtractedTask,
+): LlmExtractedTask {
+  const currentScore =
+    clampConfidence(current.confidence, 0.7) +
+    (current.actionabilityEvidence?.trim().length ?? 0) / 200 +
+    (current.summary?.length ?? 0) / 1000;
+  const incomingScore =
+    clampConfidence(incoming.confidence, 0.7) +
+    (incoming.actionabilityEvidence?.trim().length ?? 0) / 200 +
+    (incoming.summary?.length ?? 0) / 1000;
+  return incomingScore > currentScore ? incoming : current;
+}
+
+export interface TodoExtractionLog {
+  systemPrompt: string;
+  userContent: string;
+  rawResponse: string;
+  parsedCount: number;
+  filteredCount: number;
+  extractedItemsForLog: unknown[];
+}
+
 async function extractTasksWithLlm(
   signals: IntegrationSignal[],
   date: string,
-): Promise<TodoItem[]> {
-  if (signals.length === 0) return [];
+): Promise<{ items: TodoItem[]; extractionLog: TodoExtractionLog | null }> {
+  if (signals.length === 0) {
+    return { items: [], extractionLog: null };
+  }
 
   const llm = createLLM({ temperature: 0.15 });
-  const prompt = TASK_EXTRACTION_PROMPT.replace(/\{\{targetDate\}\}/g, date);
+  const systemPrompt = TASK_EXTRACTION_PROMPT.replace(
+    /\{\{targetDate\}\}/g,
+    date,
+  );
   const context = signalsToPromptContext(signals);
+  const userContent = `Extract tasks for ${date} from these integration signals:\n\n${context}`;
 
   const response = await llm.invoke([
-    { role: "system", content: prompt },
-    {
-      role: "user",
-      content: `Extract tasks for ${date} from these integration signals:\n\n${context}`,
-    },
+    { role: "system", content: systemPrompt },
+    { role: "user", content: userContent },
   ]);
 
   const text =
@@ -361,30 +547,132 @@ async function extractTasksWithLlm(
   const jsonMatch = text.match(/\[[\s\S]*\]/);
   if (!jsonMatch) {
     console.warn("[todo-generator] LLM returned no JSON array");
-    return [];
+    return {
+      items: [],
+      extractionLog: {
+        systemPrompt,
+        userContent,
+        rawResponse: text.slice(0, 50_000),
+        parsedCount: 0,
+        filteredCount: 0,
+        extractedItemsForLog: [],
+      },
+    };
   }
 
   try {
     const parsed = JSON.parse(jsonMatch[0]) as LlmExtractedTask[];
-    if (!Array.isArray(parsed)) return [];
-
-    const seen = new Set<string>();
-    const items: TodoItem[] = [];
-    for (const task of parsed) {
-      if (!task.title) continue;
-      const key = `${task.sourceProvider}:${task.title.toLowerCase().trim()}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      items.push(llmTaskToTodoItem(task, date));
+    if (!Array.isArray(parsed)) {
+      return {
+        items: [],
+        extractionLog: {
+          systemPrompt,
+          userContent,
+          rawResponse: jsonMatch[0].slice(0, 50_000),
+          parsedCount: 0,
+          filteredCount: 0,
+          extractedItemsForLog: [],
+        },
+      };
     }
-    return items;
+
+    const byKey = new Map<string, LlmExtractedTask>();
+    for (const task of parsed) {
+      if (!task.title?.trim()) continue;
+      if (!task.summary?.trim()) continue;
+      if (!task.sourceProvider?.trim()) continue;
+      if (!task.sourceType?.trim()) continue;
+      if (!isActionableExtractedTask(task)) continue;
+
+      const keys = buildExtractedTaskDedupKeys(task);
+      if (keys.length === 0) continue;
+
+      let mergedTask = task;
+      for (const key of keys) {
+        const current = byKey.get(key);
+        if (current)
+          mergedTask = chooseBetterExtractedTask(current, mergedTask);
+      }
+      for (const key of keys) {
+        byKey.set(key, mergedTask);
+      }
+    }
+
+    const unique = new Map<string, LlmExtractedTask>();
+    for (const task of byKey.values()) {
+      const stableKey =
+        buildExtractedTaskDedupKeys(task)[0] ??
+        `${task.sourceProvider}:${normalizeTitleForKey(task.title)}`;
+      unique.set(stableKey, task);
+    }
+
+    const items = [...unique.values()].map((task) =>
+      llmTaskToTodoItem(task, date),
+    );
+    const extractedItemsForLog = items.map((item) => ({
+      id: item.id,
+      title: item.title,
+      summary: item.summary,
+      priority: item.priority,
+      sourceProvider: item.sourceProvider,
+      sourceType: item.sourceType,
+      sourceExternalId: item.sourceRef?.externalId,
+      confidence: item.confidence,
+    }));
+
+    return {
+      items,
+      extractionLog: {
+        systemPrompt,
+        userContent,
+        rawResponse: jsonMatch[0].slice(0, 50_000),
+        parsedCount: parsed.length,
+        filteredCount: items.length,
+        extractedItemsForLog,
+      },
+    };
   } catch (err) {
     console.error(
       "[todo-generator] Failed to parse LLM response:",
       err instanceof Error ? err.message : err,
     );
-    return [];
+    return {
+      items: [],
+      extractionLog: {
+        systemPrompt,
+        userContent,
+        rawResponse: jsonMatch[0].slice(0, 50_000),
+        parsedCount: 0,
+        filteredCount: 0,
+        extractedItemsForLog: [],
+      },
+    };
   }
+}
+
+function buildSignalsSummary(signals: IntegrationSignal[]): Json {
+  return signals.map((s) => {
+    if (s.provider === "google_calendar") {
+      const c = s as CalendarEventSignal;
+      return {
+        provider: c.provider,
+        type: "calendar_event",
+        title: c.title,
+        externalId: c.externalId,
+        startTime: c.startTime,
+      };
+    }
+    const g = s as GmailSignal;
+    return {
+      provider: g.provider,
+      type: "message",
+      subject: g.subject,
+      sender: g.sender,
+      messageId: g.messageId,
+      threadId: g.threadId ?? null,
+      hasThreadContext: Boolean(g.threadContext),
+    };
+  }) as Json;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -410,6 +698,14 @@ export class TodoGenerator {
   ): Promise<TodoListOutput> {
     const existing = await this.getSnapshotForDate(userId, date);
     if (existing) {
+      await this.insertTodoGenerationLog(userId, date, {
+        runType: "cached",
+        generatedFromEvent: options?.generatedFromEvent,
+        signalsCount: 0,
+        signalsSummary: [],
+        extractedCount: existing.items.length,
+        durationMs: 0,
+      });
       return TodoListOutputSchema.parse({
         ...existing,
         updatedBecause: "cached",
@@ -428,7 +724,10 @@ export class TodoGenerator {
     date: string,
     options?: TodoGenerateOptions,
   ): Promise<TodoListOutput> {
-    return this.generateForDate(userId, date, options);
+    return this.generateForDate(userId, date, {
+      ...options,
+      runType: "regenerate",
+    });
   }
 
   /**
@@ -454,24 +753,34 @@ export class TodoGenerator {
       });
     }
 
-    const extracted = await extractTasksWithLlm(signals, date);
-    const existingExternalIds = new Set(
-      existing.items
-        .map((i) => i.sourceRef?.externalId)
-        .filter((id): id is string => Boolean(id)),
+    const startedAt = Date.now();
+    const { items: extracted, extractionLog } = await extractTasksWithLlm(
+      signals,
+      date,
     );
-    const existingByKey = new Set(
-      existing.items.map(
-        (i) => `${i.sourceProvider}:${i.title.toLowerCase().trim()}`,
-      ),
+    const durationMs = Date.now() - startedAt;
+
+    await this.insertTodoGenerationLog(userId, date, {
+      runType: "merge",
+      generatedFromEvent: options?.generatedFromEvent,
+      signalsCount: signals.length,
+      signalsSummary: buildSignalsSummary(signals),
+      extractionLog,
+      extractedCount: extracted.length,
+      durationMs,
+    });
+
+    const existingKeys = new Set(
+      existing.items.flatMap((item) => buildTodoItemDedupKeys(item)),
     );
 
     const newItems = extracted.filter((item) => {
-      const id = item.sourceRef?.externalId;
-      if (id && existingExternalIds.has(id)) return false;
-      const key = `${item.sourceProvider}:${item.title.toLowerCase().trim()}`;
-      if (existingByKey.has(key)) return false;
-      return true;
+      const keys = buildTodoItemDedupKeys(item);
+      if (keys.some((key) => existingKeys.has(key))) return false;
+      for (const key of keys) {
+        existingKeys.add(key);
+      }
+      return keys.length > 0;
     });
 
     if (newItems.length === 0) {
@@ -712,6 +1021,7 @@ export class TodoGenerator {
     date: string,
     options?: TodoGenerateOptions,
   ): Promise<TodoListOutput> {
+    const startedAt = Date.now();
     const integrations = await this.fetchActiveIntegrations(userId);
     if (integrations.length === 0) {
       return this.buildEmptyList(userId, date, "initial_generation");
@@ -726,10 +1036,32 @@ export class TodoGenerator {
         empty,
         options?.generatedFromEvent,
       );
+      await this.insertTodoGenerationLog(userId, date, {
+        runType: options?.runType ?? "initial_generation",
+        generatedFromEvent: options?.generatedFromEvent,
+        signalsCount: 0,
+        signalsSummary: [] as Json,
+        extractedCount: 0,
+        durationMs: Date.now() - startedAt,
+      });
       return empty;
     }
 
-    const todoItems = await extractTasksWithLlm(signals, date);
+    const { items: todoItems, extractionLog } = await extractTasksWithLlm(
+      signals,
+      date,
+    );
+    const durationMs = Date.now() - startedAt;
+
+    await this.insertTodoGenerationLog(userId, date, {
+      runType: options?.runType ?? "initial_generation",
+      generatedFromEvent: options?.generatedFromEvent,
+      signalsCount: signals.length,
+      signalsSummary: buildSignalsSummary(signals),
+      extractionLog,
+      extractedCount: todoItems.length,
+      durationMs,
+    });
 
     const list: TodoListOutput = TodoListOutputSchema.parse({
       listId: crypto.randomUUID(),
@@ -800,6 +1132,52 @@ export class TodoGenerator {
     if (error)
       throw new Error(`Failed to fetch integrations: ${error.message}`);
     return (data ?? []) as Integration[];
+  }
+
+  private async insertTodoGenerationLog(
+    userId: string,
+    date: string,
+    payload: {
+      runType: string;
+      generatedFromEvent?: string;
+      signalsCount: number;
+      signalsSummary: Json;
+      extractionLog?: TodoExtractionLog | null;
+      extractedCount: number;
+      durationMs: number;
+      errorMessage?: string;
+    },
+  ): Promise<void> {
+    const logRow = {
+      user_id: userId,
+      date,
+      run_type: payload.runType,
+      generated_from_event: payload.generatedFromEvent ?? null,
+      signals_count: payload.signalsCount,
+      signals_summary: payload.signalsSummary,
+      llm_system_prompt_preview: payload.extractionLog
+        ? payload.extractionLog.systemPrompt.slice(0, 8000)
+        : null,
+      llm_user_content_preview: payload.extractionLog
+        ? payload.extractionLog.userContent.slice(0, 16000)
+        : null,
+      llm_raw_response: payload.extractionLog?.rawResponse ?? null,
+      extracted_count: payload.extractedCount,
+      extracted_items: (payload.extractionLog?.extractedItemsForLog ??
+        []) as Json,
+      duration_ms: payload.durationMs,
+      error_message: payload.errorMessage ?? null,
+    };
+    const { error } = await db.insertOne(
+      this.supabase,
+      "todo_generation_logs",
+      logRow as never,
+    );
+    if (error)
+      console.warn(
+        "[todo-generator] Failed to insert todo_generation_log:",
+        error.message,
+      );
   }
 }
 

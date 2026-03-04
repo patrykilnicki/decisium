@@ -371,6 +371,66 @@ export async function executeGmailFetchEmails(
 }
 
 /**
+ * Execute a Gmail thread-read tool for a user's connected account.
+ *
+ * Composio toolkit versions may expose different tool slugs for thread reads.
+ * This helper tries a small set of known candidates and returns the first success.
+ */
+export async function executeGmailFetchThread(
+  userId: string,
+  connectedAccountId: string,
+  params: {
+    threadId: string;
+  },
+): Promise<{
+  data?: Record<string, unknown>;
+  error?: string;
+  successful?: boolean;
+}> {
+  const client = getComposioServerClient();
+  if (!client) {
+    return { successful: false, error: "Composio not configured" };
+  }
+  if (!params.threadId?.trim()) {
+    return { successful: false, error: "threadId is required" };
+  }
+
+  const toolCandidates = [
+    "GMAIL_GET_THREAD",
+    "GMAIL_FETCH_THREAD",
+    "GMAIL_GET_EMAIL_THREAD",
+  ];
+
+  for (const toolName of toolCandidates) {
+    try {
+      const result = await client.tools.execute(toolName, {
+        userId,
+        connectedAccountId,
+        arguments: {
+          thread_id: params.threadId,
+          threadId: params.threadId,
+          id: params.threadId,
+          user_id: "me",
+        },
+      });
+      if (result.successful) {
+        return {
+          data: (result.data as Record<string, unknown> | undefined) ?? {},
+          successful: true,
+        };
+      }
+    } catch {
+      // Try next candidate tool slug
+    }
+  }
+
+  return {
+    successful: false,
+    error: "No compatible Gmail thread tool available in Composio toolkit",
+  };
+}
+
+/**
  * Delete a Composio connected account.
  */
 export async function deleteComposioConnectedAccount(
