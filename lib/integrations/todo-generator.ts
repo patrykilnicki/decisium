@@ -249,6 +249,23 @@ async function fetchCalendarSignalsFromSupabase(
   });
 }
 
+const GMAIL_PAGE_SIZE = 50;
+const GMAIL_MAX_PAGES = 10;
+const THREAD_FETCH_CONCURRENCY = 6;
+
+function parseGmailMessage(msg: Record<string, unknown>): GmailSignal {
+  return {
+    provider: "gmail" as const,
+    subject: String(msg.subject ?? ""),
+    sender: String(msg.sender ?? ""),
+    snippet: String(msg.messageText ?? msg.snippet ?? "").slice(0, 300),
+    timestamp: String(msg.messageTimestamp ?? ""),
+    messageId: String(msg.messageId ?? ""),
+    threadId: toNonEmptyString(msg.threadId) ?? toNonEmptyString(msg.thread_id),
+    labels: Array.isArray(msg.labelIds) ? (msg.labelIds as string[]) : [],
+  };
+}
+
 async function fetchGmailSignals(
   userId: string,
   date: string,
@@ -258,28 +275,59 @@ async function fetchGmailSignals(
   const accounts = await listComposioConnectedAccounts(userId, "GMAIL");
   if (accounts.length === 0) return [];
 
-  // Single-day range: after start of day, before start of next day (same as Ask/adapters).
+  const connectedAccountId = accounts[0].id;
   const gmailDate = date.replace(/-/g, "/");
   const nextDay = nextDayDateString(date).replace(/-/g, "/");
-  const result = await executeGmailFetchEmails(userId, accounts[0].id, {
-    query: `after:${gmailDate} before:${nextDay}`,
-    max_results: 50,
-  });
+  const query = `after:${gmailDate} before:${nextDay}`;
 
-  if (!result.successful || !result.data?.messages) return [];
+  const allMessages: GmailSignal[] = [];
+  let pageToken: string | undefined;
 
-  const messages = result.data.messages.map((msg) => ({
-    provider: "gmail" as const,
-    subject: String(msg.subject ?? ""),
-    sender: String(msg.sender ?? ""),
-    snippet: String(msg.messageText ?? msg.snippet ?? "").slice(0, 300),
-    timestamp: String(msg.messageTimestamp ?? ""),
-    messageId: String(msg.messageId ?? ""),
-    threadId: toNonEmptyString(msg.threadId) ?? toNonEmptyString(msg.thread_id),
-    labels: Array.isArray(msg.labelIds) ? (msg.labelIds as string[]) : [],
-  }));
+  for (let page = 0; page < GMAIL_MAX_PAGES; page++) {
+    const result = await executeGmailFetchEmails(userId, connectedAccountId, {
+      query,
+      max_results: GMAIL_PAGE_SIZE,
+      page_token: pageToken,
+    });
 
-  return enrichGmailSignalsWithThreadContext(userId, accounts[0].id, messages);
+    if (!result.successful || !result.data?.messages) break;
+
+    for (const msg of result.data.messages) {
+      allMessages.push(parseGmailMessage(msg));
+    }
+
+    pageToken = result.data.nextPageToken ?? undefined;
+    if (!pageToken) break;
+  }
+
+  if (allMessages.length === 0) return [];
+  return enrichGmailSignalsWithThreadContext(
+    userId,
+    connectedAccountId,
+    allMessages,
+  );
+}
+
+/** Run async tasks with bounded concurrency. */
+async function mapConcurrent<T, R>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let cursor = 0;
+
+  async function worker() {
+    while (cursor < items.length) {
+      const idx = cursor++;
+      results[idx] = await fn(items[idx]);
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, items.length) }, () => worker()),
+  );
+  return results;
 }
 
 async function enrichGmailSignalsWithThreadContext(
@@ -287,29 +335,31 @@ async function enrichGmailSignalsWithThreadContext(
   connectedAccountId: string,
   signals: GmailSignal[],
 ): Promise<GmailSignal[]> {
-  const threadIds = [
-    ...new Set(signals.map((s) => s.threadId).filter(Boolean)),
+  const conversationThreadIds = [
+    ...new Set(
+      signals
+        .filter((s) => s.threadId && s.threadId !== s.messageId)
+        .map((s) => s.threadId!),
+    ),
   ];
-  if (threadIds.length === 0) return signals;
+  if (conversationThreadIds.length === 0) return signals;
 
-  const limitedThreadIds = threadIds.slice(0, 12);
   const threadMap = new Map<string, string>();
 
-  await Promise.all(
-    limitedThreadIds.map(async (threadId) => {
-      if (!threadId) return;
+  await mapConcurrent(
+    conversationThreadIds,
+    THREAD_FETCH_CONCURRENCY,
+    async (threadId) => {
       const response = await executeGmailFetchThread(
         userId,
         connectedAccountId,
-        {
-          threadId,
-        },
+        { threadId },
       ).catch(() => null);
       if (!response?.successful || !response.data) return;
 
       const summary = summarizeThreadPayload(response.data);
       if (summary) threadMap.set(threadId, summary);
-    }),
+    },
   );
 
   if (threadMap.size === 0) return signals;

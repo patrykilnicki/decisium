@@ -602,9 +602,9 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
         backgroundSize: "auto 50vh",
       }}
     >
-      <div className="flex w-full max-w-[720px] flex-1 flex-col items-stretch gap-14 px-4 py-8 md:px-8 md:py-10 lg:px-32">
+      <div className="flex w-full max-w-5xl flex-1 flex-col items-stretch gap-14 px-4 py-8 md:px-8 md:py-10 lg:px-32">
         {/* Header: greeting + date navigation */}
-        <header className="flex w-full max-w-[720px] flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <header className="flex w-full flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <h1 className="text-3xl text-foreground">
             {getGreeting()}, {displayName}
           </h1>
@@ -655,7 +655,7 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
         </header>
 
         {/* Tasks section */}
-        <section className="flex w-full max-w-[720px] flex-col gap-4">
+        <section className="flex w-full flex-col gap-4">
           <h2 className="text-xl font-serif">Tasks</h2>
 
           {/* Overdue block – only when viewing today */}
@@ -709,7 +709,7 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
             </div>
           )}
 
-          <div className="overflow-hidden rounded-2xl border border-border bg-card">
+          <div className="overflow-hidden rounded-2xl border border-border bg-card w-full">
             {tasksLoading ? (
               <p className="px-5 py-4 text-sm text-muted-foreground">
                 Loading tasks...
@@ -909,7 +909,7 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
         </section>
 
         {/* Journal section */}
-        <section className="flex w-full max-w-[720px] flex-col gap-4">
+        <section className="flex w-full flex-col gap-4">
           <h2 className="text-xl font-serif">Journal</h2>
           <div className="flex flex-col gap-4 rounded-[20px] border border-border bg-card p-4 shadow-sm">
             <div className="min-h-[52px] rounded-lg p-2">
@@ -958,7 +958,7 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
               </Button>
             </div>
           </div>
-          <div className="overflow-hidden rounded-2xl border border-border bg-card">
+          <div className="overflow-hidden rounded-2xl border border-border bg-card w-full">
             {JOURNAL_ENTRIES.map((entry) => (
               <div
                 key={entry.id}

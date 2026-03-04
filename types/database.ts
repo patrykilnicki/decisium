@@ -33,10 +33,20 @@ export type PendingCalendarSync =
   Database["public"]["Tables"]["pending_calendar_syncs"]["Row"];
 export type Task = Database["public"]["Tables"]["tasks"]["Row"];
 export type TaskEvent = Database["public"]["Tables"]["task_events"]["Row"];
+export type TodoGenerationLog =
+  Database["public"]["Tables"]["todo_generation_logs"]["Row"];
 export type TodoSnapshot =
   Database["public"]["Tables"]["todo_snapshots"]["Row"];
 export type UserSignal = Database["public"]["Tables"]["user_signals"]["Row"];
 export type User = Database["public"]["Tables"]["users"]["Row"];
+export type VaultChange = Database["public"]["Tables"]["vault_changes"]["Row"];
+export type VaultChunk = Database["public"]["Tables"]["vault_chunks"]["Row"];
+export type VaultCollection =
+  Database["public"]["Tables"]["vault_collections"]["Row"];
+export type VaultDocument =
+  Database["public"]["Tables"]["vault_documents"]["Row"];
+export type VaultSnapshot =
+  Database["public"]["Tables"]["vault_snapshots"]["Row"];
 export type WeeklySummary =
   Database["public"]["Tables"]["weekly_summaries"]["Row"];
 
@@ -79,11 +89,23 @@ export type PendingCalendarSyncInsert =
 export type TaskInsert = Database["public"]["Tables"]["tasks"]["Insert"];
 export type TaskEventInsert =
   Database["public"]["Tables"]["task_events"]["Insert"];
+export type TodoGenerationLogInsert =
+  Database["public"]["Tables"]["todo_generation_logs"]["Insert"];
 export type TodoSnapshotInsert =
   Database["public"]["Tables"]["todo_snapshots"]["Insert"];
 export type UserSignalInsert =
   Database["public"]["Tables"]["user_signals"]["Insert"];
 export type UserInsert = Database["public"]["Tables"]["users"]["Insert"];
+export type VaultChangeInsert =
+  Database["public"]["Tables"]["vault_changes"]["Insert"];
+export type VaultChunkInsert =
+  Database["public"]["Tables"]["vault_chunks"]["Insert"];
+export type VaultCollectionInsert =
+  Database["public"]["Tables"]["vault_collections"]["Insert"];
+export type VaultDocumentInsert =
+  Database["public"]["Tables"]["vault_documents"]["Insert"];
+export type VaultSnapshotInsert =
+  Database["public"]["Tables"]["vault_snapshots"]["Insert"];
 export type WeeklySummaryInsert =
   Database["public"]["Tables"]["weekly_summaries"]["Insert"];
 
@@ -126,11 +148,23 @@ export type PendingCalendarSyncUpdate =
 export type TaskUpdate = Database["public"]["Tables"]["tasks"]["Update"];
 export type TaskEventUpdate =
   Database["public"]["Tables"]["task_events"]["Update"];
+export type TodoGenerationLogUpdate =
+  Database["public"]["Tables"]["todo_generation_logs"]["Update"];
 export type TodoSnapshotUpdate =
   Database["public"]["Tables"]["todo_snapshots"]["Update"];
 export type UserSignalUpdate =
   Database["public"]["Tables"]["user_signals"]["Update"];
 export type UserUpdate = Database["public"]["Tables"]["users"]["Update"];
+export type VaultChangeUpdate =
+  Database["public"]["Tables"]["vault_changes"]["Update"];
+export type VaultChunkUpdate =
+  Database["public"]["Tables"]["vault_chunks"]["Update"];
+export type VaultCollectionUpdate =
+  Database["public"]["Tables"]["vault_collections"]["Update"];
+export type VaultDocumentUpdate =
+  Database["public"]["Tables"]["vault_documents"]["Update"];
+export type VaultSnapshotUpdate =
+  Database["public"]["Tables"]["vault_snapshots"]["Update"];
 export type WeeklySummaryUpdate =
   Database["public"]["Tables"]["weekly_summaries"]["Update"];
 
