@@ -9,6 +9,7 @@ import {
   type TodoItem,
   type TodoListOutput,
 } from "@/packages/agents/schemas/todo.schema";
+import { z } from "zod";
 
 export interface TodoSnapshotRow {
   id: string;
@@ -411,6 +412,22 @@ Create tasks for clear action items (e.g. meetings to prepare for, emails that n
 You must output a task for every signal that meets the criteria above — do not limit how many tasks you return. If 10 signals are actionable, return 10 tasks. Omitting an actionable signal is an error.
 Return [] only when no signal implies a concrete user action.`;
 
+/** Zod schema for LLM-extracted task (matches prompt format). Used for structured output (Gemini, Claude, GPT-4o via OpenRouter). */
+const LlmExtractedTaskSchema = z.object({
+  title: z.string(),
+  summary: z.string(),
+  priority: z.enum(["normal", "urgent"]),
+  urgentReason: z.string().optional(),
+  sourceProvider: z.string(),
+  sourceType: z.string(),
+  sourceExternalId: z.string().optional(),
+  actionabilityEvidence: z.string().optional(),
+  confidence: z.number().optional(),
+  suggestedNextAction: z.string(),
+  tags: z.array(z.string()).optional(),
+});
+const LlmExtractedTaskArraySchema = z.array(LlmExtractedTaskSchema);
+
 interface LlmExtractedTask {
   title: string;
   summary: string;
@@ -498,16 +515,67 @@ export interface TodoExtractionLog {
   extractedItemsForLog: unknown[];
 }
 
-/** Strip model reasoning/thought blocks so we parse only the JSON array. */
-function stripReasoningFromResponse(raw: string): string {
-  if (!raw || typeof raw !== "string") return raw;
-  let out = raw.trim();
-  out = out.replace(/\s*>\s*\{\s*thought[\s\S]*?\}\s*/gi, " ").trim();
-  out = out.replace(/\s*\{\s*thought\s*\}\s*/gi, " ").trim();
-  out = out.replace(/^\s*[a-zA-Z0-9_-]+\s*\n?/, "").trim();
-  return out;
+/**
+ * Dedupe, filter, convert parsed LLM tasks to TodoItems, enrich Gmail URLs.
+ * Shared by structured-output path and fallback extraction path.
+ */
+function processParsedTasksToItems(
+  parsed: LlmExtractedTask[],
+  date: string,
+  signals: IntegrationSignal[],
+): TodoItem[] {
+  const byKey = new Map<string, LlmExtractedTask>();
+  for (const task of parsed) {
+    if (!task.title?.trim()) continue;
+    if (!task.summary?.trim()) continue;
+    if (!task.sourceProvider?.trim()) continue;
+    if (!task.sourceType?.trim()) continue;
+    if (!isActionableExtractedTask(task)) continue;
+
+    const keys = buildExtractedTaskDedupKeys(task);
+    if (keys.length === 0) continue;
+
+    let mergedTask = task;
+    for (const key of keys) {
+      const current = byKey.get(key);
+      if (current) mergedTask = chooseBetterExtractedTask(current, mergedTask);
+    }
+    for (const key of keys) {
+      byKey.set(key, mergedTask);
+    }
+  }
+
+  const unique = new Map<string, LlmExtractedTask>();
+  for (const task of byKey.values()) {
+    const stableKey =
+      buildExtractedTaskDedupKeys(task)[0] ??
+      `${task.sourceProvider}:${normalizeTitleForKey(task.title)}`;
+    unique.set(stableKey, task);
+  }
+
+  const items = [...unique.values()].map((task) =>
+    llmTaskToTodoItem(task, date),
+  );
+  return enrichGmailItemsWithSourceUrl(items, signals);
 }
 
+/**
+ * Extract JSON array from LLM response. Does NOT strip reasoning/thought blocks —
+ * that is risky and can remove the real JSON (see docs/analysis-todo-llm-parsing.md).
+ * Picks the longest array match when multiple exist (e.g. model emits "[]" plus real data).
+ */
+function extractJsonArrayFromResponse(raw: string): string | null {
+  if (!raw || typeof raw !== "string") return null;
+  const allMatches = raw.trim().match(/\[[\s\S]*\]/g);
+  if (!allMatches || allMatches.length === 0) return null;
+  return allMatches.reduce((a, b) => (a.length >= b.length ? a : b));
+}
+
+/**
+ * Try structured output (OpenRouter: Gemini, Claude, GPT-4o). Falls back to
+ * raw invoke + JSON extraction when model doesn't support it.
+ * See docs/analysis-todo-llm-parsing.md and OpenRouter structured outputs.
+ */
 async function extractTasksWithLlm(
   signals: IntegrationSignal[],
   date: string,
@@ -523,13 +591,59 @@ async function extractTasksWithLlm(
   );
   const context = signalsToPromptContext(signals);
   const userContent = `Extract tasks for ${date} from these integration signals:\n\n${context}`;
+  const messages = [
+    { role: "system" as const, content: systemPrompt },
+    { role: "user" as const, content: userContent },
+  ];
 
-  const response = await llm.invoke([
-    { role: "system", content: systemPrompt },
-    { role: "user", content: userContent },
-  ]);
+  // 1. Try structured output (Gemini, Claude, GPT-4o via OpenRouter support this)
+  try {
+    const structuredLlm = llm.withStructuredOutput(
+      LlmExtractedTaskArraySchema,
+      {
+        name: "todo_tasks",
+        strict: true,
+        method: "jsonSchema",
+      },
+    );
+    const parsed = await structuredLlm.invoke(messages);
+    if (Array.isArray(parsed) && parsed.length >= 0) {
+      const items = processParsedTasksToItems(
+        parsed as LlmExtractedTask[],
+        date,
+        signals,
+      );
+      return {
+        items,
+        extractionLog: {
+          systemPrompt,
+          userContent,
+          rawResponse: JSON.stringify(parsed).slice(0, 50_000),
+          parsedCount: parsed.length,
+          filteredCount: items.length,
+          extractedItemsForLog: items.map((i) => ({
+            id: i.id,
+            title: i.title,
+            summary: i.summary,
+            priority: i.priority,
+            sourceProvider: i.sourceProvider,
+            sourceType: i.sourceType,
+            sourceExternalId: i.sourceRef?.externalId,
+            confidence: i.confidence,
+          })),
+        },
+      };
+    }
+  } catch (structuredErr) {
+    console.warn(
+      "[todo-generator] Structured output failed, falling back to extraction:",
+      structuredErr instanceof Error ? structuredErr.message : structuredErr,
+    );
+  }
 
-  let text =
+  // 2. Fallback: raw invoke + JSON extraction (any model)
+  const response = await llm.invoke(messages);
+  const rawText =
     typeof response.content === "string"
       ? response.content
       : Array.isArray(response.content)
@@ -539,17 +653,15 @@ async function extractTasksWithLlm(
             )
             .join("")
         : "";
-  text = stripReasoningFromResponse(text);
-
-  const jsonMatch = text.match(/\[[\s\S]*\]/);
-  if (!jsonMatch) {
+  const jsonStr = extractJsonArrayFromResponse(rawText);
+  if (!jsonStr) {
     console.warn("[todo-generator] LLM returned no JSON array");
     return {
       items: [],
       extractionLog: {
         systemPrompt,
         userContent,
-        rawResponse: text.slice(0, 50_000),
+        rawResponse: rawText.slice(0, 50_000),
         parsedCount: 0,
         filteredCount: 0,
         extractedItemsForLog: [],
@@ -558,14 +670,14 @@ async function extractTasksWithLlm(
   }
 
   try {
-    const parsed = JSON.parse(jsonMatch[0]) as LlmExtractedTask[];
+    const parsed = JSON.parse(jsonStr) as LlmExtractedTask[];
     if (!Array.isArray(parsed)) {
       return {
         items: [],
         extractionLog: {
           systemPrompt,
           userContent,
-          rawResponse: jsonMatch[0].slice(0, 50_000),
+          rawResponse: jsonStr.slice(0, 50_000),
           parsedCount: 0,
           filteredCount: 0,
           extractedItemsForLog: [],
@@ -573,40 +685,7 @@ async function extractTasksWithLlm(
       };
     }
 
-    const byKey = new Map<string, LlmExtractedTask>();
-    for (const task of parsed) {
-      if (!task.title?.trim()) continue;
-      if (!task.summary?.trim()) continue;
-      if (!task.sourceProvider?.trim()) continue;
-      if (!task.sourceType?.trim()) continue;
-      if (!isActionableExtractedTask(task)) continue;
-
-      const keys = buildExtractedTaskDedupKeys(task);
-      if (keys.length === 0) continue;
-
-      let mergedTask = task;
-      for (const key of keys) {
-        const current = byKey.get(key);
-        if (current)
-          mergedTask = chooseBetterExtractedTask(current, mergedTask);
-      }
-      for (const key of keys) {
-        byKey.set(key, mergedTask);
-      }
-    }
-
-    const unique = new Map<string, LlmExtractedTask>();
-    for (const task of byKey.values()) {
-      const stableKey =
-        buildExtractedTaskDedupKeys(task)[0] ??
-        `${task.sourceProvider}:${normalizeTitleForKey(task.title)}`;
-      unique.set(stableKey, task);
-    }
-
-    let items = [...unique.values()].map((task) =>
-      llmTaskToTodoItem(task, date),
-    );
-    items = enrichGmailItemsWithSourceUrl(items, signals);
+    const items = processParsedTasksToItems(parsed, date, signals);
     const extractedItemsForLog = items.map((item) => ({
       id: item.id,
       title: item.title,
@@ -623,7 +702,7 @@ async function extractTasksWithLlm(
       extractionLog: {
         systemPrompt,
         userContent,
-        rawResponse: jsonMatch[0].slice(0, 50_000),
+        rawResponse: jsonStr.slice(0, 50_000),
         parsedCount: parsed.length,
         filteredCount: items.length,
         extractedItemsForLog,
@@ -639,7 +718,7 @@ async function extractTasksWithLlm(
       extractionLog: {
         systemPrompt,
         userContent,
-        rawResponse: jsonMatch[0].slice(0, 50_000),
+        rawResponse: jsonStr.slice(0, 50_000),
         parsedCount: 0,
         filteredCount: 0,
         extractedItemsForLog: [],

@@ -71,7 +71,7 @@ export const fetchGmailEmailsTool = new DynamicStructuredTool({
         threadId: m.threadId,
         labels: m.labels,
         ...(m.threadContext && {
-          threadContext: m.threadContext.slice(0, 900),
+          threadContext: m.threadContext.slice(0, 500),
         }),
       })),
       count: capped.length,
