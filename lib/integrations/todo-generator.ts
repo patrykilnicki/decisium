@@ -208,6 +208,11 @@ async function fetchCalendarSignalsFromSupabase(
   });
 }
 
+/**
+ * Fetch Gmail signals for a date. Uses the same API as the Ask flow's
+ * fetch_gmail_emails tool: fetchGmailEmailsFull with withThreadContext: true,
+ * so we get snippet + thread context for each message (same content quality as Ask).
+ */
 async function fetchGmailSignals(
   userId: string,
   date: string,
@@ -260,9 +265,14 @@ async function fetchAllSignals(
 // LLM-powered task extraction
 // ═══════════════════════════════════════════════════════════════
 
+/** Same limits as fetch_gmail_emails tool (Ask flow) for consistent content. */
+const EMAIL_SNIPPET_MAX = 300;
+const EMAIL_THREAD_CONTEXT_MAX = 900;
+
 /**
- * Format integration signals for the LLM. Emails are structured so the model
- * can read each message's content in detail (like ASK does) before deciding actionability.
+ * Format integration signals for the LLM. Email format matches fetch_gmail_emails
+ * tool output (same structure Ask uses) so the model sees subject, sender, snippet,
+ * threadContext and can reason the same way as when summarizing emails in Ask.
  */
 function signalsToPromptContext(signals: IntegrationSignal[]): string {
   return signals
@@ -283,11 +293,14 @@ function signalsToPromptContext(signals: IntegrationSignal[]): string {
         return parts.filter(Boolean).join(" | ");
       }
       const g = signal as GmailSignal;
-      const contentParts: string[] = [];
-      if (g.snippet?.trim()) contentParts.push(g.snippet.trim());
-      if (g.threadContext?.trim()) contentParts.push(g.threadContext.trim());
-      const content =
-        contentParts.length > 0 ? contentParts.join("\n\n") : "(no body)";
+      const snippet = (g.snippet ?? "").trim().slice(0, EMAIL_SNIPPET_MAX);
+      const threadContext = (g.threadContext ?? "")
+        .trim()
+        .slice(0, EMAIL_THREAD_CONTEXT_MAX);
+      const hasContent = snippet.length > 0 || threadContext.length > 0;
+      const content = hasContent
+        ? [snippet, threadContext].filter(Boolean).join("\n\n")
+        : '(No snippet or thread context for this message; subject and sender may still imply an action — e.g. personal reply, "Re:" thread.)';
       return [
         `[EMAIL] Subject: "${g.subject}" | From: ${g.sender} | Date: ${g.timestamp} | Labels: ${g.labels.join(", ")}`,
         `Content: ${content}`,
