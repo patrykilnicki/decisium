@@ -631,9 +631,9 @@ function createToolsWithBoundUserId(userId: string): DynamicStructuredTool[] {
         withThreadContext: z
           .boolean()
           .optional()
-          .default(false)
+          .default(true)
           .describe(
-            "When true, include a short summary of each email thread. Use when the user asks about conversation context.",
+            "When true, include message/thread content for each email so you can review and summarize accurately. Set true for list/summarize/count requests.",
           ),
       }),
       func: async (args) =>

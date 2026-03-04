@@ -21,9 +21,9 @@ const schema = z.object({
   withThreadContext: z
     .boolean()
     .optional()
-    .default(false)
+    .default(true)
     .describe(
-      "When true, include a short summary of each email thread. Use when the user asks about conversation context.",
+      "When true, include message/thread content for each email so you can review and summarize accurately. Set true for list/summarize/count requests.",
     ),
   userId: z.string().uuid().optional().describe("Authenticated user id"),
 });
@@ -64,13 +64,13 @@ export const fetchGmailEmailsTool = new DynamicStructuredTool({
       messages: capped.map((m) => ({
         subject: m.subject,
         sender: m.sender,
-        snippet: m.snippet.slice(0, 200),
+        snippet: m.snippet.slice(0, 300),
         timestamp: m.timestamp,
         messageId: m.messageId,
         threadId: m.threadId,
         labels: m.labels,
         ...(m.threadContext && {
-          threadContext: m.threadContext.slice(0, 300),
+          threadContext: m.threadContext.slice(0, 900),
         }),
       })),
       count: capped.length,
