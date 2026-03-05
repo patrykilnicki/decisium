@@ -39,7 +39,7 @@ export interface TodoGenerateOptions {
   signalHints?: SignalHint[];
 }
 
-const BATCH_SIZE = 10;
+const BATCH_SIZE = 7;
 
 /** Sequential fallback when LangGraph triage fails (e.g. serverless/env issues). */
 async function extractTasksSequential(
@@ -496,15 +496,9 @@ async function fetchAllSignals(
 // LLM-powered task extraction
 // ═══════════════════════════════════════════════════════════════
 
-/** Same limits as fetch_gmail_emails tool (Ask flow) for consistent content. */
-const EMAIL_SNIPPET_MAX = 300;
-const EMAIL_THREAD_CONTEXT_MAX = 900;
+const EMAIL_SNIPPET_MAX = 2000;
+const EMAIL_THREAD_CONTEXT_MAX = 6000;
 
-/**
- * Format integration signals for the LLM. Email format matches fetch_gmail_emails
- * tool output (same structure Ask uses) so the model sees subject, sender, snippet,
- * threadContext and can reason the same way as when summarizing emails in Ask.
- */
 export function signalsToPromptContext(signals: IntegrationSignal[]): string {
   return signals
     .map((signal) => {
@@ -528,10 +522,13 @@ export function signalsToPromptContext(signals: IntegrationSignal[]): string {
       const threadContext = (g.threadContext ?? "")
         .trim()
         .slice(0, EMAIL_THREAD_CONTEXT_MAX);
-      const hasContent = snippet.length > 0 || threadContext.length > 0;
-      const content = hasContent
-        ? [snippet, threadContext].filter(Boolean).join("\n\n")
-        : '(No snippet or thread context for this message; subject and sender may still imply an action — e.g. personal reply, "Re:" thread.)';
+      const useThreadOnly =
+        threadContext.length > 0 && threadContext.length >= snippet.length;
+      const content = useThreadOnly
+        ? threadContext
+        : snippet.length > 0
+          ? snippet
+          : "(No content for this message; subject and sender may still imply an action.)";
       return [
         `[EMAIL] Subject: "${g.subject}" | From: ${g.sender} | Date: ${g.timestamp} | Labels: ${g.labels.join(", ")}`,
         `Content: ${content}`,
