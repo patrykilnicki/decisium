@@ -321,6 +321,9 @@ async function fetchAllSignals(
 const EMAIL_SNIPPET_MAX = 300;
 const EMAIL_THREAD_CONTEXT_MAX = 900;
 
+/** Cap total prompt context to avoid provider 400/413 (payload too large). */
+const PROMPT_CONTEXT_MAX_CHARS = 24_000;
+
 /**
  * Format integration signals for the LLM. Email format matches fetch_gmail_emails
  * tool output (same structure Ask uses) so the model sees subject, sender, snippet,
@@ -600,7 +603,12 @@ async function extractTasksWithLlm(
     /\{\{targetDate\}\}/g,
     date,
   );
-  const context = signalsToPromptContext(signals);
+  let context = signalsToPromptContext(signals);
+  if (context.length > PROMPT_CONTEXT_MAX_CHARS) {
+    context =
+      context.slice(0, PROMPT_CONTEXT_MAX_CHARS) +
+      "\n\n[... context truncated to fit provider limits ...]";
+  }
   const userContent = `Extract tasks for ${date} from these integration signals:\n\n${context}`;
   const messages = [
     { role: "system" as const, content: systemPrompt },
@@ -646,10 +654,14 @@ async function extractTasksWithLlm(
       };
     }
   } catch (structuredErr) {
-    console.warn(
-      "[todo-generator] Structured output failed, falling back to extraction:",
-      structuredErr instanceof Error ? structuredErr.message : structuredErr,
-    );
+    const msg =
+      structuredErr instanceof Error ? structuredErr.message : String(structuredErr);
+    if (process.env.NODE_ENV === "development") {
+      console.warn(
+        "[todo-generator] Structured output failed, using fallback extraction:",
+        msg,
+      );
+    }
   }
 
   // 2. Fallback: raw invoke + JSON extraction (any model)
