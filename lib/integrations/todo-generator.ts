@@ -172,6 +172,7 @@ function enrichGmailItemsWithSourceUrl(
       sourceRef: {
         ...item.sourceRef,
         sourceUrl: buildGmailThreadUrl(threadId),
+        threadId,
       },
     };
   });

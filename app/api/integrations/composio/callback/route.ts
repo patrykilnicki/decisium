@@ -7,6 +7,7 @@ import {
   isComposioEnabled,
   setupCalendarTrigger,
   setupGmailTrigger,
+  setupGmailEmailSentTrigger,
 } from "@agents/lib/composio";
 
 const TOOLKIT_TO_PROVIDER: Record<string, string> = {
@@ -161,21 +162,33 @@ export async function GET(request: NextRequest) {
               )
             : await setupGmailTrigger(user.id, webhookUrl, connectedAccount.id);
 
-        if (triggerId) {
+        const metadata: Record<string, unknown> = {
+          composio_connected_account_id: connectedAccount.id,
+          composio_trigger_id: triggerId ?? undefined,
+        };
+        if (resolvedProvider === "gmail" && triggerId) {
+          const emailSentTriggerId = await setupGmailEmailSentTrigger(
+            user.id,
+            webhookUrl,
+            connectedAccount.id,
+          );
+          if (emailSentTriggerId) {
+            metadata.composio_email_sent_trigger_id = emailSentTriggerId;
+          }
+        }
+
+        if (triggerId || metadata.composio_email_sent_trigger_id) {
           await db.update(
             supabase,
             "integrations",
             { id: integrationId },
             {
-              metadata: {
-                composio_connected_account_id: connectedAccount.id,
-                composio_trigger_id: triggerId,
-              } as import("@/types/supabase").Json,
+              metadata: metadata as import("@/types/supabase").Json,
               updated_at: new Date().toISOString(),
             },
           );
           console.log(
-            `[composio/callback] Created trigger ${triggerId} for ${resolvedProvider} integration ${integrationId}`,
+            `[composio/callback] Created trigger(s) for ${resolvedProvider} integration ${integrationId}`,
           );
         }
       } catch (triggerErr) {

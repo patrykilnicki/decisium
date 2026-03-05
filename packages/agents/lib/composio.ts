@@ -589,6 +589,8 @@ export const COMPOSIO_TRIGGER = {
     "GOOGLECALENDAR_EVENT_CANCELED_DELETED_TRIGGER" as const,
   /** Gmail new email received (polling ~1 min). Per Composio docs: "New Gmail Message Received Trigger". */
   GMAIL_NEW_EMAIL: "GMAIL_NEW_GMAIL_MESSAGE" as const,
+  /** Gmail email sent by user (polling ~1 min). Used to detect replies and auto-resolve tasks. */
+  GMAIL_EMAIL_SENT: "GMAIL_EMAIL_SENT_TRIGGER" as const,
 };
 
 /**
@@ -772,6 +774,31 @@ export async function setupCalendarTrigger(
     userId,
     COMPOSIO_TRIGGER.CALENDAR_EVENT_SYNC,
     { calendarId: "primary", interval: 3 },
+    connectedAccountId,
+  );
+
+  return triggerId;
+}
+
+/**
+ * Create a Composio Gmail trigger for email sent by user (replies).
+ * Used to detect when user replies to a thread and auto-update/resolve related tasks.
+ *
+ * @param userId - Supabase user ID (Composio user_id)
+ * @param webhookUrl - URL where Composio sends events
+ * @param connectedAccountId - Gmail connected account ID
+ */
+export async function setupGmailEmailSentTrigger(
+  userId: string,
+  webhookUrl: string,
+  connectedAccountId?: string,
+): Promise<string | null> {
+  await ensureComposioWebhookSubscription(webhookUrl);
+
+  const triggerId = await createComposioTrigger(
+    userId,
+    COMPOSIO_TRIGGER.GMAIL_EMAIL_SENT,
+    {},
     connectedAccountId,
   );
 

@@ -4,6 +4,11 @@ import type { ActivityAtomInsert } from "@/types/database";
 import crypto from "crypto";
 import { dispatchTodoGenerationTask } from "@/lib/tasks/todo-dispatcher";
 import { dispatchVaultSyncTask } from "@/lib/tasks/vault-dispatcher";
+import {
+  resolveGmailReply,
+  GMAIL_EMAIL_SENT_TRIGGER,
+  type GmailSentEventPayload,
+} from "@/lib/integrations/gmail-reply-resolver";
 import { createAdminClient } from "@/lib/supabase/admin";
 import * as db from "@/lib/supabase/db";
 
@@ -439,7 +444,6 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Non-calendar (e.g. Gmail): resolve userId and dispatch todo merge only.
     userId =
       payload.metadata?.user_id ||
       (payload.metadata?.connected_account_id
@@ -449,6 +453,17 @@ export async function POST(request: NextRequest) {
             )
           )?.user_id
         : undefined);
+
+    if (triggerSlug === GMAIL_EMAIL_SENT_TRIGGER && userId) {
+      const eventData = payload.data as unknown as GmailSentEventPayload;
+      const result = await resolveGmailReply(supabase, userId, eventData);
+      return NextResponse.json({
+        status: "ok",
+        trigger: triggerSlug,
+        userId,
+        ...result,
+      });
+    }
 
     if (userId) {
       await dispatchTodoGenerationTask(userId, {

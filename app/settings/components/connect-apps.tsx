@@ -62,6 +62,8 @@ export interface ConnectAppsProps {
   onSyncModalClose?: () => void;
   /** Show inline notification for errors. Default true. */
   showNotification?: boolean;
+  /** When false, do not open sync modal after OAuth callback (e.g. during onboarding—sync runs on complete). Default true. */
+  showSyncModalOnConnect?: boolean;
 }
 
 export function ConnectApps({
@@ -69,6 +71,7 @@ export function ConnectApps({
   providersFilter,
   onSyncModalClose,
   showNotification = true,
+  showSyncModalOnConnect = true,
 }: ConnectAppsProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -139,7 +142,7 @@ export function ConnectApps({
     if (connected && integrationId) {
       setSyncProvider(connected);
       setSyncIntegrationId(integrationId);
-      setSyncModalOpen(true);
+      if (showSyncModalOnConnect) setSyncModalOpen(true);
       router.replace(returnTo);
     } else if (error && showNotification) {
       const messages: Record<string, string> = {
@@ -155,7 +158,13 @@ export function ConnectApps({
       });
       router.replace(returnTo);
     }
-  }, [searchParams, router, returnTo, showNotification]);
+  }, [
+    searchParams,
+    router,
+    returnTo,
+    showNotification,
+    showSyncModalOnConnect,
+  ]);
 
   useEffect(() => {
     if (notification) {

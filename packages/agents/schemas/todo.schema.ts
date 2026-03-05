@@ -11,6 +11,8 @@ export const TodoSourceRefSchema = z.object({
   activityAtomId: z.string().uuid().optional(),
   externalId: z.string().optional(),
   sourceUrl: z.string().url().optional(),
+  /** Gmail thread ID for matching sent replies to tasks. */
+  threadId: z.string().optional(),
 });
 export type TodoSourceRef = z.infer<typeof TodoSourceRefSchema>;
 
