@@ -6,6 +6,7 @@ import {
   listComposioConnectedAccounts,
   isComposioEnabled,
   setupCalendarTrigger,
+  setupGmailTrigger,
 } from "@agents/lib/composio";
 
 const TOOLKIT_TO_PROVIDER: Record<string, string> = {
@@ -123,10 +124,14 @@ export async function GET(request: NextRequest) {
       integrationId = inserted ? (inserted as { id: string }).id : undefined;
     }
 
-    // Set up real-time trigger for Google Calendar
+    // Set up real-time trigger for Google Calendar or Gmail
     // Composio webhooks must be publicly reachable - localhost won't work. Prefer
     // NEXT_PUBLIC_APP_URL if it's a production URL (e.g. when developing against deployed app).
-    if (resolvedProvider === "google_calendar" && integrationId) {
+    if (
+      (resolvedProvider === "google_calendar" ||
+        resolvedProvider === "gmail") &&
+      integrationId
+    ) {
       try {
         const appUrl = process.env.NEXT_PUBLIC_APP_URL;
         const isLocalhost = (url: string) =>
@@ -143,11 +148,14 @@ export async function GET(request: NextRequest) {
           );
         }
 
-        const triggerId = await setupCalendarTrigger(
-          user.id,
-          webhookUrl,
-          connectedAccount.id,
-        );
+        const triggerId =
+          resolvedProvider === "google_calendar"
+            ? await setupCalendarTrigger(
+                user.id,
+                webhookUrl,
+                connectedAccount.id,
+              )
+            : await setupGmailTrigger(user.id, webhookUrl, connectedAccount.id);
 
         if (triggerId) {
           await db.update(
@@ -163,7 +171,7 @@ export async function GET(request: NextRequest) {
             },
           );
           console.log(
-            `[composio/callback] Created trigger ${triggerId} for integration ${integrationId}`,
+            `[composio/callback] Created trigger ${triggerId} for ${resolvedProvider} integration ${integrationId}`,
           );
         }
       } catch (triggerErr) {
