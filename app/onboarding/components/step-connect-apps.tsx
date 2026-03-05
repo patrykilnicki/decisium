@@ -23,6 +23,7 @@ export function StepConnectApps({ onComplete }: StepConnectAppsProps) {
         returnTo="/onboarding"
         providersFilter={["google_calendar", "gmail"]}
         showNotification={false}
+        showSyncModalOnConnect={false}
       />
 
       <div className="flex flex-col gap-2">
