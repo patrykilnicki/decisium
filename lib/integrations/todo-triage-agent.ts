@@ -1,10 +1,12 @@
 /**
  * Todo Triage Agent — LangGraph map-reduce pipeline for signal → task extraction.
  *
- * Uses the Send API for parallel batch processing: signals are split into groups
- * of ~BATCH_SIZE, each batch is processed independently by the LLM, and results
- * are aggregated via reducer. This eliminates the context-truncation problem of
- * a single monolithic LLM call.
+ * Two-phase pipeline:
+ *   1. Extract: signals split into batches, each processed in parallel via Send.
+ *   2. Verify: batches that yielded 0 tasks are re-examined with a "second opinion"
+ *      prompt to catch missed actionable signals.
+ *
+ * Graph: START → fanOutBatches → extractBatch (‖) → fanOutVerify → verifyBatch (‖) → finalize → END
  */
 import { Annotation, Send, StateGraph, START, END } from "@langchain/langgraph";
 import { createLLM } from "@/packages/agents/lib/llm";
@@ -21,17 +23,71 @@ import {
   extractJsonArrayFromResponse,
 } from "./todo-generator";
 
-const BATCH_SIZE = 10;
+const BATCH_SIZE = 7;
+
+// ═══════════════════════════════════════════════════════════════
+// VERIFICATION PROMPT
+// ═══════════════════════════════════════════════════════════════
+
+const VERIFY_EXTRACTION_PROMPT = `You are a second-opinion reviewer for a personal task extraction system.
+
+TARGET DATE: {{targetDate}}
+
+A previous analysis of these integration signals found NO actionable tasks.
+Your job: review every signal below and determine if any were incorrectly skipped.
+
+For EACH signal, briefly state:
+1. Whether the user needs to take a concrete action (reply, prepare, review, decide, deliver, follow up).
+2. Why or why not (one sentence).
+
+If a signal IS actionable, include a task for it. Even borderline signals where the user *might* need to act should produce a task — it is better to surface a low-confidence task than to miss a real one.
+
+Signals that are clearly automated notifications (CI bots, marketing, newsletters with no personal request) can be skipped.
+
+Return a JSON array of tasks. Each object:
+{
+  "title": "short actionable title (max 80 chars)",
+  "summary": "one sentence explaining what needs to be done",
+  "priority": "normal" or "urgent",
+  "urgentReason": "only when urgent — concrete fact from the signal, max ~80 chars. Omit for normal.",
+  "sourceProvider": "google_calendar" or "gmail",
+  "sourceType": "calendar_event" or "message",
+  "sourceExternalId": "ID from the source signal",
+  "actionabilityEvidence": "short quote or fact proving user action is required",
+  "confidence": 0.0 to 1.0,
+  "suggestedNextAction": "concrete next step the user should take",
+  "tags": ["relevant", "tags"]
+}
+
+Return ONLY the JSON array. Return [] only when every signal is genuinely non-actionable.`;
 
 // ═══════════════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════════════
+
+interface BatchSignalGroup {
+  batchIndex: number;
+  signals: IntegrationSignal[];
+}
+
+interface BatchExtractionLog {
+  batchIndex: number;
+  signalCount: number;
+  parsedCount: number;
+  filteredCount: number;
+  rawResponsePreview: string;
+  isVerification: boolean;
+}
 
 const TriageState = Annotation.Root({
   date: Annotation<string>,
   allSignals: Annotation<IntegrationSignal[]>,
   existingItemKeys: Annotation<string[]>,
 
+  batchSignalGroups: Annotation<BatchSignalGroup[]>({
+    reducer: (a, b) => [...a, ...b],
+    default: () => [],
+  }),
   batchedTasks: Annotation<TodoItem[]>({
     reducer: (a, b) => [...a, ...b],
     default: () => [],
@@ -50,56 +106,19 @@ const TriageState = Annotation.Root({
   }),
 });
 
-interface BatchExtractionLog {
-  batchIndex: number;
-  signalCount: number;
-  parsedCount: number;
-  filteredCount: number;
-  rawResponsePreview: string;
-}
-
 // ═══════════════════════════════════════════════════════════════
-// NODES
+// SHARED LLM EXTRACTION HELPER
 // ═══════════════════════════════════════════════════════════════
 
-/**
- * Fan-out: split signals into batches and dispatch via Send.
- * Returns Send objects (one per batch) for parallel execution, or routes
- * directly to finalize when there are no signals.
- */
-function fanOutBatches(state: typeof TriageState.State): Send[] | string {
-  const { allSignals, date } = state;
-  if (!allSignals || allSignals.length === 0) {
-    return "finalize";
-  }
-
-  const sends: Send[] = [];
-  for (let i = 0; i < allSignals.length; i += BATCH_SIZE) {
-    const batch = allSignals.slice(i, i + BATCH_SIZE);
-    sends.push(
-      new Send("extractBatch", {
-        batchSignals: batch,
-        batchIndex: Math.floor(i / BATCH_SIZE),
-        date,
-      }),
-    );
-  }
-  return sends;
-}
-
-/**
- * Worker node: extract tasks from a single batch of signals.
- * Each invocation runs independently (potentially in parallel via Send).
- */
-async function extractBatch(state: {
-  batchSignals: IntegrationSignal[];
-  batchIndex: number;
-  date: string;
-}): Promise<Partial<typeof TriageState.State>> {
-  const { batchSignals, batchIndex, date } = state;
-
+async function invokeLlmForTasks(
+  batchSignals: IntegrationSignal[],
+  date: string,
+  batchIndex: number,
+  systemPromptTemplate: string,
+  isVerification: boolean,
+): Promise<Partial<typeof TriageState.State>> {
   const llm = createLLM({ temperature: 0.15, maxTokens: 8192 });
-  const systemPrompt = TASK_EXTRACTION_PROMPT.replace(
+  const systemPrompt = systemPromptTemplate.replace(
     /\{\{targetDate\}\}/g,
     date,
   );
@@ -109,6 +128,19 @@ async function extractBatch(state: {
     { role: "system" as const, content: systemPrompt },
     { role: "user" as const, content: userContent },
   ];
+
+  const makeLog = (
+    parsedCount: number,
+    filteredCount: number,
+    preview: string,
+  ): BatchExtractionLog => ({
+    batchIndex,
+    signalCount: batchSignals.length,
+    parsedCount,
+    filteredCount,
+    rawResponsePreview: preview,
+    isVerification,
+  });
 
   // 1. Try structured output
   try {
@@ -126,13 +158,11 @@ async function extractBatch(state: {
       return {
         batchedTasks: items,
         extractionLogs: [
-          {
-            batchIndex,
-            signalCount: batchSignals.length,
-            parsedCount: parsed.length,
-            filteredCount: items.length,
-            rawResponsePreview: JSON.stringify(parsed).slice(0, 4_000),
-          },
+          makeLog(
+            parsed.length,
+            items.length,
+            JSON.stringify(parsed).slice(0, 4_000),
+          ),
         ],
       };
     }
@@ -143,7 +173,7 @@ async function extractBatch(state: {
         : String(structuredErr);
     if (process.env.NODE_ENV === "development") {
       console.warn(
-        `[todo-triage] Batch ${batchIndex}: structured output failed, using fallback:`,
+        `[todo-triage] Batch ${batchIndex}${isVerification ? " (verify)" : ""}: structured output failed, using fallback:`,
         msg,
       );
     }
@@ -167,62 +197,138 @@ async function extractBatch(state: {
     const jsonStr = extractJsonArrayFromResponse(rawText);
     if (!jsonStr) {
       return {
-        errors: [`Batch ${batchIndex}: LLM returned no JSON array`],
-        extractionLogs: [
-          {
-            batchIndex,
-            signalCount: batchSignals.length,
-            parsedCount: 0,
-            filteredCount: 0,
-            rawResponsePreview: rawText.slice(0, 2_000),
-          },
+        errors: [
+          `Batch ${batchIndex}${isVerification ? " (verify)" : ""}: LLM returned no JSON array`,
         ],
+        extractionLogs: [makeLog(0, 0, rawText.slice(0, 2_000))],
       };
     }
     const parsed = JSON.parse(jsonStr) as LlmExtractedTask[];
     if (!Array.isArray(parsed)) {
       return {
-        errors: [`Batch ${batchIndex}: parsed result is not an array`],
-        extractionLogs: [
-          {
-            batchIndex,
-            signalCount: batchSignals.length,
-            parsedCount: 0,
-            filteredCount: 0,
-            rawResponsePreview: jsonStr.slice(0, 2_000),
-          },
+        errors: [
+          `Batch ${batchIndex}${isVerification ? " (verify)" : ""}: parsed result is not an array`,
         ],
+        extractionLogs: [makeLog(0, 0, jsonStr.slice(0, 2_000))],
       };
     }
     const items = processParsedTasksToItems(parsed, date, batchSignals);
     return {
       batchedTasks: items,
       extractionLogs: [
-        {
-          batchIndex,
-          signalCount: batchSignals.length,
-          parsedCount: parsed.length,
-          filteredCount: items.length,
-          rawResponsePreview: jsonStr.slice(0, 4_000),
-        },
+        makeLog(parsed.length, items.length, jsonStr.slice(0, 4_000)),
       ],
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error(`[todo-triage] Batch ${batchIndex} failed:`, msg);
+    console.error(
+      `[todo-triage] Batch ${batchIndex}${isVerification ? " (verify)" : ""} failed:`,
+      msg,
+    );
     return {
-      errors: [`Batch ${batchIndex}: ${msg}`],
-      extractionLogs: [
-        {
-          batchIndex,
-          signalCount: batchSignals.length,
-          parsedCount: 0,
-          filteredCount: 0,
-          rawResponsePreview: "",
-        },
+      errors: [
+        `Batch ${batchIndex}${isVerification ? " (verify)" : ""}: ${msg}`,
       ],
+      extractionLogs: [makeLog(0, 0, "")],
     };
   }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// NODES
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Fan-out: split signals into batches and dispatch via Send.
+ */
+function fanOutBatches(state: typeof TriageState.State): Send[] | string {
+  const { allSignals, date } = state;
+  if (!allSignals || allSignals.length === 0) return "finalize";
+
+  const sends: Send[] = [];
+  for (let i = 0; i < allSignals.length; i += BATCH_SIZE) {
+    const batch = allSignals.slice(i, i + BATCH_SIZE);
+    sends.push(
+      new Send("extractBatch", {
+        batchSignals: batch,
+        batchIndex: Math.floor(i / BATCH_SIZE),
+        date,
+      }),
+    );
+  }
+  return sends;
+}
+
+/**
+ * Worker node: extract tasks from a single batch of signals.
+ */
+async function extractBatch(state: {
+  batchSignals: IntegrationSignal[];
+  batchIndex: number;
+  date: string;
+}): Promise<Partial<typeof TriageState.State>> {
+  const { batchSignals, batchIndex, date } = state;
+
+  const result = await invokeLlmForTasks(
+    batchSignals,
+    date,
+    batchIndex,
+    TASK_EXTRACTION_PROMPT,
+    false,
+  );
+
+  return {
+    ...result,
+    batchSignalGroups: [{ batchIndex, signals: batchSignals }],
+  };
+}
+
+/**
+ * Conditional edge: after all extractBatch runs complete, check for batches
+ * that produced 0 tasks and re-examine them via verifyBatch.
+ */
+function fanOutVerify(state: typeof TriageState.State): Send[] | string {
+  const logs = state.extractionLogs ?? [];
+  const groups = state.batchSignalGroups ?? [];
+
+  const zeroBatchIndices = new Set(
+    logs
+      .filter((l) => !l.isVerification && l.parsedCount === 0)
+      .map((l) => l.batchIndex),
+  );
+
+  if (zeroBatchIndices.size === 0) return "finalize";
+
+  const sends: Send[] = [];
+  for (const group of groups) {
+    if (!zeroBatchIndices.has(group.batchIndex)) continue;
+    sends.push(
+      new Send("verifyBatch", {
+        batchSignals: group.signals,
+        batchIndex: group.batchIndex,
+        date: state.date,
+      }),
+    );
+  }
+
+  return sends.length > 0 ? sends : "finalize";
+}
+
+/**
+ * Verification worker: re-examine signals with a second-opinion prompt.
+ */
+async function verifyBatch(state: {
+  batchSignals: IntegrationSignal[];
+  batchIndex: number;
+  date: string;
+}): Promise<Partial<typeof TriageState.State>> {
+  return invokeLlmForTasks(
+    state.batchSignals,
+    state.date,
+    state.batchIndex,
+    VERIFY_EXTRACTION_PROMPT,
+    true,
+  );
 }
 
 /**
@@ -256,13 +362,20 @@ function finalize(state: typeof TriageState.State) {
 
 function buildTriageGraph() {
   return new StateGraph(TriageState)
-    .addNode("extractBatch", extractBatch, { ends: ["finalize"] })
+    .addNode("extractBatch", extractBatch, {
+      ends: ["verifyBatch", "finalize"],
+    })
+    .addNode("verifyBatch", verifyBatch, { ends: ["finalize"] })
     .addNode("finalize", finalize)
     .addConditionalEdges(START, fanOutBatches, {
       finalize: "finalize",
       extractBatch: "extractBatch",
     })
-    .addEdge("extractBatch", "finalize")
+    .addConditionalEdges("extractBatch", fanOutVerify, {
+      finalize: "finalize",
+      verifyBatch: "verifyBatch",
+    })
+    .addEdge("verifyBatch", "finalize")
     .addEdge("finalize", END)
     .compile();
 }
@@ -308,19 +421,23 @@ export async function triageSignals(
   const batchCount = Math.ceil(signals.length / BATCH_SIZE);
   const totalParsed = logs.reduce((s, l) => s + l.parsedCount, 0);
   const totalFiltered = logs.reduce((s, l) => s + l.filteredCount, 0);
+  const verifyCount = logs.filter((l) => l.isVerification).length;
 
   const systemPrompt = TASK_EXTRACTION_PROMPT.replace(
     /\{\{targetDate\}\}/g,
     date,
   );
   const rawResponsePreview = logs
-    .map((l) => `[batch ${l.batchIndex}] ${l.rawResponsePreview}`)
+    .map(
+      (l) =>
+        `[batch ${l.batchIndex}${l.isVerification ? " VERIFY" : ""}] ${l.rawResponsePreview}`,
+    )
     .join("\n---\n")
     .slice(0, 50_000);
 
   const extractionLog: TodoExtractionLog = {
     systemPrompt,
-    userContent: `[${batchCount} batches of ~${BATCH_SIZE} signals]`,
+    userContent: `[${batchCount} batches of ~${BATCH_SIZE} signals, ${verifyCount} verified]`,
     rawResponse: rawResponsePreview,
     parsedCount: totalParsed,
     filteredCount: totalFiltered,

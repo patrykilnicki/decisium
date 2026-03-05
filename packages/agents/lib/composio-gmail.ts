@@ -142,9 +142,9 @@ function summarizeThreadPayload(
     const onOrBefore = withTs
       .filter(({ ts }) => ts <= cutoffMs)
       .map(({ msg }) => msg);
-    messagesToSummarize = onOrBefore.slice(-4);
+    messagesToSummarize = onOrBefore.slice(-6);
   } else {
-    messagesToSummarize = list.slice(-4);
+    messagesToSummarize = list.slice(-6);
   }
 
   const snippets: string[] = [];
@@ -173,9 +173,9 @@ function summarizeThreadPayload(
     if (!rawBody) continue;
     const cleanBody = stripHtmlAndJunk(rawBody);
     if (!cleanBody) continue;
-    snippets.push(`${from}: ${cleanBody.slice(0, 180)}`);
+    snippets.push(`${from}: ${cleanBody.slice(0, 1000)}`);
   }
-  return snippets.join(" || ").slice(0, 900);
+  return snippets.join(" || ").slice(0, 6000);
 }
 
 /** Extract plaintext body from GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID response. */
@@ -253,8 +253,8 @@ async function enrichMessagesWithMessageBodyFallback(
     if (!threadContext) return msg;
     return {
       ...msg,
-      snippet: threadContext.slice(0, 300),
-      threadContext: threadContext.slice(0, 900),
+      snippet: threadContext.slice(0, 2000),
+      threadContext: threadContext.slice(0, 6000),
     };
   });
 
@@ -287,8 +287,8 @@ async function enrichMessagesWithMessageBodyFallback(
     if (!body) return msg;
     return {
       ...msg,
-      snippet: body.slice(0, 300),
-      threadContext: body.slice(0, 900),
+      snippet: body.slice(0, 2000),
+      threadContext: body.slice(0, 6000),
     };
   });
 }
