@@ -247,6 +247,12 @@ async function handleInsightsGenerateTodoList(
     force?: boolean;
     incremental?: boolean;
     generatedFromEvent?: string;
+    signalHints?: {
+      threadId?: string;
+      messageId?: string;
+      subject?: string;
+      eventId?: string;
+    }[];
   }>(task);
 
   const userId = state.userId || task.user_id;
@@ -263,7 +269,10 @@ async function handleInsightsGenerateTodoList(
       const generator = createTodoGenerator(options.client);
       const eventSource =
         state.generatedFromEvent ?? "task.insights.generate_todo_list";
-      const opts = { generatedFromEvent: eventSource };
+      const opts = {
+        generatedFromEvent: eventSource,
+        signalHints: state.signalHints,
+      };
 
       if (incremental) {
         return generator.mergeNewTasksForDate(userId, date, {
@@ -295,6 +304,7 @@ async function handleVaultSyncFromEvents(
     sinceAt?: string | null;
     incremental?: boolean;
     generatedFromEvent?: string;
+    externalIds?: string[];
   }>(task);
 
   const userId = state.userId || task.user_id;
@@ -307,6 +317,7 @@ async function handleVaultSyncFromEvents(
     handler: () =>
       runVaultFromEventsAgent(userId, {
         sinceAt: state.sinceAt,
+        externalIds: state.externalIds,
       }),
   });
 

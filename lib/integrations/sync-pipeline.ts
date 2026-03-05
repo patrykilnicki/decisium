@@ -135,16 +135,17 @@ export class SyncPipeline {
       );
 
       // Get integration with timeout protection
-      // Allow up to 20s to account for retry logic in getIntegration (8s per attempt + retries)
+      // Allow enough time for getIntegration retries (8s per attempt + backoff) and slow DB after onboarding
+      const FETCH_INTEGRATION_TIMEOUT_MS = 45_000;
       const integration = await Promise.race([
         this.oauthManager.getIntegration(integrationId),
         new Promise<null>((resolve) =>
           setTimeout(() => {
             console.error(
-              `[sync-pipeline] Timeout fetching integration ${integrationId} (20s)`,
+              `[sync-pipeline] Timeout fetching integration ${integrationId} (${FETCH_INTEGRATION_TIMEOUT_MS / 1000}s)`,
             );
             resolve(null);
-          }, 20000),
+          }, FETCH_INTEGRATION_TIMEOUT_MS),
         ),
       ]);
 

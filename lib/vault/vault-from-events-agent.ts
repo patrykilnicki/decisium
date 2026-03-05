@@ -2,13 +2,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/supabase";
 import { createAdminClient } from "@/lib/supabase/admin";
 import * as db from "@/lib/supabase/db";
-import { createLLM } from "@/packages/agents/lib/llm";
 import * as vaultRepo from "@/lib/vault/repository";
 import { chunkAndEmbedDocument } from "@/lib/vault/chunker";
-import {
-  VaultActionSchema,
-  type VaultAction,
-} from "@/packages/agents/schemas/vault-action.schema";
+import { triageAtomsToActions } from "@/lib/vault/vault-triage-agent";
 
 function getClient(): SupabaseClient<Database> {
   return createAdminClient();
@@ -32,17 +28,33 @@ export interface VaultFromEventsResult {
 async function fetchRecentAtoms(
   client: SupabaseClient<Database>,
   userId: string,
-  sinceAt?: string | null,
+  options?: {
+    sinceAt?: string | null;
+    atomIds?: string[];
+    externalIds?: string[];
+  },
 ): Promise<ActivityAtom[]> {
   const syncedAt =
-    sinceAt ?? new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    options?.sinceAt ??
+    new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+  const filters: Record<string, unknown> = { user_id: userId };
+  if (options?.atomIds?.length) {
+    filters.id = options.atomIds;
+  } else if (options?.externalIds?.length) {
+    filters.external_id = options.externalIds;
+  }
+
   const { data, error } = await db.selectMany(
     client,
     "activity_atoms",
-    { user_id: userId },
+    filters as Parameters<typeof db.selectMany>[2],
     {
       columns: "id, atom_type, provider, title, content, occurred_at",
-      rangeFilters: { synced_at: { gte: syncedAt } },
+      rangeFilters:
+        options?.atomIds?.length || options?.externalIds?.length
+          ? undefined
+          : { synced_at: { gte: syncedAt } },
       order: { column: "synced_at", ascending: false },
       limit: 50,
     },
@@ -51,61 +63,21 @@ async function fetchRecentAtoms(
   return (data ?? []) as ActivityAtom[];
 }
 
-const SYSTEM_PROMPT = `You analyze integration events (calendar meetings, notes, emails) and decide which should be added to the user's Collections (personal knowledge base).
-
-For each relevant event, output a create_document action with:
-- title: concise document title (e.g. "Meeting notes: Project Kickoff")
-- content_md: markdown content summarizing or capturing the event
-- source_atom_ids: array of activity_atom ids that contributed
-
-Only create documents for substantial events (meetings with title, important notes). Skip routine or low-value events.
-
-Output valid JSON array of actions.`;
-
 export async function runVaultFromEventsAgent(
   userId: string,
-  options?: { sinceAt?: string | null },
+  options?: {
+    sinceAt?: string | null;
+    atomIds?: string[];
+    externalIds?: string[];
+  },
 ): Promise<VaultFromEventsResult> {
   const client = getClient();
-  const atoms = await fetchRecentAtoms(client, userId, options?.sinceAt);
+  const atoms = await fetchRecentAtoms(client, userId, options);
   if (atoms.length === 0) {
     return { documentsCreated: 0, documentsUpdated: 0, actionsProcessed: 0 };
   }
 
-  const atomsContext = atoms
-    .map(
-      (a) =>
-        `[${a.id}] ${a.atom_type} (${a.provider}): ${a.title ?? "untitled"} - ${a.content.slice(0, 200)}...`,
-    )
-    .join("\n");
-
-  const llm = createLLM({ model: "gpt-4o-mini" });
-  const response = await llm.invoke([
-    { role: "system", content: SYSTEM_PROMPT },
-    {
-      role: "user",
-      content: `Recent integration events:\n\n${atomsContext}\n\nWhich should become Collections documents? Output JSON array of create_document actions.`,
-    },
-  ]);
-
-  const content = typeof response.content === "string" ? response.content : "";
-  const jsonMatch = content.match(/\[[\s\S]*\]/);
-  if (!jsonMatch) {
-    return { documentsCreated: 0, documentsUpdated: 0, actionsProcessed: 0 };
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(jsonMatch[0]);
-  } catch {
-    return { documentsCreated: 0, documentsUpdated: 0, actionsProcessed: 0 };
-  }
-
-  const actions = Array.isArray(parsed)
-    ? parsed.filter(
-        (a): a is VaultAction => VaultActionSchema.safeParse(a).success,
-      )
-    : [];
+  const { actions } = await triageAtomsToActions(atoms);
 
   let documentsCreated = 0;
 

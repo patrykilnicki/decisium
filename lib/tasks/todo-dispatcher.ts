@@ -5,6 +5,13 @@ import { triggerTask } from "@/lib/tasks/task-processor";
 import type { TaskRow } from "@/lib/tasks/task-types";
 import type { Json } from "@/types/supabase";
 
+export interface SignalHint {
+  threadId?: string;
+  messageId?: string;
+  subject?: string;
+  eventId?: string;
+}
+
 export interface DispatchTodoTaskOptions {
   source?: string;
   date?: string;
@@ -14,6 +21,8 @@ export interface DispatchTodoTaskOptions {
   incremental?: boolean;
   sessionId?: string;
   cooldownMinutes?: number;
+  /** Metadata about the triggering signal(s) so the worker can scope processing. */
+  signalHints?: SignalHint[];
 }
 
 async function findRecentTodoTask(
@@ -78,6 +87,7 @@ export async function dispatchTodoGenerationTask(
         force,
         incremental,
         generatedFromEvent: options.source ?? "system.unknown",
+        signalHints: options.signalHints ?? undefined,
       },
     } as Json,
   });

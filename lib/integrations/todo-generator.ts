@@ -2,7 +2,6 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "@/types/supabase";
 import type { Integration } from "@/types/database";
 import * as db from "@/lib/supabase/db";
-import { createLLM } from "@/packages/agents/lib/llm";
 import { fetchGmailEmailsFull } from "@/packages/agents/lib/composio-gmail";
 import {
   TodoListOutputSchema,
@@ -10,6 +9,7 @@ import {
   type TodoListOutput,
 } from "@/packages/agents/schemas/todo.schema";
 import { z } from "zod";
+import type { TriageResult } from "./todo-triage-agent";
 
 export interface TodoSnapshotRow {
   id: string;
@@ -20,12 +20,29 @@ export interface TodoSnapshotRow {
   created_at: string | null;
 }
 
+export interface SignalHint {
+  threadId?: string;
+  messageId?: string;
+  subject?: string;
+  /** Calendar event external ID (e.g. from Composio trigger). */
+  eventId?: string;
+}
+
 export interface TodoGenerateOptions {
   generatedFromEvent?: string;
   /** When merging, reason to set in payload.updatedBecause */
   updatedBecause?: TodoListOutput["updatedBecause"];
   /** Log run_type (e.g. "regenerate"). Default in generateForDate is "initial_generation". */
   runType?: string;
+  /** When provided, filter fetched signals to only matching ones (webhook optimization). */
+  signalHints?: SignalHint[];
+}
+
+async function runTriageSignals(
+  ...args: Parameters<typeof import("./todo-triage-agent").triageSignals>
+): Promise<TriageResult> {
+  const { triageSignals } = await import("./todo-triage-agent");
+  return triageSignals(...args);
 }
 
 function buildStats(items: TodoItem[]): TodoListOutput["stats"] {
@@ -99,7 +116,7 @@ function nextDayDateString(date: string): string {
 // Calendar: read from Supabase (activity_atoms). Write stays Composio.
 // ═══════════════════════════════════════════════════════════════
 
-interface CalendarEventSignal {
+export interface CalendarEventSignal {
   provider: "google_calendar";
   title: string;
   startTime: string;
@@ -111,7 +128,7 @@ interface CalendarEventSignal {
   externalId: string;
 }
 
-interface GmailSignal {
+export interface GmailSignal {
   provider: "gmail";
   subject: string;
   sender: string;
@@ -123,7 +140,7 @@ interface GmailSignal {
   labels: string[];
 }
 
-type IntegrationSignal = CalendarEventSignal | GmailSignal;
+export type IntegrationSignal = CalendarEventSignal | GmailSignal;
 
 function normalizeTitleForKey(value: string): string {
   return value
@@ -178,7 +195,42 @@ function enrichGmailItemsWithSourceUrl(
   });
 }
 
-function buildTodoItemDedupKeys(item: {
+/**
+ * When webhook provides signalHints (threadId/messageId for Gmail, eventId for
+ * calendar), keep only matching signals. Reduces processing for incremental webhooks.
+ */
+function filterSignalsByHints(
+  signals: IntegrationSignal[],
+  hints: SignalHint[],
+): IntegrationSignal[] {
+  const hintThreadIds = new Set(
+    hints.map((h) => h.threadId).filter(Boolean) as string[],
+  );
+  const hintMessageIds = new Set(
+    hints.map((h) => h.messageId).filter(Boolean) as string[],
+  );
+  const hintEventIds = new Set(
+    hints.map((h) => h.eventId).filter(Boolean) as string[],
+  );
+  const hasGmailHints = hintThreadIds.size > 0 || hintMessageIds.size > 0;
+  const hasCalendarHints = hintEventIds.size > 0;
+  if (!hasGmailHints && !hasCalendarHints) return signals;
+
+  return signals.filter((s) => {
+    if (s.provider === "google_calendar") {
+      if (hasCalendarHints) {
+        return hintEventIds.has((s as CalendarEventSignal).externalId);
+      }
+      return true;
+    }
+    const g = s as GmailSignal;
+    if (g.threadId && hintThreadIds.has(g.threadId)) return true;
+    if (g.messageId && hintMessageIds.has(g.messageId)) return true;
+    return !hasGmailHints;
+  });
+}
+
+export function buildTodoItemDedupKeys(item: {
   sourceProvider: string;
   sourceType: string;
   title: string;
@@ -321,15 +373,12 @@ async function fetchAllSignals(
 const EMAIL_SNIPPET_MAX = 300;
 const EMAIL_THREAD_CONTEXT_MAX = 900;
 
-/** Cap total prompt context to avoid provider 400/413 (payload too large). */
-const PROMPT_CONTEXT_MAX_CHARS = 24_000;
-
 /**
  * Format integration signals for the LLM. Email format matches fetch_gmail_emails
  * tool output (same structure Ask uses) so the model sees subject, sender, snippet,
  * threadContext and can reason the same way as when summarizing emails in Ask.
  */
-function signalsToPromptContext(signals: IntegrationSignal[]): string {
+export function signalsToPromptContext(signals: IntegrationSignal[]): string {
   return signals
     .map((signal) => {
       if (signal.provider === "google_calendar") {
@@ -365,7 +414,7 @@ function signalsToPromptContext(signals: IntegrationSignal[]): string {
     .join("\n\n");
 }
 
-const TASK_EXTRACTION_PROMPT = `You are an intelligent task extraction system for a personal productivity app.
+export const TASK_EXTRACTION_PROMPT = `You are an intelligent task extraction system for a personal productivity app.
 
 TARGET DATE: {{targetDate}}
 
@@ -427,7 +476,7 @@ You must output a task for every signal that meets the criteria above — do not
 Return [] only when no signal implies a concrete user action.`;
 
 /** Zod schema for LLM-extracted task (matches prompt format). Used for structured output (OpenRouter/OpenAI). Optional fields use .nullable() so the API can omit them; see https://platform.openai.com/docs/guides/structured-outputs */
-const LlmExtractedTaskSchema = z.object({
+export const LlmExtractedTaskSchema = z.object({
   title: z.string(),
   summary: z.string(),
   priority: z.enum(["normal", "urgent"]),
@@ -440,9 +489,9 @@ const LlmExtractedTaskSchema = z.object({
   suggestedNextAction: z.string(),
   tags: z.array(z.string()).nullable(),
 });
-const LlmExtractedTaskArraySchema = z.array(LlmExtractedTaskSchema);
+export const LlmExtractedTaskArraySchema = z.array(LlmExtractedTaskSchema);
 
-interface LlmExtractedTask {
+export interface LlmExtractedTask {
   title: string;
   summary: string;
   priority: "normal" | "urgent";
@@ -533,7 +582,7 @@ export interface TodoExtractionLog {
  * Dedupe, filter, convert parsed LLM tasks to TodoItems, enrich Gmail URLs.
  * Shared by structured-output path and fallback extraction path.
  */
-function processParsedTasksToItems(
+export function processParsedTasksToItems(
   parsed: LlmExtractedTask[],
   date: string,
   signals: IntegrationSignal[],
@@ -578,178 +627,11 @@ function processParsedTasksToItems(
  * that is risky and can remove the real JSON (see docs/analysis-todo-llm-parsing.md).
  * Picks the longest array match when multiple exist (e.g. model emits "[]" plus real data).
  */
-function extractJsonArrayFromResponse(raw: string): string | null {
+export function extractJsonArrayFromResponse(raw: string): string | null {
   if (!raw || typeof raw !== "string") return null;
   const allMatches = raw.trim().match(/\[[\s\S]*\]/g);
   if (!allMatches || allMatches.length === 0) return null;
   return allMatches.reduce((a, b) => (a.length >= b.length ? a : b));
-}
-
-/**
- * Try structured output (OpenRouter: Gemini, Claude, GPT-4o). Falls back to
- * raw invoke + JSON extraction when model doesn't support it.
- * See docs/analysis-todo-llm-parsing.md and OpenRouter structured outputs.
- */
-async function extractTasksWithLlm(
-  signals: IntegrationSignal[],
-  date: string,
-): Promise<{ items: TodoItem[]; extractionLog: TodoExtractionLog | null }> {
-  if (signals.length === 0) {
-    return { items: [], extractionLog: null };
-  }
-
-  const llm = createLLM({ temperature: 0.15, maxTokens: 8192 });
-  const systemPrompt = TASK_EXTRACTION_PROMPT.replace(
-    /\{\{targetDate\}\}/g,
-    date,
-  );
-  let context = signalsToPromptContext(signals);
-  if (context.length > PROMPT_CONTEXT_MAX_CHARS) {
-    context =
-      context.slice(0, PROMPT_CONTEXT_MAX_CHARS) +
-      "\n\n[... context truncated to fit provider limits ...]";
-  }
-  const userContent = `Extract tasks for ${date} from these integration signals:\n\n${context}`;
-  const messages = [
-    { role: "system" as const, content: systemPrompt },
-    { role: "user" as const, content: userContent },
-  ];
-
-  // 1. Try structured output (Gemini, Claude, GPT-4o via OpenRouter support this)
-  try {
-    const structuredLlm = llm.withStructuredOutput(
-      LlmExtractedTaskArraySchema,
-      {
-        name: "todo_tasks",
-        strict: true,
-        method: "jsonSchema",
-      },
-    );
-    const parsed = await structuredLlm.invoke(messages);
-    if (Array.isArray(parsed) && parsed.length >= 0) {
-      const items = processParsedTasksToItems(
-        parsed as LlmExtractedTask[],
-        date,
-        signals,
-      );
-      return {
-        items,
-        extractionLog: {
-          systemPrompt,
-          userContent,
-          rawResponse: JSON.stringify(parsed).slice(0, 50_000),
-          parsedCount: parsed.length,
-          filteredCount: items.length,
-          extractedItemsForLog: items.map((i) => ({
-            id: i.id,
-            title: i.title,
-            summary: i.summary,
-            priority: i.priority,
-            sourceProvider: i.sourceProvider,
-            sourceType: i.sourceType,
-            sourceExternalId: i.sourceRef?.externalId,
-            confidence: i.confidence,
-          })),
-        },
-      };
-    }
-  } catch (structuredErr) {
-    const msg =
-      structuredErr instanceof Error
-        ? structuredErr.message
-        : String(structuredErr);
-    if (process.env.NODE_ENV === "development") {
-      console.warn(
-        "[todo-generator] Structured output failed, using fallback extraction:",
-        msg,
-      );
-    }
-  }
-
-  // 2. Fallback: raw invoke + JSON extraction (any model)
-  const response = await llm.invoke(messages);
-  const rawText =
-    typeof response.content === "string"
-      ? response.content
-      : Array.isArray(response.content)
-        ? response.content
-            .map((c) =>
-              typeof c === "string" ? c : ((c as { text?: string }).text ?? ""),
-            )
-            .join("")
-        : "";
-  const jsonStr = extractJsonArrayFromResponse(rawText);
-  if (!jsonStr) {
-    console.warn("[todo-generator] LLM returned no JSON array");
-    return {
-      items: [],
-      extractionLog: {
-        systemPrompt,
-        userContent,
-        rawResponse: rawText.slice(0, 50_000),
-        parsedCount: 0,
-        filteredCount: 0,
-        extractedItemsForLog: [],
-      },
-    };
-  }
-
-  try {
-    const parsed = JSON.parse(jsonStr) as LlmExtractedTask[];
-    if (!Array.isArray(parsed)) {
-      return {
-        items: [],
-        extractionLog: {
-          systemPrompt,
-          userContent,
-          rawResponse: jsonStr.slice(0, 50_000),
-          parsedCount: 0,
-          filteredCount: 0,
-          extractedItemsForLog: [],
-        },
-      };
-    }
-
-    const items = processParsedTasksToItems(parsed, date, signals);
-    const extractedItemsForLog = items.map((item) => ({
-      id: item.id,
-      title: item.title,
-      summary: item.summary,
-      priority: item.priority,
-      sourceProvider: item.sourceProvider,
-      sourceType: item.sourceType,
-      sourceExternalId: item.sourceRef?.externalId,
-      confidence: item.confidence,
-    }));
-
-    return {
-      items,
-      extractionLog: {
-        systemPrompt,
-        userContent,
-        rawResponse: jsonStr.slice(0, 50_000),
-        parsedCount: parsed.length,
-        filteredCount: items.length,
-        extractedItemsForLog,
-      },
-    };
-  } catch (err) {
-    console.error(
-      "[todo-generator] Failed to parse LLM response:",
-      err instanceof Error ? err.message : err,
-    );
-    return {
-      items: [],
-      extractionLog: {
-        systemPrompt,
-        userContent,
-        rawResponse: jsonStr.slice(0, 50_000),
-        parsedCount: 0,
-        filteredCount: 0,
-        extractedItemsForLog: [],
-      },
-    };
-  }
 }
 
 function buildSignalsSummary(signals: IntegrationSignal[]): Json {
@@ -847,7 +729,7 @@ export class TodoGenerator {
       return this.generateForDate(userId, date, options);
     }
 
-    const signals = await fetchAllSignals(this.supabase, userId, date);
+    let signals = await fetchAllSignals(this.supabase, userId, date);
     if (signals.length === 0) {
       return TodoListOutputSchema.parse({
         ...existing,
@@ -855,11 +737,12 @@ export class TodoGenerator {
       });
     }
 
+    if (options?.signalHints?.length) {
+      signals = filterSignalsByHints(signals, options.signalHints);
+    }
+
     const startedAt = Date.now();
-    const { items: extracted, extractionLog } = await extractTasksWithLlm(
-      signals,
-      date,
-    );
+    const triageResult = await runTriageSignals(signals, date, existing.items);
     const durationMs = Date.now() - startedAt;
 
     await this.insertTodoGenerationLog(userId, date, {
@@ -867,23 +750,12 @@ export class TodoGenerator {
       generatedFromEvent: options?.generatedFromEvent,
       signalsCount: signals.length,
       signalsSummary: buildSignalsSummary(signals),
-      extractionLog,
-      extractedCount: extracted.length,
+      extractionLog: triageResult.extractionLog,
+      extractedCount: triageResult.items.length,
       durationMs,
     });
 
-    const existingKeys = new Set(
-      existing.items.flatMap((item) => buildTodoItemDedupKeys(item)),
-    );
-
-    const newItems = extracted.filter((item) => {
-      const keys = buildTodoItemDedupKeys(item);
-      if (keys.some((key) => existingKeys.has(key))) return false;
-      for (const key of keys) {
-        existingKeys.add(key);
-      }
-      return keys.length > 0;
-    });
+    const newItems = triageResult.items;
 
     if (newItems.length === 0) {
       return TodoListOutputSchema.parse({
@@ -1149,10 +1021,7 @@ export class TodoGenerator {
       return empty;
     }
 
-    const { items: todoItems, extractionLog } = await extractTasksWithLlm(
-      signals,
-      date,
-    );
+    const triageResult = await runTriageSignals(signals, date);
     const durationMs = Date.now() - startedAt;
 
     await this.insertTodoGenerationLog(userId, date, {
@@ -1160,8 +1029,8 @@ export class TodoGenerator {
       generatedFromEvent: options?.generatedFromEvent,
       signalsCount: signals.length,
       signalsSummary: buildSignalsSummary(signals),
-      extractionLog,
-      extractedCount: todoItems.length,
+      extractionLog: triageResult.extractionLog,
+      extractedCount: triageResult.items.length,
       durationMs,
     });
 
@@ -1171,8 +1040,8 @@ export class TodoGenerator {
       date,
       generatedAt: new Date().toISOString(),
       updatedBecause: "initial_generation",
-      items: todoItems,
-      stats: buildStats(todoItems),
+      items: triageResult.items,
+      stats: buildStats(triageResult.items),
       version: "1.0",
     });
 
