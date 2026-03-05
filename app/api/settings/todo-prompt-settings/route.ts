@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { Json } from "@/types/supabase";
 import { createClient } from "@/lib/supabase/server";
 
 const TOGGLE_KEYS = [
@@ -137,7 +138,7 @@ export async function PATCH(request: NextRequest) {
 
     const { error } = await supabase
       .from("users")
-      .update({ todo_prompt_settings: merged })
+      .update({ todo_prompt_settings: merged as Json })
       .eq("id", user.id);
 
     if (error) {
