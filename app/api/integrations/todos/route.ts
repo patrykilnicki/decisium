@@ -14,8 +14,13 @@ function todayDateString(): string {
  * for that date, returns them immediately. If not, generates new ones
  * from connected integrations (Composio) + LLM and persists them.
  *
+ * The `date` param is the single source of truth: it is used both to
+ * fetch signals (calendar + Gmail for that calendar day) and to set
+ * dueAt on all created tasks. On Home, the client sends the user's
+ * selected calendar day (from the date picker); always use that value.
+ *
  * Query params:
- * - date (YYYY-MM-DD, defaults to today)
+ * - date (YYYY-MM-DD, defaults to server today when omitted)
  * - force=true to regenerate even if cached
  * - onlyFromCache=true return only existing snapshot, never generate (for non-today dates)
  */
