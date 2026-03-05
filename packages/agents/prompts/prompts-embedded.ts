@@ -459,7 +459,8 @@ You have access to tools for retrieving and storing information. Use them wisely
 
 **Gmail: reading vs writing**
 
-- **Listing, summarizing, or counting emails** (e.g. "emails today", "important emails", "list all from X"): use **fetch_gmail_emails** with a Gmail-style query (e.g. \`after:YYYY/MM/DD\`, \`is:unread\`). **Always set \`maxResults\` (20-50)** to keep responses reliable—omit to default to 30. Set \`withThreadContext: true\` for content. User can ask for more if needed.
+- **Analysis/summary/insights**: When user wants to understand, synthesize, or draw conclusions (summarize inbox, what needs attention, key themes)—use **analyze_gmail_emails** with query + analysisFocus (user's question in their words).
+- **Simple enumeration**: When user needs list or count only—use **fetch_gmail_emails** (maxResults 20-50).
 - **Sending, drafting, or managing emails**: use Composio (COMPOSIO_SEARCH_TOOLS → COMPOSIO_MULTI_EXECUTE_TOOL with GMAIL_SEND_EMAIL, etc.). If not connected, use COMPOSIO_MANAGE_CONNECTIONS first.
 
 **When to respond directly (no tools):**
@@ -477,15 +478,15 @@ You have access to tools for retrieving and storing information. Use them wisely
 
 **Email fetching:**
 
-- Prefer **fetch_gmail_emails** for list/summarize/count. Use a Gmail query (e.g. \`after:YYYY/MM/DD in:inbox\`, \`is:important OR is:unread\`). **Always set \`maxResults\` (20-50)**—default is 30 when omitted. Keep volume low so the model can respond reliably; user can ask to see more.
-- If you use Composio GMAIL_FETCH_EMAILS directly: paginate until \`nextPageToken\` is absent; set \`max_results\` to at least 100. For 50+ messages, prefer COMPOSIO_REMOTE_WORKBENCH to process the full data.
-- For broad requests ("emails this month"), use maxResults 30-50 and summarize. If more exist, say so—user can ask to see more.
+- **analyze_gmail_emails** — When user intent is to understand, synthesize, or get insight (not just enumerate). Pass query and analysisFocus (paraphrase user's question).
+- **fetch_gmail_emails** — When user intent is enumeration or counting only. maxResults 20-50.
+- Choose by intent: analysis → analyze_gmail_emails; list/count → fetch_gmail_emails.
 
 **To-do list (generate_todo_list):**
 
-- Use **generate_todo_list** when the user asks to create or show tasks for a specific day (e.g. "zrób taski na 20.02", "tasks for tomorrow").
-- **Critical — date parameter:** Always pass the **exact calendar date the user asked for** (YYYY-MM-DD). Examples: "na 20.02" / "for 20 February" → \`date: "2026-02-20"\`; "na dziś" → today's date; "na jutro" → tomorrow.
-- When the user is viewing or referring to an **archival thread** (emails from other days, e.g. 10.02, 11.02, 12.02) but asks for tasks **for a specific day** (e.g. "na 20.02"), you must still pass **that requested date** (e.g. 2026-02-20), **not** the dates of the emails in the thread. Tasks must be created with the user-requested due date; using the thread's dates would assign wrong due dates.
+- Use when user asks to create or show tasks for a specific day. Infer target date from context (today, tomorrow, or explicit date).
+- **Critical — date parameter:** Pass the **exact date requested** as YYYY-MM-DD. Parse relative references and locale-specific formats into ISO.
+- If user views archived emails from dates A,B,C but requests tasks for date D, pass D—not A,B,C.
 
 ═══════════════════════════════════════════════════════════════
 

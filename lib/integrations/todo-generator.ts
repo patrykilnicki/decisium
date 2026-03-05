@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "@/types/supabase";
 import type { Integration } from "@/types/database";
 import * as db from "@/lib/supabase/db";
+import { createLLM } from "@/packages/agents/lib/llm";
 import { fetchGmailEmailsFull } from "@/packages/agents/lib/composio-gmail";
 import {
   TodoListOutputSchema,
@@ -38,11 +39,137 @@ export interface TodoGenerateOptions {
   signalHints?: SignalHint[];
 }
 
-async function runTriageSignals(
-  ...args: Parameters<typeof import("./todo-triage-agent").triageSignals>
+const BATCH_SIZE = 10;
+
+/** Sequential fallback when LangGraph triage fails (e.g. serverless/env issues). */
+async function extractTasksSequential(
+  signals: IntegrationSignal[],
+  date: string,
+  existingItems?: TodoItem[],
 ): Promise<TriageResult> {
-  const { triageSignals } = await import("./todo-triage-agent");
-  return triageSignals(...args);
+  const existingItemKeys = (existingItems ?? []).flatMap((item) =>
+    buildTodoItemDedupKeys(item),
+  );
+  const existingSet = new Set(existingItemKeys);
+  const allItems: TodoItem[] = [];
+  const logs: {
+    batchIndex: number;
+    parsedCount: number;
+    filteredCount: number;
+    rawPreview: string;
+  }[] = [];
+
+  const llm = createLLM({ temperature: 0.15, maxTokens: 8192 });
+  const systemPrompt = TASK_EXTRACTION_PROMPT.replace(
+    /\{\{targetDate\}\}/g,
+    date,
+  );
+
+  for (let i = 0; i < signals.length; i += BATCH_SIZE) {
+    const batch = signals.slice(i, i + BATCH_SIZE);
+    const context = signalsToPromptContext(batch);
+    const userContent = `Extract tasks for ${date} from these integration signals:\n\n${context}`;
+    const messages = [
+      { role: "system" as const, content: systemPrompt },
+      { role: "user" as const, content: userContent },
+    ];
+
+    let parsed: LlmExtractedTask[] = [];
+    try {
+      const structuredLlm = llm.withStructuredOutput(
+        LlmExtractedTaskArraySchema,
+        { name: "todo_tasks", strict: true, method: "jsonSchema" },
+      );
+      const out = await structuredLlm.invoke(messages);
+      if (Array.isArray(out)) parsed = out as LlmExtractedTask[];
+    } catch {
+      const response = await llm.invoke(messages);
+      const rawText =
+        typeof response.content === "string"
+          ? response.content
+          : Array.isArray(response.content)
+            ? response.content
+                .map((c) =>
+                  typeof c === "string"
+                    ? (c as string)
+                    : ((c as { text?: string }).text ?? ""),
+                )
+                .join("")
+            : "";
+      const jsonStr = extractJsonArrayFromResponse(rawText);
+      if (jsonStr) {
+        try {
+          const arr = JSON.parse(jsonStr);
+          if (Array.isArray(arr)) parsed = arr as LlmExtractedTask[];
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+
+    const items = processParsedTasksToItems(parsed, date, batch);
+    logs.push({
+      batchIndex: Math.floor(i / BATCH_SIZE),
+      parsedCount: parsed.length,
+      filteredCount: items.length,
+      rawPreview: JSON.stringify(parsed).slice(0, 4_000),
+    });
+
+    for (const item of items) {
+      const keys = buildTodoItemDedupKeys(item);
+      if (keys.length === 0) continue;
+      if (keys.some((k) => existingSet.has(k))) continue;
+      for (const k of keys) existingSet.add(k);
+      allItems.push(item);
+    }
+  }
+
+  const batchCount = Math.ceil(signals.length / BATCH_SIZE);
+  const extractionLog: TodoExtractionLog = {
+    systemPrompt,
+    userContent: `[fallback ${batchCount} batches]`,
+    rawResponse: logs
+      .map((l) => `[${l.batchIndex}] ${l.rawPreview}`)
+      .join("\n---\n")
+      .slice(0, 50_000),
+    parsedCount: logs.reduce((s, l) => s + l.parsedCount, 0),
+    filteredCount: allItems.length,
+    extractedItemsForLog: allItems.map((i) => ({
+      id: i.id,
+      title: i.title,
+      summary: i.summary,
+      priority: i.priority,
+      sourceProvider: i.sourceProvider,
+      sourceType: i.sourceType,
+      sourceExternalId: i.sourceRef?.externalId,
+      confidence: i.confidence,
+    })),
+  };
+
+  return {
+    items: enrichGmailItemsWithSourceUrl(allItems, signals),
+    extractionLog,
+    batchCount,
+    errors: [],
+  };
+}
+
+async function runTriageSignals(
+  signals: IntegrationSignal[],
+  date: string,
+  existingItems?: TodoItem[],
+): Promise<TriageResult> {
+  try {
+    const { triageSignals } = await import("./todo-triage-agent");
+    return await triageSignals(signals, date, existingItems);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(
+      "[todo-generator] Triage agent failed, using sequential fallback:",
+      msg,
+    );
+    return extractTasksSequential(signals, date, existingItems);
+  }
 }
 
 function buildStats(items: TodoItem[]): TodoListOutput["stats"] {

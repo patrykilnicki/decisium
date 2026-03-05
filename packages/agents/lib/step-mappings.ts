@@ -110,6 +110,11 @@ const FRIENDLY_TOOL_LABELS: Record<
     completed: "Emails fetched",
     failed: "Could not fetch emails",
   },
+  analyze_gmail_emails: {
+    started: "Analyzing emails...",
+    completed: "Analysis ready",
+    failed: "Could not analyze emails",
+  },
 };
 
 const SERVICE_LABELS: Record<
