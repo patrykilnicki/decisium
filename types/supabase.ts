@@ -1095,6 +1095,8 @@ export type Database = {
           onboarding_completed_at: string | null
           preferred_llm_model: string | null
           timezone: string | null
+          todo_email_scope: Json | null
+          todo_prompt_settings: Json | null
           updated_at: string | null
         }
         Insert: {
@@ -1106,6 +1108,8 @@ export type Database = {
           onboarding_completed_at?: string | null
           preferred_llm_model?: string | null
           timezone?: string | null
+          todo_email_scope?: Json | null
+          todo_prompt_settings?: Json | null
           updated_at?: string | null
         }
         Update: {
@@ -1117,6 +1121,8 @@ export type Database = {
           onboarding_completed_at?: string | null
           preferred_llm_model?: string | null
           timezone?: string | null
+          todo_email_scope?: Json | null
+          todo_prompt_settings?: Json | null
           updated_at?: string | null
         }
         Relationships: []

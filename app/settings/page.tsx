@@ -6,7 +6,11 @@ import { ProtectedRoute } from "@/components/auth/protected-route";
 import { AppLayout } from "@/components/layout/app-layout";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { IntegrationsSection } from "@/app/settings/components";
+import {
+  IntegrationsSection,
+  TodoEmailScopeSection,
+  TodoPromptSettingsSection,
+} from "@/app/settings/components";
 import { createClient } from "@/lib/supabase/client";
 
 function SettingsContent() {
@@ -31,6 +35,16 @@ function SettingsContent() {
         <div className="max-w-2xl space-y-8">
           {/* Integrations Section */}
           <IntegrationsSection />
+
+          <Separator />
+
+          {/* Todo email scope */}
+          <TodoEmailScopeSection />
+
+          <Separator />
+
+          {/* Todo prompt settings: toggles + custom instructions */}
+          <TodoPromptSettingsSection />
 
           <Separator />
 
