@@ -29,6 +29,49 @@ export interface SignalHint {
   eventId?: string;
 }
 
+/** User-configured scope for which emails can generate to-do tasks (from users.todo_email_scope). */
+export interface TodoEmailScope {
+  labelIdsAccepted?: string[];
+  labelIdsBlocked?: string[];
+  sendersAccepted?: string[];
+  sendersBlocked?: string[];
+}
+
+/** Toggles for which sources/types of tasks to create (from users.todo_prompt_settings.toggles). */
+export interface TodoPromptToggles {
+  fromCalendar?: boolean;
+  fromEmails?: boolean;
+  replyTasks?: boolean;
+  fromNewsletters?: boolean;
+  prepForMeetings?: boolean;
+  fromAutomatedBots?: boolean;
+}
+
+/** User prompt settings: toggles + custom instructions (users.todo_prompt_settings). */
+export interface TodoPromptSettings {
+  toggles?: TodoPromptToggles;
+  customInstructions?: string | null;
+}
+
+const DEFAULT_TODO_PROMPT_TOGGLES: Required<TodoPromptToggles> = {
+  fromCalendar: true,
+  fromEmails: true,
+  replyTasks: true,
+  fromNewsletters: false,
+  prepForMeetings: true,
+  fromAutomatedBots: false,
+};
+
+function hasAnyScope(scope: TodoEmailScope | null | undefined): boolean {
+  if (!scope) return false;
+  return (
+    (scope.labelIdsAccepted?.length ?? 0) > 0 ||
+    (scope.labelIdsBlocked?.length ?? 0) > 0 ||
+    (scope.sendersAccepted?.length ?? 0) > 0 ||
+    (scope.sendersBlocked?.length ?? 0) > 0
+  );
+}
+
 export interface TodoGenerateOptions {
   generatedFromEvent?: string;
   /** When merging, reason to set in payload.updatedBecause */
@@ -46,6 +89,7 @@ async function extractTasksSequential(
   signals: IntegrationSignal[],
   date: string,
   existingItems?: TodoItem[],
+  systemPromptTemplate?: string | null,
 ): Promise<TriageResult> {
   const existingItemKeys = (existingItems ?? []).flatMap((item) =>
     buildTodoItemDedupKeys(item),
@@ -60,10 +104,9 @@ async function extractTasksSequential(
   }[] = [];
 
   const llm = createLLM({ temperature: 0.15, maxTokens: 8192 });
-  const systemPrompt = TASK_EXTRACTION_PROMPT.replace(
-    /\{\{targetDate\}\}/g,
-    date,
-  );
+  const systemPrompt =
+    systemPromptTemplate ??
+    TASK_EXTRACTION_PROMPT.replace(/\{\{targetDate\}\}/g, date);
 
   for (let i = 0; i < signals.length; i += BATCH_SIZE) {
     const batch = signals.slice(i, i + BATCH_SIZE);
@@ -158,17 +201,32 @@ async function runTriageSignals(
   signals: IntegrationSignal[],
   date: string,
   existingItems?: TodoItem[],
+  promptSettings?: TodoPromptSettings | null,
 ): Promise<TriageResult> {
+  const systemPromptTemplate = buildSystemPromptWithPreferences(
+    date,
+    promptSettings,
+  );
   try {
     const { triageSignals } = await import("./todo-triage-agent");
-    return await triageSignals(signals, date, existingItems);
+    return await triageSignals(
+      signals,
+      date,
+      existingItems,
+      systemPromptTemplate ?? undefined,
+    );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.warn(
       "[todo-generator] Triage agent failed, using sequential fallback:",
       msg,
     );
-    return extractTasksSequential(signals, date, existingItems);
+    return extractTasksSequential(
+      signals,
+      date,
+      existingItems,
+      systemPromptTemplate ?? undefined,
+    );
   }
 }
 
@@ -361,7 +419,7 @@ export function buildTodoItemDedupKeys(item: {
   sourceProvider: string;
   sourceType: string;
   title: string;
-  sourceRef?: { externalId?: string };
+  sourceRef?: { externalId?: string; threadId?: string };
 }): string[] {
   const keys = new Set<string>();
   const normalizedTitle = normalizeTitleForKey(item.title);
@@ -374,6 +432,13 @@ export function buildTodoItemDedupKeys(item: {
     keys.add(
       `external:${item.sourceProvider}:${item.sourceType}:${externalId}`,
     );
+  }
+  if (
+    item.sourceProvider === "gmail" &&
+    item.sourceType === "message" &&
+    item.sourceRef?.threadId?.trim()
+  ) {
+    keys.add(`thread:gmail:${item.sourceRef.threadId.trim()}`);
   }
   return [...keys];
 }
@@ -442,20 +507,32 @@ async function fetchCalendarSignalsFromSupabase(
  * so we get snippet + thread context for each message (same content quality as Ask).
  * Passes targetDate so thread context is limited to messages on or before that day
  * (e.g. for 06.02, context is 01.02–06.02, not messages from 07.02–10.02).
+ * When scope is provided and has any lists, applies label/sender filters (accepted + block).
  */
 async function fetchGmailSignals(
   userId: string,
   date: string,
+  scope?: TodoEmailScope | null,
 ): Promise<GmailSignal[]> {
   const gmailDate = date.replace(/-/g, "/");
   const nextDay = nextDayDateString(date).replace(/-/g, "/");
   const query = `after:${gmailDate} before:${nextDay}`;
 
-  const parsed = await fetchGmailEmailsFull(userId, {
+  const opts = {
     query,
     withThreadContext: true,
     targetDate: date,
-  });
+    ...(hasAnyScope(scope)
+      ? {
+          labelIdsAccepted: scope!.labelIdsAccepted,
+          labelIdsBlocked: scope!.labelIdsBlocked,
+          sendersAccepted: scope!.sendersAccepted,
+          sendersBlocked: scope!.sendersBlocked,
+        }
+      : {}),
+  };
+
+  const parsed = await fetchGmailEmailsFull(userId, opts);
 
   return parsed.map((msg) => ({
     provider: "gmail" as const,
@@ -470,12 +547,136 @@ async function fetchGmailSignals(
   }));
 }
 
-/** Fetch signals from all registered integrations. Calendar from Supabase; Gmail via Composio. */
+async function getTodoEmailScope(
+  supabase: SupabaseClient<Database>,
+  userId: string,
+): Promise<TodoEmailScope | null> {
+  const { data, error } = await db.selectOne(
+    supabase,
+    "users",
+    { id: userId },
+    {
+      columns: "todo_email_scope",
+    },
+  );
+  if (error || !data) return null;
+  const raw = (data as { todo_email_scope?: Json }).todo_email_scope;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const obj = raw as Record<string, unknown>;
+  return {
+    labelIdsAccepted: Array.isArray(obj.labelIdsAccepted)
+      ? (obj.labelIdsAccepted as string[])
+      : undefined,
+    labelIdsBlocked: Array.isArray(obj.labelIdsBlocked)
+      ? (obj.labelIdsBlocked as string[])
+      : undefined,
+    sendersAccepted: Array.isArray(obj.sendersAccepted)
+      ? (obj.sendersAccepted as string[])
+      : undefined,
+    sendersBlocked: Array.isArray(obj.sendersBlocked)
+      ? (obj.sendersBlocked as string[])
+      : undefined,
+  };
+}
+
+async function getTodoPromptSettings(
+  supabase: SupabaseClient<Database>,
+  userId: string,
+): Promise<TodoPromptSettings | null> {
+  const { data, error } = await db.selectOne(
+    supabase,
+    "users",
+    { id: userId },
+    {
+      columns: "todo_prompt_settings",
+    },
+  );
+  if (error || !data) return null;
+  const raw = (data as { todo_prompt_settings?: Json }).todo_prompt_settings;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const obj = raw as Record<string, unknown>;
+  const togglesRaw = obj.toggles;
+  const toggles: TodoPromptToggles | undefined =
+    togglesRaw && typeof togglesRaw === "object" && !Array.isArray(togglesRaw)
+      ? (togglesRaw as TodoPromptToggles)
+      : undefined;
+  const customInstructions =
+    typeof obj.customInstructions === "string"
+      ? obj.customInstructions
+      : obj.customInstructions === null
+        ? null
+        : undefined;
+  return { toggles, customInstructions };
+}
+
+function buildPreferencesBlock(t: Required<TodoPromptToggles>): string {
+  const lines: string[] = [
+    "USER PREFERENCES (apply these over the rules below):",
+    `Create tasks from calendar: ${t.fromCalendar ? "yes" : "no"}.`,
+    `Create tasks from emails: ${t.fromEmails ? "yes" : "no"}.`,
+    `Create reply/follow-up tasks from email threads: ${t.replyTasks ? "yes" : "no"}.`,
+    `Create tasks from newsletters and marketing: ${t.fromNewsletters ? "yes" : "no"}.`,
+    `Create tasks for meeting preparation (from calendar): ${t.prepForMeetings ? "yes" : "no"}.`,
+    `Create tasks from automated/bot messages: ${t.fromAutomatedBots ? "yes" : "no"}.`,
+  ];
+  if (!t.replyTasks) {
+    lines.push(
+      "Do NOT create tasks whose sole action is replying to or following up on an email thread. Skip reply/follow-up tasks entirely.",
+    );
+  }
+  if (!t.fromNewsletters) {
+    lines.push(
+      "Do NOT create tasks from newsletters, marketing emails, or promotional content — even if they mention a deadline or personal request.",
+    );
+  }
+  if (!t.prepForMeetings) {
+    lines.push(
+      "Do NOT create tasks for meeting preparation or follow-up from calendar events (e.g. 'Prepare for X meeting', 'Deliverable for Y'). Calendar events may still be included as context; do not output a task for them when this is off.",
+    );
+  }
+  if (!t.fromAutomatedBots) {
+    lines.push(
+      "Do NOT create tasks from automated or bot messages (e.g. CI/CD notifications, system alerts). Skip these unless the user explicitly enabled this.",
+    );
+  }
+  return lines.join("\n");
+}
+
+/**
+ * Build the full system prompt with USER PREFERENCES block and optional custom instructions.
+ * Returns null when no settings (caller uses TASK_EXTRACTION_PROMPT only).
+ */
+export function buildSystemPromptWithPreferences(
+  date: string,
+  settings: TodoPromptSettings | null | undefined,
+): string | null {
+  if (!settings) return null;
+  const t = { ...DEFAULT_TODO_PROMPT_TOGGLES, ...settings.toggles };
+  const prefsBlock = buildPreferencesBlock(t);
+  const custom = settings.customInstructions?.trim();
+  const customBlock = custom
+    ? `\n\nAdditional instructions from the user (apply these too): "${custom.replace(/"/g, '\\"')}"`
+    : "";
+  const basePrompt = renderTaskExtractionPrompt(t).replace(
+    /\{\{targetDate\}\}/g,
+    date,
+  );
+  return prefsBlock + customBlock + "\n\n" + basePrompt;
+}
+
+/** Fetch signals from all registered integrations. Calendar from Supabase; Gmail via Composio. Uses user's todo_email_scope and todo_prompt_settings (filters by fromCalendar/fromEmails). */
 async function fetchAllSignals(
   supabase: SupabaseClient<Database>,
   userId: string,
   date: string,
-): Promise<IntegrationSignal[]> {
+): Promise<{
+  signals: IntegrationSignal[];
+  promptSettings: TodoPromptSettings | null;
+}> {
+  const [scope, promptSettings] = await Promise.all([
+    getTodoEmailScope(supabase, userId),
+    getTodoPromptSettings(supabase, userId),
+  ]);
   const calendarSignals = fetchCalendarSignalsFromSupabase(
     supabase,
     userId,
@@ -484,12 +685,20 @@ async function fetchAllSignals(
     console.warn("[todo-generator] google_calendar fetch error:", err);
     return [] as CalendarEventSignal[];
   });
-  const gmailSignals = fetchGmailSignals(userId, date).catch((err) => {
+  const gmailSignals = fetchGmailSignals(userId, date, scope).catch((err) => {
     console.warn("[todo-generator] gmail fetch error:", err);
     return [] as GmailSignal[];
   });
   const [cal, gmail] = await Promise.all([calendarSignals, gmailSignals]);
-  return [...cal, ...gmail];
+  let signals: IntegrationSignal[] = [...cal, ...gmail];
+  const t = promptSettings?.toggles ?? {};
+  if (t.fromCalendar === false) {
+    signals = signals.filter((s) => s.provider !== "google_calendar");
+  }
+  if (t.fromEmails === false) {
+    signals = signals.filter((s) => s.provider !== "gmail");
+  }
+  return { signals, promptSettings: promptSettings ?? null };
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -538,7 +747,17 @@ export function signalsToPromptContext(signals: IntegrationSignal[]): string {
     .join("\n\n");
 }
 
-export const TASK_EXTRACTION_PROMPT = `You are an intelligent task extraction system for a personal productivity app.
+const REPLY_TASKS_SECTION_TEXT = `REPLY TASKS — strict evidence required:
+Do NOT create a "reply" or "respond" task just because the user hasn't replied to a thread. A reply task is warranted ONLY when the thread content contains concrete evidence that a response is expected:
+- The other party asked a direct question
+- The other party made an explicit request (send something, confirm, decide, approve)
+- The user previously committed to follow up or deliver something
+If the last message in the thread is a neutral statement, acknowledgment, or informational update with no question or request directed at the user — skip it entirely. Closing messages (e.g. "OK", "Thanks", "Got it", "Noted", confirmations) do not require a response and must NOT generate a task.
+If the LAST message in the thread is from the user (the account owner / recipient — check who sent the final part of the conversation in the Content), do NOT create a reply or follow-up task for that thread; the user has already responded.
+
+`;
+
+const TASK_EXTRACTION_TEMPLATE = `You are an intelligent task extraction system for a personal productivity app.
 
 TARGET DATE: {{targetDate}}
 
@@ -553,23 +772,16 @@ There is no predefined list of "actionable" or "non-actionable" categories — y
 DECISION FRAMEWORK — ask yourself for each signal:
 - Does this signal imply the user needs to DO something (reply, prepare, create, review, decide, deliver, follow up)?
 - Is there evidence in the content that someone is waiting for the user, or that the user committed to something?
-- For calendar events: does this meeting require preparation, deliverables, or follow-up — or is it passive attendance / personal time?
+- {{calendarGuidance}}
 - For emails: read the Content section (preview and thread context) in full. Is the user expected to respond, take action, or make a decision — or is this informational / automated / marketing?
-- For email threads: read the full conversation flow in the Content. Who spoke last? Is the ball in the user's court? If the other party asked a question or is waiting for the user to reply, send something, or follow up — create a task. This includes Re: threads from colleagues, clients, or support.
+- For email threads: read the full conversation flow in the Content. The Content shows messages in chronological order; "From:" or the sender name indicates who wrote each part. Who spoke last? Is the ball in the user's court? If the other party asked a question or is waiting for the user to reply, send something, or follow up — create a task. This includes Re: threads from colleagues, clients, or support.
 
-REPLY TASKS — strict evidence required:
-Do NOT create a "reply" or "respond" task just because the user hasn't replied to a thread. A reply task is warranted ONLY when the thread content contains concrete evidence that a response is expected:
-- The other party asked a direct question
-- The other party made an explicit request (send something, confirm, decide, approve)
-- The user previously committed to follow up or deliver something
-If the last message in the thread is a neutral statement, acknowledgment, or informational update with no question or request directed at the user — skip it entirely. Closing messages (e.g. "OK", "Thanks", "Got it", "Noted", confirmations) do not require a response and must NOT generate a task.
-
-Skip pure marketing, newsletters, and automated notifications (e.g. CI/CD bot comments, promotional offers) unless they contain a personal request or deadline directed at the user.
+{{replyTasksSection}}{{skipRules}}
 For everything else — create a task if there is any reasonable chance the user should act. When in doubt, include a task; missing an actionable signal is worse than including a borderline one.
 
 TASK RULES:
 1. Each task dueAt MUST be "{{targetDate}}T00:00:00.000Z".
-2. Do NOT create duplicate tasks for the same underlying action.
+2. Do NOT create duplicate tasks for the same underlying action. For email threads: at most ONE task per conversation (one per thread); if multiple signals belong to the same thread, output only one task for that thread (the single most actionable one), and only if the user has not already replied (last message in the thread is not from the user).
 3. Write titles as concise action items starting with a verb. Keep the source language of the signal.
 4. Set confidence (0.0–1.0) reflecting how certain you are that user action is truly required.
 5. Set actionabilityEvidence: a short quote or fact from the signal that proves the user must act.
@@ -595,9 +807,58 @@ Return a JSON array. Each object:
 }
 
 Return ONLY the JSON array. No markdown, no explanation.
-Create tasks for clear action items (e.g. meetings to prepare for, emails that need reply, payments to confirm, support replies that ask the user to send a document or complete a step, messages from colleagues or clients asking for a response).
+{{examplesLine}}
 You must output a task for every signal that meets the criteria above — do not limit how many tasks you return. If 10 signals are actionable, return 10 tasks. Omitting an actionable signal is an error.
 Return [] only when no signal implies a concrete user action.`;
+
+function buildCalendarGuidance(t: Required<TodoPromptToggles>): string {
+  return t.prepForMeetings
+    ? "For calendar events: does this meeting require preparation, deliverables, or follow-up — or is it passive attendance / personal time?"
+    : "For calendar events: is this meeting something the user needs to actively attend or act upon — or is it passive attendance / personal time? Do NOT create preparation or deliverable tasks from calendar events.";
+}
+
+function buildSkipRules(t: Required<TodoPromptToggles>): string {
+  if (t.fromNewsletters && t.fromAutomatedBots) return "";
+  if (t.fromNewsletters) {
+    return "Skip automated notifications (e.g. CI/CD bot comments) unless they contain a personal request or deadline directed at the user.";
+  }
+  if (t.fromAutomatedBots) {
+    return "Skip pure marketing, newsletters, and promotional offers unless they contain a personal request or deadline directed at the user.";
+  }
+  return "Skip pure marketing, newsletters, and automated notifications (e.g. CI/CD bot comments, promotional offers) unless they contain a personal request or deadline directed at the user.";
+}
+
+function buildExamples(t: Required<TodoPromptToggles>): string {
+  const parts: string[] = [];
+  if (t.prepForMeetings) parts.push("meetings to prepare for");
+  if (t.replyTasks) parts.push("emails that need reply");
+  parts.push("payments to confirm");
+  parts.push(
+    "support replies that ask the user to send a document or complete a step",
+  );
+  if (t.replyTasks)
+    parts.push("messages from colleagues or clients asking for a response");
+  return `Create tasks for clear action items (e.g. ${parts.join(", ")}).`;
+}
+
+function renderTaskExtractionPrompt(
+  toggles: Required<TodoPromptToggles>,
+): string {
+  return TASK_EXTRACTION_TEMPLATE.replace(
+    "{{calendarGuidance}}",
+    buildCalendarGuidance(toggles),
+  )
+    .replace(
+      "{{replyTasksSection}}",
+      toggles.replyTasks ? REPLY_TASKS_SECTION_TEXT : "",
+    )
+    .replace("{{skipRules}}", buildSkipRules(toggles))
+    .replace("{{examplesLine}}", buildExamples(toggles));
+}
+
+export const TASK_EXTRACTION_PROMPT = renderTaskExtractionPrompt(
+  DEFAULT_TODO_PROMPT_TOGGLES,
+);
 
 /** Zod schema for LLM-extracted task (matches prompt format). Used for structured output (OpenRouter/OpenAI). Optional fields use .nullable() so the API can omit them; see https://platform.openai.com/docs/guides/structured-outputs */
 export const LlmExtractedTaskSchema = z.object({
@@ -703,8 +964,32 @@ export interface TodoExtractionLog {
 }
 
 /**
+ * For Gmail items with threadId, keep at most one per thread (highest confidence).
+ * Used after enrichGmailItemsWithSourceUrl so threadId is available.
+ */
+export function oneTaskPerGmailThread(items: TodoItem[]): TodoItem[] {
+  const byThread = new Map<string, TodoItem>();
+  const rest: TodoItem[] = [];
+  for (const item of items) {
+    if (
+      item.sourceProvider === "gmail" &&
+      item.sourceType === "message" &&
+      item.sourceRef?.threadId
+    ) {
+      const current = byThread.get(item.sourceRef.threadId);
+      if (!current || (item.confidence ?? 0) > (current.confidence ?? 0)) {
+        byThread.set(item.sourceRef.threadId, item);
+      }
+    } else {
+      rest.push(item);
+    }
+  }
+  return [...rest, ...byThread.values()];
+}
+
+/**
  * Dedupe, filter, convert parsed LLM tasks to TodoItems, enrich Gmail URLs.
- * Shared by structured-output path and fallback extraction path.
+ * At most one Gmail task per thread (best by confidence). Shared by triage and sequential fallback.
  */
 export function processParsedTasksToItems(
   parsed: LlmExtractedTask[],
@@ -743,7 +1028,8 @@ export function processParsedTasksToItems(
   const items = [...unique.values()].map((task) =>
     llmTaskToTodoItem(task, date),
   );
-  return enrichGmailItemsWithSourceUrl(items, signals);
+  const enriched = enrichGmailItemsWithSourceUrl(items, signals);
+  return oneTaskPerGmailThread(enriched);
 }
 
 /**
@@ -853,20 +1139,29 @@ export class TodoGenerator {
       return this.generateForDate(userId, date, options);
     }
 
-    let signals = await fetchAllSignals(this.supabase, userId, date);
-    if (signals.length === 0) {
+    const { signals: initialSignals, promptSettings } = await fetchAllSignals(
+      this.supabase,
+      userId,
+      date,
+    );
+    if (initialSignals.length === 0) {
       return TodoListOutputSchema.parse({
         ...existing,
         updatedBecause: "no_changes_detected",
       });
     }
 
-    if (options?.signalHints?.length) {
-      signals = filterSignalsByHints(signals, options.signalHints);
-    }
+    const signals = options?.signalHints?.length
+      ? filterSignalsByHints(initialSignals, options.signalHints)
+      : initialSignals;
 
     const startedAt = Date.now();
-    const triageResult = await runTriageSignals(signals, date, existing.items);
+    const triageResult = await runTriageSignals(
+      signals,
+      date,
+      existing.items,
+      promptSettings,
+    );
     const durationMs = Date.now() - startedAt;
 
     await this.insertTodoGenerationLog(userId, date, {
@@ -1125,7 +1420,11 @@ export class TodoGenerator {
       return this.buildEmptyList(userId, date, "initial_generation");
     }
 
-    const signals = await fetchAllSignals(this.supabase, userId, date);
+    const { signals, promptSettings } = await fetchAllSignals(
+      this.supabase,
+      userId,
+      date,
+    );
     if (signals.length === 0) {
       const empty = this.buildEmptyList(userId, date, "initial_generation");
       await this.upsertSnapshot(
@@ -1145,7 +1444,12 @@ export class TodoGenerator {
       return empty;
     }
 
-    const triageResult = await runTriageSignals(signals, date);
+    const triageResult = await runTriageSignals(
+      signals,
+      date,
+      undefined,
+      promptSettings,
+    );
     const durationMs = Date.now() - startedAt;
 
     await this.insertTodoGenerationLog(userId, date, {

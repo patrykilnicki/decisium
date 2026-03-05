@@ -43,6 +43,7 @@ For EACH signal, briefly state:
 If a signal IS actionable, include a task for it. Even borderline signals where the user *might* need to act should produce a task — it is better to surface a low-confidence task than to miss a real one.
 
 Signals that are clearly automated notifications (CI bots, marketing, newsletters with no personal request) can be skipped.
+For email threads: read the Content in full. If the LAST message in the thread is from the user (the account owner / recipient), do NOT create a reply or follow-up task for that thread. Create at most ONE task per thread (one per conversation).
 
 Return a JSON array of tasks. Each object:
 {
@@ -83,6 +84,8 @@ const TriageState = Annotation.Root({
   date: Annotation<string>,
   allSignals: Annotation<IntegrationSignal[]>,
   existingItemKeys: Annotation<string[]>,
+  /** When set, full system prompt (with preferences + date). Otherwise use TASK_EXTRACTION_PROMPT. */
+  systemPromptTemplate: Annotation<string | undefined>,
 
   batchSignalGroups: Annotation<BatchSignalGroup[]>({
     reducer: (a, b) => [...a, ...b],
@@ -118,10 +121,9 @@ async function invokeLlmForTasks(
   isVerification: boolean,
 ): Promise<Partial<typeof TriageState.State>> {
   const llm = createLLM({ temperature: 0.15, maxTokens: 8192 });
-  const systemPrompt = systemPromptTemplate.replace(
-    /\{\{targetDate\}\}/g,
-    date,
-  );
+  const systemPrompt = systemPromptTemplate.includes("{{targetDate}}")
+    ? systemPromptTemplate.replace(/\{\{targetDate\}\}/g, date)
+    : systemPromptTemplate;
   const context = signalsToPromptContext(batchSignals);
   const userContent = `Extract tasks for ${date} from these integration signals:\n\n${context}`;
   const messages = [
@@ -242,7 +244,7 @@ async function invokeLlmForTasks(
  * Fan-out: split signals into batches and dispatch via Send.
  */
 function fanOutBatches(state: typeof TriageState.State): Send[] | string {
-  const { allSignals, date } = state;
+  const { allSignals, date, systemPromptTemplate } = state;
   if (!allSignals || allSignals.length === 0) return "finalize";
 
   const sends: Send[] = [];
@@ -253,6 +255,7 @@ function fanOutBatches(state: typeof TriageState.State): Send[] | string {
         batchSignals: batch,
         batchIndex: Math.floor(i / BATCH_SIZE),
         date,
+        systemPromptTemplate,
       }),
     );
   }
@@ -266,14 +269,18 @@ async function extractBatch(state: {
   batchSignals: IntegrationSignal[];
   batchIndex: number;
   date: string;
+  systemPromptTemplate?: string;
 }): Promise<Partial<typeof TriageState.State>> {
-  const { batchSignals, batchIndex, date } = state;
+  const { batchSignals, batchIndex, date, systemPromptTemplate } = state;
+  const prompt =
+    systemPromptTemplate ??
+    TASK_EXTRACTION_PROMPT.replace(/\{\{targetDate\}\}/g, date);
 
   const result = await invokeLlmForTasks(
     batchSignals,
     date,
     batchIndex,
-    TASK_EXTRACTION_PROMPT,
+    prompt,
     false,
   );
 
@@ -307,6 +314,7 @@ function fanOutVerify(state: typeof TriageState.State): Send[] | string {
         batchSignals: group.signals,
         batchIndex: group.batchIndex,
         date: state.date,
+        systemPromptTemplate: state.systemPromptTemplate,
       }),
     );
   }
@@ -316,23 +324,83 @@ function fanOutVerify(state: typeof TriageState.State): Send[] | string {
 
 /**
  * Verification worker: re-examine signals with a second-opinion prompt.
+ * When a custom systemPromptTemplate is provided (user preferences), extract just the
+ * USER PREFERENCES block and prepend it to the VERIFY_EXTRACTION_PROMPT so the
+ * second-opinion pass also respects user toggle settings.
  */
 async function verifyBatch(state: {
   batchSignals: IntegrationSignal[];
   batchIndex: number;
   date: string;
+  systemPromptTemplate?: string;
 }): Promise<Partial<typeof TriageState.State>> {
+  let verifyPrompt = VERIFY_EXTRACTION_PROMPT;
+  if (state.systemPromptTemplate) {
+    const prefEnd = state.systemPromptTemplate.indexOf(
+      "\n\nYou are an intelligent task extraction",
+    );
+    if (prefEnd > 0) {
+      const prefsBlock = state.systemPromptTemplate.slice(0, prefEnd);
+      verifyPrompt = prefsBlock + "\n\n" + verifyPrompt;
+    }
+    const VERIFY_SKIP_LINE =
+      "Signals that are clearly automated notifications (CI bots, marketing, newsletters with no personal request) can be skipped.";
+    const hasNewsletterYes = state.systemPromptTemplate.includes(
+      "Create tasks from newsletters and marketing: yes.",
+    );
+    const hasBotYes = state.systemPromptTemplate.includes(
+      "Create tasks from automated/bot messages: yes.",
+    );
+    if (hasNewsletterYes && hasBotYes) {
+      verifyPrompt = verifyPrompt.replace(VERIFY_SKIP_LINE, "");
+    } else if (hasNewsletterYes) {
+      verifyPrompt = verifyPrompt.replace(
+        VERIFY_SKIP_LINE,
+        "Signals that are clearly automated notifications (CI bots) can be skipped.",
+      );
+    } else if (hasBotYes) {
+      verifyPrompt = verifyPrompt.replace(
+        VERIFY_SKIP_LINE,
+        "Signals that are clearly marketing or newsletters with no personal request can be skipped.",
+      );
+    }
+  }
   return invokeLlmForTasks(
     state.batchSignals,
     state.date,
     state.batchIndex,
-    VERIFY_EXTRACTION_PROMPT,
+    verifyPrompt,
     true,
   );
 }
 
 /**
+ * For Gmail items with threadId, keep at most one per thread (highest confidence).
+ * Reduces duplicates when multiple messages from the same thread produce tasks.
+ */
+function oneTaskPerGmailThread(tasks: TodoItem[]): TodoItem[] {
+  const byThread = new Map<string, TodoItem>();
+  const nonGmail: TodoItem[] = [];
+  for (const item of tasks) {
+    if (
+      item.sourceProvider === "gmail" &&
+      item.sourceType === "message" &&
+      item.sourceRef?.threadId
+    ) {
+      const current = byThread.get(item.sourceRef.threadId);
+      if (!current || (item.confidence ?? 0) > (current.confidence ?? 0)) {
+        byThread.set(item.sourceRef.threadId, item);
+      }
+    } else {
+      nonGmail.push(item);
+    }
+  }
+  return [...nonGmail, ...byThread.values()];
+}
+
+/**
  * Aggregate: cross-batch dedup and filter against existing snapshot items.
+ * Gmail: one task per thread (best by confidence), then dedup by keys.
  */
 function finalize(state: typeof TriageState.State) {
   const { batchedTasks, existingItemKeys } = state;
@@ -340,11 +408,12 @@ function finalize(state: typeof TriageState.State) {
     return { finalItems: [] };
   }
 
+  const onePerThread = oneTaskPerGmailThread(batchedTasks);
   const existingSet = new Set(existingItemKeys ?? []);
   const seenKeys = new Set<string>();
   const deduped: TodoItem[] = [];
 
-  for (const item of batchedTasks) {
+  for (const item of onePerThread) {
     const keys = buildTodoItemDedupKeys(item);
     if (keys.length === 0) continue;
     if (keys.some((k) => existingSet.has(k))) continue;
@@ -394,11 +463,13 @@ export interface TriageResult {
 /**
  * Process integration signals through the triage agent.
  * Drop-in replacement for the old extractTasksWithLlm.
+ * @param systemPromptTemplate - Optional full system prompt (with preferences + date). When omitted, TASK_EXTRACTION_PROMPT is used.
  */
 export async function triageSignals(
   signals: IntegrationSignal[],
   date: string,
   existingItems?: TodoItem[],
+  systemPromptTemplate?: string,
 ): Promise<TriageResult> {
   if (signals.length === 0) {
     return { items: [], extractionLog: null, batchCount: 0, errors: [] };
@@ -413,6 +484,7 @@ export async function triageSignals(
     date,
     allSignals: signals,
     existingItemKeys,
+    systemPromptTemplate,
   });
 
   const logs = (result.extractionLogs ?? []).sort(
@@ -423,10 +495,9 @@ export async function triageSignals(
   const totalFiltered = logs.reduce((s, l) => s + l.filteredCount, 0);
   const verifyCount = logs.filter((l) => l.isVerification).length;
 
-  const systemPrompt = TASK_EXTRACTION_PROMPT.replace(
-    /\{\{targetDate\}\}/g,
-    date,
-  );
+  const systemPrompt =
+    systemPromptTemplate ??
+    TASK_EXTRACTION_PROMPT.replace(/\{\{targetDate\}\}/g, date);
   const rawResponsePreview = logs
     .map(
       (l) =>

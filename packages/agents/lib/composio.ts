@@ -323,6 +323,7 @@ export async function executeGmailFetchEmails(
     query?: string;
     max_results?: number;
     page_token?: string;
+    label_ids?: string[];
   },
 ): Promise<{
   data?: {
@@ -349,6 +350,10 @@ export async function executeGmailFetchEmails(
       args.page_token = params.page_token;
       args.pageToken = params.page_token;
     }
+    if (params.label_ids?.length) {
+      args.label_ids = params.label_ids;
+      args.labelIds = params.label_ids;
+    }
 
     const result = await client.tools.execute("GMAIL_FETCH_EMAILS", {
       userId,
@@ -374,6 +379,60 @@ export async function executeGmailFetchEmails(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.warn("[composio] GMAIL_FETCH_EMAILS failed:", message);
+    return { successful: false, error: message };
+  }
+}
+
+/**
+ * Execute GMAIL_LIST_LABELS for a user's connected account.
+ * Returns list of Gmail labels (id, name) for the authenticated user.
+ */
+export async function executeGmailListLabels(
+  userId: string,
+  connectedAccountId: string,
+): Promise<{
+  data?: { labels?: Array<{ id: string; name: string }> };
+  error?: string;
+  successful?: boolean;
+}> {
+  const client = getComposioServerClient();
+  if (!client) {
+    return { successful: false, error: "Composio not configured" };
+  }
+
+  try {
+    const result = await client.tools.execute("GMAIL_LIST_LABELS", {
+      userId,
+      connectedAccountId,
+      arguments: { user_id: "me" },
+    });
+
+    const raw = result.data as Record<string, unknown> | undefined;
+    const successful = result.successful ?? false;
+    const error = result.error;
+
+    let labels: Array<{ id: string; name: string }> = [];
+    if (raw) {
+      const list =
+        raw.labels ?? raw.data ?? (raw as { labels?: unknown }).labels;
+      if (Array.isArray(list)) {
+        labels = list
+          .filter(
+            (item: unknown): item is Record<string, unknown> =>
+              item != null && typeof item === "object",
+          )
+          .map((item) => ({
+            id: String(item.id ?? item.labelId ?? ""),
+            name: String(item.name ?? item.type ?? ""),
+          }))
+          .filter((l) => l.id.length > 0);
+      }
+    }
+
+    return { data: { labels }, error: error ?? undefined, successful };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn("[composio] GMAIL_LIST_LABELS failed:", message);
     return { successful: false, error: message };
   }
 }

@@ -11,6 +11,7 @@ import {
   executeGmailFetchEmails,
   executeGmailFetchThread,
   executeGmailFetchMessageByMessageId,
+  executeGmailListLabels,
 } from "./composio";
 
 // ─── Constants ─────────────────────────────────────────────────────────────
@@ -67,6 +68,40 @@ function toNonEmptyString(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+/** Extract email address from "Name <email>" or return as-is if no angle brackets; normalize to lowercase. */
+function normalizeEmailForQuery(addr: string): string {
+  const trimmed = addr.trim();
+  const match = trimmed.match(/<([^>]+)>/);
+  const email = match ? match[1].trim() : trimmed;
+  return email.toLowerCase();
+}
+
+function buildGmailQueryWithSenders(
+  baseQuery: string,
+  sendersAccepted?: string[],
+  sendersBlocked?: string[],
+): string {
+  let q = baseQuery.trim();
+  const accepted =
+    sendersAccepted?.map(normalizeEmailForQuery).filter((e) => e.length > 0) ??
+    [];
+  const blocked =
+    sendersBlocked?.map(normalizeEmailForQuery).filter((e) => e.length > 0) ??
+    [];
+  if (accepted.length > 0) {
+    const fromClause =
+      accepted.length === 1
+        ? `from:${accepted[0]}`
+        : `(${accepted.map((e) => `from:${e}`).join(" OR ")})`;
+    q = q ? `${q} ${fromClause}` : fromClause;
+  }
+  if (blocked.length > 0) {
+    const exclude = blocked.map((e) => `-from:${e}`).join(" ");
+    q = q ? `${q} ${exclude}` : exclude;
+  }
+  return q;
 }
 
 function extractMessagesFromPayload(value: unknown): unknown[] | null {
@@ -327,12 +362,28 @@ export async function getGmailConnectedAccountId(
   return accounts[0]?.id ?? null;
 }
 
+/**
+ * List Gmail labels for the authenticated user (for todo scope settings UI).
+ * Returns [] when Composio is disabled or user has no Gmail connection.
+ */
+export async function listGmailLabels(
+  userId: string,
+): Promise<Array<{ id: string; name: string }>> {
+  if (!isComposioEnabled()) return [];
+  const connectedAccountId = await getGmailConnectedAccountId(userId);
+  if (!connectedAccountId) return [];
+  const result = await executeGmailListLabels(userId, connectedAccountId);
+  return result.data?.labels ?? [];
+}
+
 // ─── Pagination ─────────────────────────────────────────────────────────────
 
 export interface FetchGmailEmailsPaginatedOptions {
   query: string;
   pageSize?: number;
   maxPages?: number;
+  /** Only messages that have at least one of these label IDs (Gmail API label_ids). */
+  labelIdsAccepted?: string[];
 }
 
 export interface FetchGmailEmailsPaginatedResult {
@@ -358,6 +409,9 @@ export async function fetchGmailEmailsPaginated(
       query: options.query,
       max_results: pageSize,
       page_token: pageToken,
+      label_ids: options.labelIdsAccepted?.length
+        ? options.labelIdsAccepted
+        : undefined,
     });
 
     if (!result.successful || !result.data?.messages) break;
@@ -448,6 +502,14 @@ export interface FetchGmailEmailsFullOptions {
   withThreadContext?: boolean;
   /** When set with withThreadContext, thread context is limited to messages on or before this date (YYYY-MM-DD). Used by todo generation. */
   targetDate?: string;
+  /** Only messages with at least one of these label IDs. */
+  labelIdsAccepted?: string[];
+  /** After fetch, exclude messages that have any of these label IDs (filtered in-app). */
+  labelIdsBlocked?: string[];
+  /** Only messages from these senders (email addresses). Appended to query as (from:a OR from:b). */
+  sendersAccepted?: string[];
+  /** Exclude messages from these senders. Appended to query as -from:a -from:b. */
+  sendersBlocked?: string[];
 }
 
 /**
@@ -471,14 +533,29 @@ export async function fetchGmailEmailsFull(
       ? GMAIL_FULL_FETCH_MAX_PAGES
       : DEFAULT_GMAIL_MAX_PAGES);
 
+  const query = buildGmailQueryWithSenders(
+    options.query,
+    options.sendersAccepted,
+    options.sendersBlocked,
+  );
+
   const { messages: rawMessages, connectedAccountId: accountId } =
     await fetchGmailEmailsPaginated(userId, connectedAccountId, {
-      query: options.query,
+      query,
       pageSize,
       maxPages,
+      labelIdsAccepted: options.labelIdsAccepted?.length
+        ? options.labelIdsAccepted
+        : undefined,
     });
 
-  const parsed = rawMessages.map(parseGmailMessage);
+  let parsed = rawMessages.map(parseGmailMessage);
+
+  if (options.labelIdsBlocked?.length) {
+    const blockedSet = new Set(options.labelIdsBlocked);
+    parsed = parsed.filter((msg) => !msg.labels.some((l) => blockedSet.has(l)));
+  }
+
   if (parsed.length === 0) return [];
 
   if (options.withThreadContext) {
