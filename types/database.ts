@@ -16,6 +16,8 @@ export type LlmModelPrice =
   Database["public"]["Tables"]["llm_model_prices"]["Row"];
 export type CalendarWatch =
   Database["public"]["Tables"]["calendar_watches"]["Row"];
+export type ComposioWebhookEventLog =
+  Database["public"]["Tables"]["composio_webhook_event_logs"]["Row"];
 export type DailyEvent = Database["public"]["Tables"]["daily_events"]["Row"];
 export type DailySummary =
   Database["public"]["Tables"]["daily_summaries"]["Row"];
@@ -68,6 +70,8 @@ export type LlmModelPriceInsert =
   Database["public"]["Tables"]["llm_model_prices"]["Insert"];
 export type CalendarWatchInsert =
   Database["public"]["Tables"]["calendar_watches"]["Insert"];
+export type ComposioWebhookEventLogInsert =
+  Database["public"]["Tables"]["composio_webhook_event_logs"]["Insert"];
 export type DailyEventInsert =
   Database["public"]["Tables"]["daily_events"]["Insert"];
 export type DailySummaryInsert =
@@ -127,6 +131,8 @@ export type LlmModelPriceUpdate =
   Database["public"]["Tables"]["llm_model_prices"]["Update"];
 export type CalendarWatchUpdate =
   Database["public"]["Tables"]["calendar_watches"]["Update"];
+export type ComposioWebhookEventLogUpdate =
+  Database["public"]["Tables"]["composio_webhook_event_logs"]["Update"];
 export type DailyEventUpdate =
   Database["public"]["Tables"]["daily_events"]["Update"];
 export type DailySummaryUpdate =

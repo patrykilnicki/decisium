@@ -384,6 +384,56 @@ export type Database = {
           },
         ]
       }
+      composio_webhook_event_logs: {
+        Row: {
+          id: string
+          event_type: string | null
+          trigger_slug: string | null
+          payload_metadata: Json
+          resolved_user_id: string | null
+          handler_branch: string | null
+          processing_steps: Json
+          result: Json
+          error_message: string | null
+          http_status: number | null
+          created_at: string | null
+        }
+        Insert: {
+          id?: string
+          event_type?: string | null
+          trigger_slug?: string | null
+          payload_metadata?: Json
+          resolved_user_id?: string | null
+          handler_branch?: string | null
+          processing_steps?: Json
+          result?: Json
+          error_message?: string | null
+          http_status?: number | null
+          created_at?: string | null
+        }
+        Update: {
+          id?: string
+          event_type?: string | null
+          trigger_slug?: string | null
+          payload_metadata?: Json
+          resolved_user_id?: string | null
+          handler_branch?: string | null
+          processing_steps?: Json
+          result?: Json
+          error_message?: string | null
+          http_status?: number | null
+          created_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "composio_webhook_event_logs_resolved_user_id_fkey"
+            columns: ["resolved_user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       daily_events: {
         Row: {
           content: string
