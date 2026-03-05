@@ -159,9 +159,12 @@ function finalize(state: typeof VaultTriageState.State) {
 
 function buildVaultTriageGraph() {
   return new StateGraph(VaultTriageState)
-    .addNode("extractBatch", extractBatch)
+    .addNode("extractBatch", extractBatch, { ends: ["finalize"] })
     .addNode("finalize", finalize)
-    .addConditionalEdges(START, fanOutBatches, { finalize: "finalize" })
+    .addConditionalEdges(START, fanOutBatches, {
+      finalize: "finalize",
+      extractBatch: "extractBatch",
+    })
     .addEdge("extractBatch", "finalize")
     .addEdge("finalize", END)
     .compile();

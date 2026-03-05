@@ -256,9 +256,12 @@ function finalize(state: typeof TriageState.State) {
 
 function buildTriageGraph() {
   return new StateGraph(TriageState)
-    .addNode("extractBatch", extractBatch)
+    .addNode("extractBatch", extractBatch, { ends: ["finalize"] })
     .addNode("finalize", finalize)
-    .addConditionalEdges(START, fanOutBatches, { finalize: "finalize" })
+    .addConditionalEdges(START, fanOutBatches, {
+      finalize: "finalize",
+      extractBatch: "extractBatch",
+    })
     .addEdge("extractBatch", "finalize")
     .addEdge("finalize", END)
     .compile();
