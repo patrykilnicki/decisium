@@ -7,5 +7,6 @@ export { embeddingGeneratorTool } from "./embedding-generator.tool";
 export { generateTodoListTool } from "./generate-todo-list.tool";
 export { listCalendarEventsTool } from "./list-calendar-events.tool";
 export { fetchGmailEmailsTool } from "./fetch-gmail-emails.tool";
+export { analyzeGmailEmailsTool } from "./analyze-gmail-emails.tool";
 export { vaultCreateDocumentTool } from "./vault-create-document.tool";
 export { vaultUpdateDocumentTool } from "./vault-update-document.tool";

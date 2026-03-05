@@ -11,6 +11,7 @@ import {
   generateTodoListTool,
   listCalendarEventsTool,
   fetchGmailEmailsTool,
+  analyzeGmailEmailsTool,
 } from "./index";
 import { getComposioToolsForUser } from "../lib/composio";
 
@@ -182,6 +183,12 @@ function initializeRegistry(): void {
     category: "email",
     isExternal: false,
   });
+
+  toolRegistry.set("analyze_gmail_emails", {
+    tool: analyzeGmailEmailsTool,
+    category: "email",
+    isExternal: false,
+  });
 }
 
 // Initialize on module load
@@ -347,6 +354,10 @@ export function getDefaultTools(
     tools.push(fetchGmailEmailsTool);
   }
 
+  if (config.includeFetchGmailEmails !== false) {
+    tools.push(analyzeGmailEmailsTool);
+  }
+
   // Include enabled external tools if requested
   if (config.includeExternalTools) {
     const externalTools = getEnabledExternalTools();
@@ -448,6 +459,7 @@ const TOOLS_REQUIRING_USER_ID = [
   "vault_create_document",
   "vault_update_document",
   "fetch_gmail_emails",
+  "analyze_gmail_emails",
 ] as const;
 
 /**
@@ -642,6 +654,37 @@ function createToolsWithBoundUserId(userId: string): DynamicStructuredTool[] {
           query: args.query,
           maxResults: args.maxResults ?? 30,
           withThreadContext: args.withThreadContext,
+        }),
+    }),
+    new DynamicStructuredTool({
+      name: "analyze_gmail_emails",
+      description: analyzeGmailEmailsTool.description,
+      schema: z.object({
+        query: z
+          .string()
+          .describe(
+            "Gmail search query (e.g. 'after:2026/3/1 before:2026/3/2', 'is:unread').",
+          ),
+        analysisFocus: z
+          .string()
+          .describe(
+            "What the user wants to know (e.g. 'Summarize and highlight what needs action').",
+          ),
+        maxResults: z
+          .number()
+          .int()
+          .min(1)
+          .max(250)
+          .optional()
+          .default(100)
+          .describe("Max emails to fetch and analyze."),
+      }),
+      func: async (args) =>
+        analyzeGmailEmailsTool.func({
+          userId,
+          query: args.query,
+          analysisFocus: args.analysisFocus,
+          maxResults: args.maxResults,
         }),
     }),
   ];
