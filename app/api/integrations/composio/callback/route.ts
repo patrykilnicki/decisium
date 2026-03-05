@@ -26,12 +26,17 @@ const TOOLKIT_TO_PROVIDER: Record<string, string> = {
 export async function GET(request: NextRequest) {
   const baseUrl = getAppUrl(request);
   const authUrl = new URL("/auth", baseUrl);
-  const settingsUrl = new URL("/settings", baseUrl);
+  const returnTo =
+    request.cookies.get("composio_connect_return_to")?.value ?? "/settings";
+  const redirectBase =
+    returnTo.startsWith("/") && !returnTo.startsWith("//")
+      ? new URL(returnTo, baseUrl)
+      : new URL("/settings", baseUrl);
 
   try {
     if (!isComposioEnabled()) {
-      settingsUrl.searchParams.set("error", "composio_not_configured");
-      return NextResponse.redirect(settingsUrl);
+      redirectBase.searchParams.set("error", "composio_not_configured");
+      return NextResponse.redirect(redirectBase);
     }
 
     const supabase = await createClient();
@@ -45,8 +50,7 @@ export async function GET(request: NextRequest) {
       authUrl.searchParams.set("error", "unauthorized");
       authUrl.searchParams.set(
         "redirect",
-        "/api/integrations/composio/callback?" +
-          request.nextUrl.searchParams.toString(),
+        `/api/integrations/composio/callback?${request.nextUrl.searchParams.toString()}`,
       );
       return NextResponse.redirect(authUrl);
     }
@@ -67,8 +71,8 @@ export async function GET(request: NextRequest) {
 
     if (accounts.length === 0) {
       console.warn("[composio/callback] No active connection found for user");
-      settingsUrl.searchParams.set("error", "connection_not_found");
-      return NextResponse.redirect(settingsUrl);
+      redirectBase.searchParams.set("error", "connection_not_found");
+      return NextResponse.redirect(redirectBase);
     }
 
     const connectedAccount = accounts[0];
@@ -182,17 +186,18 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    settingsUrl.searchParams.set("connected", resolvedProvider);
+    redirectBase.searchParams.set("connected", resolvedProvider);
     if (integrationId) {
-      settingsUrl.searchParams.set("integration_id", integrationId);
+      redirectBase.searchParams.set("integration_id", integrationId);
     }
 
-    const response = NextResponse.redirect(settingsUrl);
+    const response = NextResponse.redirect(redirectBase);
     response.cookies.delete("composio_connect_provider");
+    response.cookies.delete("composio_connect_return_to");
     return response;
   } catch (error) {
     console.error("[composio/callback] Error:", error);
-    settingsUrl.searchParams.set("error", "callback_failed");
-    return NextResponse.redirect(settingsUrl);
+    redirectBase.searchParams.set("error", "callback_failed");
+    return NextResponse.redirect(redirectBase);
   }
 }

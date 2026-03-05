@@ -5,7 +5,8 @@ export type TaskType =
   | "root.save_assistant_message"
   | "orchestrator.invoke"
   | "insights.generate_todo_list"
-  | "vault.sync_from_events";
+  | "vault.sync_from_events"
+  | "integration.sync";
 
 export type TaskGraph = "root" | "orchestrator";
 
@@ -30,5 +31,7 @@ export function getTaskNodeId(taskType: TaskType): string {
       return "insightsGenerateTodoList";
     case "vault.sync_from_events":
       return "vaultSyncFromEvents";
+    case "integration.sync":
+      return "integrationSync";
   }
 }
