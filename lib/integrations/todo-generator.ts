@@ -380,6 +380,13 @@ DECISION FRAMEWORK — ask yourself for each signal:
 - For emails: read the Content section (preview and thread context) in full. Is the user expected to respond, take action, or make a decision — or is this informational / automated / marketing?
 - For email threads: read the full conversation flow in the Content. Who spoke last? Is the ball in the user's court? If the other party asked a question or is waiting for the user to reply, send something, or follow up — create a task. This includes Re: threads from colleagues, clients, or support.
 
+REPLY TASKS — strict evidence required:
+Do NOT create a "reply" or "respond" task just because the user hasn't replied to a thread. A reply task is warranted ONLY when the thread content contains concrete evidence that a response is expected:
+- The other party asked a direct question
+- The other party made an explicit request (send something, confirm, decide, approve)
+- The user previously committed to follow up or deliver something
+If the last message in the thread is a neutral statement, acknowledgment, or informational update with no question or request directed at the user — skip it entirely. Closing messages (e.g. "OK", "Thanks", "Got it", "Noted", confirmations) do not require a response and must NOT generate a task.
+
 Skip pure marketing, newsletters, and automated notifications (e.g. CI/CD bot comments, promotional offers) unless they contain a personal request or deadline directed at the user.
 For everything else — create a task if there is any reasonable chance the user should act. When in doubt, include a task; missing an actionable signal is worse than including a borderline one.
 
@@ -415,19 +422,19 @@ Create tasks for clear action items (e.g. meetings to prepare for, emails that n
 You must output a task for every signal that meets the criteria above — do not limit how many tasks you return. If 10 signals are actionable, return 10 tasks. Omitting an actionable signal is an error.
 Return [] only when no signal implies a concrete user action.`;
 
-/** Zod schema for LLM-extracted task (matches prompt format). Used for structured output (Gemini, Claude, GPT-4o via OpenRouter). */
+/** Zod schema for LLM-extracted task (matches prompt format). Used for structured output (OpenRouter/OpenAI). Optional fields use .nullable() so the API can omit them; see https://platform.openai.com/docs/guides/structured-outputs */
 const LlmExtractedTaskSchema = z.object({
   title: z.string(),
   summary: z.string(),
   priority: z.enum(["normal", "urgent"]),
-  urgentReason: z.string().optional(),
+  urgentReason: z.string().nullable(),
   sourceProvider: z.string(),
   sourceType: z.string(),
-  sourceExternalId: z.string().optional(),
-  actionabilityEvidence: z.string().optional(),
-  confidence: z.number().optional(),
+  sourceExternalId: z.string().nullable(),
+  actionabilityEvidence: z.string().nullable(),
+  confidence: z.number().nullable(),
   suggestedNextAction: z.string(),
-  tags: z.array(z.string()).optional(),
+  tags: z.array(z.string()).nullable(),
 });
 const LlmExtractedTaskArraySchema = z.array(LlmExtractedTaskSchema);
 
@@ -435,14 +442,14 @@ interface LlmExtractedTask {
   title: string;
   summary: string;
   priority: "normal" | "urgent";
-  urgentReason?: string;
+  urgentReason: string | null;
   sourceProvider: string;
   sourceType: string;
-  sourceExternalId?: string;
-  actionabilityEvidence?: string;
-  confidence?: number;
+  sourceExternalId: string | null;
+  actionabilityEvidence: string | null;
+  confidence: number | null;
   suggestedNextAction: string;
-  tags?: string[];
+  tags: string[] | null;
 }
 
 function llmTaskToTodoItem(task: LlmExtractedTask, date: string): TodoItem {
@@ -484,7 +491,7 @@ function buildExtractedTaskDedupKeys(task: LlmExtractedTask): string[] {
     sourceProvider: task.sourceProvider || "unknown",
     sourceType: task.sourceType || "unknown",
     title: task.title,
-    sourceRef: { externalId: task.sourceExternalId },
+    sourceRef: { externalId: task.sourceExternalId ?? undefined },
   });
 }
 

@@ -1,14 +1,21 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { ProtectedRoute } from "@/components/auth/protected-route";
 import { AppLayout } from "@/components/layout/app-layout";
 import { HomeContent } from "@/app/home/components/home-content";
 import { createClient } from "@/lib/supabase/client";
+import { Loader2 } from "lucide-react";
 
-export default function HomePage() {
+const POLL_INTERVAL_MS = 1500;
+
+function HomePageContent() {
+  const searchParams = useSearchParams();
+  const isPreparing = searchParams.get("preparing") === "1";
   const [userName, setUserName] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
+  const [syncReady, setSyncReady] = useState(!isPreparing);
 
   useEffect(() => {
     async function fetchUser() {
@@ -31,13 +38,68 @@ export default function HomePage() {
     fetchUser();
   }, []);
 
+  useEffect(() => {
+    if (!isPreparing) return;
+    let cancelled = false;
+    async function pollPendingSync() {
+      while (!cancelled) {
+        try {
+          const res = await fetch("/api/tasks/pending-sync-status");
+          if (!res.ok) break;
+          const data = await res.json();
+          if (!data.hasPending) {
+            setSyncReady(true);
+            // Remove ?preparing=1 from URL without full reload
+            window.history.replaceState({}, "", window.location.pathname);
+            break;
+          }
+        } catch {
+          // Retry on error
+        }
+        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+      }
+    }
+    pollPendingSync();
+    return () => {
+      cancelled = true;
+    };
+  }, [isPreparing]);
+
+  const showLoader = isPreparing && !syncReady;
+
   return (
     <ProtectedRoute>
       <AppLayout>
-        <div className="flex h-full min-h-0 flex-col overflow-y-auto overflow-x-hidden overscroll-y-auto scroll-smooth">
-          <HomeContent userName={userName} userId={userId} />
-        </div>
+        {showLoader ? (
+          <div className="flex flex-1 flex-col items-center justify-center gap-4 text-muted-foreground">
+            <Loader2 className="h-10 w-10 animate-spin" aria-hidden />
+            <p className="text-sm font-medium">Configuring your dashboard</p>
+            <p className="text-xs">Syncing your calendar and data...</p>
+          </div>
+        ) : (
+          <div className="flex h-full min-h-0 flex-col overflow-y-auto overflow-x-hidden overscroll-y-auto scroll-smooth">
+            <HomeContent userName={userName} userId={userId} />
+          </div>
+        )}
       </AppLayout>
     </ProtectedRoute>
+  );
+}
+
+export default function HomePage() {
+  return (
+    <Suspense
+      fallback={
+        <ProtectedRoute>
+          <AppLayout>
+            <div className="flex flex-1 flex-col items-center justify-center gap-4 text-muted-foreground">
+              <Loader2 className="h-10 w-10 animate-spin" aria-hidden />
+            </div>
+          </AppLayout>
+        </ProtectedRoute>
+      }
+    >
+      <HomePageContent />
+    </Suspense>
   );
 }

@@ -25,8 +25,12 @@ function OnboardingContent() {
   }
 
   async function handleComplete() {
-    await completeOnboarding();
-    router.push("/");
+    const result = await completeOnboarding();
+    if (result.hasSyncTasks) {
+      router.push("/home?preparing=1");
+    } else {
+      router.push("/");
+    }
   }
 
   function renderStep() {

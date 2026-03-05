@@ -67,7 +67,7 @@ export async function POST(request: NextRequest) {
 
     // Parse request body
     const body = await request.json();
-    const { provider, useExtendedScopes } = body;
+    const { provider, useExtendedScopes, returnTo } = body;
 
     if (!provider) {
       return NextResponse.json(
@@ -114,6 +114,18 @@ export async function POST(request: NextRequest) {
         authorizationUrl: redirectUrl,
       });
       response.cookies.set("composio_connect_provider", provider, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        maxAge: 60 * 10,
+        path: "/",
+      });
+      // Where to redirect after OAuth (e.g. /onboarding or /settings)
+      const safeReturnTo =
+        typeof returnTo === "string" && returnTo.startsWith("/")
+          ? returnTo
+          : "/settings";
+      response.cookies.set("composio_connect_return_to", safeReturnTo, {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
         sameSite: "lax",

@@ -21,7 +21,11 @@ import type { Database } from "@/types/supabase";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createTaskEvent } from "@/lib/tasks/task-events";
 import { runWithTaskContext } from "@/packages/agents/lib/task-context";
-import { createTodoGenerator } from "@/lib/integrations";
+import {
+  createTodoGenerator,
+  createOAuthManager,
+  createSyncPipeline,
+} from "@/lib/integrations";
 import { runVaultFromEventsAgent } from "@/lib/vault/vault-from-events-agent";
 
 function buildNextTask(params: {
@@ -79,6 +83,9 @@ export async function handleTask(
   }
   if (taskType === "vault.sync_from_events") {
     return handleVaultSyncFromEvents(task, { client, jobId });
+  }
+  if (taskType === "integration.sync") {
+    return handleIntegrationSync(task, { client, jobId });
   }
   throw new Error(`Unknown task type: ${taskType}`);
 }
@@ -307,6 +314,41 @@ async function handleVaultSyncFromEvents(
     output: {
       state: { ...state, vaultResult: result },
       vaultResult: result,
+    },
+  };
+}
+
+async function handleIntegrationSync(
+  task: TaskRow,
+  options: { client: SupabaseClient<Database>; jobId: string },
+): Promise<TaskExecutionResult> {
+  const state = getTaskState<{
+    userId: string;
+    integrationId: string;
+    provider: string;
+  }>(task);
+
+  const integrationId = state.integrationId;
+  const userId = state.userId ?? task.user_id;
+
+  if (!integrationId) {
+    throw new Error("integration.sync task missing integrationId in state");
+  }
+
+  const oauthManager = createOAuthManager(options.client);
+  const syncPipeline = createSyncPipeline(options.client, oauthManager);
+
+  await runNodeWithEvents({
+    client: options.client,
+    task,
+    jobId: options.jobId,
+    nodeKey: "integration.sync",
+    handler: () => syncPipeline.sync(integrationId, { fullSync: true }),
+  });
+
+  return {
+    output: {
+      state: { userId, integrationId, provider: state.provider },
     },
   };
 }
