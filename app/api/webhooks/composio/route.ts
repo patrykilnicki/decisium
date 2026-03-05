@@ -14,6 +14,42 @@ import * as db from "@/lib/supabase/db";
 
 const supabase = createAdminClient();
 
+/** Log one webhook request to composio_webhook_event_logs (full event → todo flow). */
+async function insertWebhookEventLog(entry: {
+  eventType?: string | null;
+  triggerSlug?: string | null;
+  payloadMetadata?: Record<string, unknown>;
+  resolvedUserId?: string | null;
+  handlerBranch: string;
+  processingSteps?: Json;
+  result?: Record<string, unknown>;
+  errorMessage?: string | null;
+  httpStatus: number;
+}): Promise<void> {
+  const row = {
+    event_type: entry.eventType ?? null,
+    trigger_slug: entry.triggerSlug ?? null,
+    payload_metadata: (entry.payloadMetadata ?? {}) as Json,
+    resolved_user_id: entry.resolvedUserId ?? null,
+    handler_branch: entry.handlerBranch,
+    processing_steps: entry.processingSteps ?? [],
+    result: (entry.result ?? {}) as Json,
+    error_message: entry.errorMessage ?? null,
+    http_status: entry.httpStatus,
+  };
+  const { error } = await db.insertOne(
+    supabase,
+    "composio_webhook_event_logs",
+    row as never,
+  );
+  if (error) {
+    console.warn(
+      "[composio/webhook] Failed to insert event log:",
+      error.message,
+    );
+  }
+}
+
 interface ComposioWebhookPayload {
   id?: string;
   type?: string;
@@ -367,6 +403,11 @@ export async function POST(request: NextRequest) {
 
   if (!verifyWebhookSignature(rawBody, request)) {
     console.warn("[composio/webhook] Invalid signature");
+    await insertWebhookEventLog({
+      handlerBranch: "signature_failed",
+      errorMessage: "Invalid signature",
+      httpStatus: 401,
+    });
     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }
 
@@ -374,6 +415,11 @@ export async function POST(request: NextRequest) {
   try {
     payload = JSON.parse(rawBody) as ComposioWebhookPayload;
   } catch {
+    await insertWebhookEventLog({
+      handlerBranch: "parse_error",
+      errorMessage: "Invalid JSON",
+      httpStatus: 400,
+    });
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
@@ -401,6 +447,13 @@ export async function POST(request: NextRequest) {
         );
       }
     }
+    await insertWebhookEventLog({
+      eventType: payload.type,
+      payloadMetadata: payload.metadata ?? undefined,
+      handlerBranch: "expired",
+      result: { accountId: accountId ?? null },
+      httpStatus: 200,
+    });
     return NextResponse.json({
       status: "ok",
       type: "composio.connected_account.expired",
@@ -408,12 +461,27 @@ export async function POST(request: NextRequest) {
   }
 
   if (payload.type !== "composio.trigger.message") {
+    await insertWebhookEventLog({
+      eventType: payload.type,
+      payloadMetadata: payload.metadata ?? undefined,
+      handlerBranch: "ignored_type",
+      result: { type: payload.type },
+      httpStatus: 200,
+    });
     return NextResponse.json({ status: "ignored", type: payload.type });
   }
 
   const triggerSlug = payload.metadata?.trigger_slug;
   if (!triggerSlug || !isIntegrationTriggerForTodo(triggerSlug)) {
     console.log(`[composio/webhook] Unhandled trigger slug: ${triggerSlug}`);
+    await insertWebhookEventLog({
+      eventType: payload.type,
+      triggerSlug: triggerSlug ?? null,
+      payloadMetadata: payload.metadata ?? undefined,
+      handlerBranch: "ignored_trigger",
+      result: { trigger: triggerSlug },
+      httpStatus: 200,
+    });
     return NextResponse.json({ status: "ignored", trigger: triggerSlug });
   }
 
@@ -425,7 +493,7 @@ export async function POST(request: NextRequest) {
       userId = result.userId;
       if (result.userId != null) {
         // Real-time task sync: merge new tasks from all integrations.
-        await dispatchTodoGenerationTask(result.userId, {
+        const dispatchResult = await dispatchTodoGenerationTask(result.userId, {
           source: "system.webhook.composio.calendar",
           date: new Date().toISOString().split("T")[0],
           incremental: true,
@@ -435,6 +503,33 @@ export async function POST(request: NextRequest) {
           source: "system.webhook.composio.calendar",
           incremental: true,
           cooldownMinutes: 10,
+        });
+        await insertWebhookEventLog({
+          eventType: payload.type,
+          triggerSlug,
+          payloadMetadata: payload.metadata ?? undefined,
+          resolvedUserId: result.userId,
+          handlerBranch: "calendar_sync",
+          processingSteps: [
+            {
+              step: "calendar_sync",
+              ok: true,
+              detail: `processed=${result.processed} stored=${result.stored}`,
+            },
+            {
+              step: "todo_dispatch",
+              ok: true,
+              detail: `taskId=${dispatchResult.taskId} reused=${dispatchResult.reused}`,
+            },
+          ] as Json,
+          result: {
+            calendar: { processed: result.processed, stored: result.stored },
+            dispatch: {
+              taskId: dispatchResult.taskId,
+              reused: dispatchResult.reused,
+            },
+          },
+          httpStatus: 200,
         });
         return NextResponse.json({
           status: "ok",
@@ -457,6 +552,30 @@ export async function POST(request: NextRequest) {
     if (triggerSlug === GMAIL_EMAIL_SENT_TRIGGER && userId) {
       const eventData = payload.data as unknown as GmailSentEventPayload;
       const result = await resolveGmailReply(supabase, userId, eventData);
+      await insertWebhookEventLog({
+        eventType: payload.type,
+        triggerSlug,
+        payloadMetadata: payload.metadata ?? undefined,
+        resolvedUserId: userId,
+        handlerBranch: "gmail_sent",
+        processingSteps: [
+          {
+            step: "resolve_gmail_reply",
+            ok: result.errors.length === 0,
+            detail: `processed=${result.processed} updated=${result.updated}`,
+          },
+        ] as Json,
+        result: {
+          gmail: {
+            processed: result.processed,
+            updated: result.updated,
+            errors: result.errors,
+          },
+        },
+        errorMessage:
+          result.errors.length > 0 ? result.errors.join("; ") : null,
+        httpStatus: 200,
+      });
       return NextResponse.json({
         status: "ok",
         trigger: triggerSlug,
@@ -466,7 +585,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (userId) {
-      await dispatchTodoGenerationTask(userId, {
+      const dispatchResult = await dispatchTodoGenerationTask(userId, {
         source: `system.webhook.composio.${triggerSlug.split("_")[0].toLowerCase()}`,
         date: new Date().toISOString().split("T")[0],
         incremental: true,
@@ -477,6 +596,38 @@ export async function POST(request: NextRequest) {
         incremental: true,
         cooldownMinutes: 10,
       });
+      await insertWebhookEventLog({
+        eventType: payload.type,
+        triggerSlug,
+        payloadMetadata: payload.metadata ?? undefined,
+        resolvedUserId: userId,
+        handlerBranch: "gmail_new_or_calendar_todo",
+        processingSteps: [
+          {
+            step: "todo_dispatch",
+            ok: true,
+            detail: `taskId=${dispatchResult.taskId} reused=${dispatchResult.reused}`,
+          },
+        ] as Json,
+        result: {
+          dispatch: {
+            taskId: dispatchResult.taskId,
+            reused: dispatchResult.reused,
+          },
+        },
+        httpStatus: 200,
+      });
+    } else {
+      await insertWebhookEventLog({
+        eventType: payload.type,
+        triggerSlug,
+        payloadMetadata: payload.metadata ?? undefined,
+        resolvedUserId: null,
+        handlerBranch: "gmail_new_or_calendar_todo",
+        errorMessage:
+          "userId not resolved (no integration for connected_account_id)",
+        httpStatus: 200,
+      });
     }
 
     return NextResponse.json({
@@ -485,7 +636,16 @@ export async function POST(request: NextRequest) {
       userId: userId ?? null,
     });
   } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
     console.error("[composio/webhook] Handler error:", error);
+    await insertWebhookEventLog({
+      eventType: payload?.type ?? null,
+      triggerSlug: payload?.metadata?.trigger_slug ?? null,
+      payloadMetadata: payload?.metadata ?? undefined,
+      handlerBranch: "handler_error",
+      errorMessage: err.message,
+      httpStatus: 500,
+    });
     return NextResponse.json(
       { error: "Internal error processing trigger" },
       { status: 500 },

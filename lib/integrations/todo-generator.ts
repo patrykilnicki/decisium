@@ -655,7 +655,9 @@ async function extractTasksWithLlm(
     }
   } catch (structuredErr) {
     const msg =
-      structuredErr instanceof Error ? structuredErr.message : String(structuredErr);
+      structuredErr instanceof Error
+        ? structuredErr.message
+        : String(structuredErr);
     if (process.env.NODE_ENV === "development") {
       console.warn(
         "[todo-generator] Structured output failed, using fallback extraction:",
