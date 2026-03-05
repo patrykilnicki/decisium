@@ -86,7 +86,43 @@ function extractMessagesFromPayload(value: unknown): unknown[] | null {
   return null;
 }
 
-function summarizeThreadPayload(payload: Record<string, unknown>): string {
+/** End of target day in UTC (ms). Used to filter thread messages to "on or before this day". */
+function endOfDayUtcMs(yyyyMmDd: string): number {
+  const d = new Date(yyyyMmDd + "T23:59:59.999Z");
+  return d.getTime();
+}
+
+/**
+ * Extract message timestamp (ms since epoch) from a raw message object.
+ * Gmail API uses internalDate (string ms); Composio may expose messageTimestamp (ISO or ms).
+ */
+function getMessageTimestamp(row: Record<string, unknown>): number | null {
+  const internalDate = row.internalDate ?? row.internal_date;
+  if (internalDate != null) {
+    const ms =
+      typeof internalDate === "string"
+        ? parseInt(internalDate, 10)
+        : Number(internalDate);
+    if (Number.isFinite(ms)) return ms;
+  }
+  const ts = row.messageTimestamp ?? row.date ?? row.timestamp;
+  if (ts == null) return null;
+  if (typeof ts === "number" && Number.isFinite(ts))
+    return ts <= 1e12 ? ts * 1000 : ts;
+  const str = String(ts).trim();
+  const parsed = Date.parse(str);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+export interface SummarizeThreadOptions {
+  /** When set, only messages on or before this date (YYYY-MM-DD) are included in context. Used for todo generation so context is 01.02–06.02 when generating for 06.02. */
+  targetDateYyyyMmDd?: string;
+}
+
+function summarizeThreadPayload(
+  payload: Record<string, unknown>,
+  options?: SummarizeThreadOptions,
+): string {
   let list = extractMessagesFromPayload(payload);
   if (!list) {
     const data = payload.data ?? payload.output ?? payload.result;
@@ -94,10 +130,26 @@ function summarizeThreadPayload(payload: Record<string, unknown>): string {
   }
   if (!Array.isArray(list) || list.length === 0) return "";
 
+  let messagesToSummarize: unknown[];
+  if (options?.targetDateYyyyMmDd) {
+    const cutoffMs = endOfDayUtcMs(options.targetDateYyyyMmDd);
+    const withTs = list
+      .filter(
+        (m): m is Record<string, unknown> => m != null && typeof m === "object",
+      )
+      .map((m) => ({ msg: m, ts: getMessageTimestamp(m) ?? 0 }))
+      .sort((a, b) => a.ts - b.ts);
+    const onOrBefore = withTs
+      .filter(({ ts }) => ts <= cutoffMs)
+      .map(({ msg }) => msg);
+    messagesToSummarize = onOrBefore.slice(-4);
+  } else {
+    messagesToSummarize = list.slice(-4);
+  }
+
   const snippets: string[] = [];
-  const lastMessages = list.slice(-4);
-  for (const message of lastMessages) {
-    if (!message || typeof message !== "object") continue;
+  for (const message of messagesToSummarize) {
+    if (message == null || typeof message !== "object") continue;
     const row = message as Record<string, unknown>;
     const from =
       toNonEmptyString(row.sender) ??
@@ -163,6 +215,7 @@ async function enrichMessagesWithMessageBodyFallback(
   userId: string,
   connectedAccountId: string,
   messages: ParsedGmailMessage[],
+  options?: { targetDateYyyyMmDd?: string },
 ): Promise<ParsedGmailMessage[]> {
   const needFallback = messages.filter(
     (m) =>
@@ -180,13 +233,17 @@ async function enrichMessagesWithMessageBodyFallback(
         .filter((id): id is string => Boolean(id?.trim())),
     ),
   ];
+  const summarizeOpts: SummarizeThreadOptions | undefined =
+    options?.targetDateYyyyMmDd
+      ? { targetDateYyyyMmDd: options.targetDateYyyyMmDd }
+      : undefined;
 
   await mapConcurrent(threadIds, THREAD_FETCH_CONCURRENCY, async (threadId) => {
     const res = await executeGmailFetchThread(userId, connectedAccountId, {
       threadId,
     }).catch(() => null);
     if (!res?.successful || !res.data) return;
-    const summary = summarizeThreadPayload(res.data);
+    const summary = summarizeThreadPayload(res.data, summarizeOpts);
     if (summary) threadContextByThreadId.set(threadId, summary);
   });
 
@@ -338,13 +395,20 @@ export function parseGmailMessage(
 
 // ─── Thread enrichment ──────────────────────────────────────────────────────
 
+export interface EnrichThreadContextOptions {
+  /** When set, thread context includes only messages on or before this date (YYYY-MM-DD). E.g. for todo date 06.02, context is 01.02–06.02. */
+  targetDateYyyyMmDd?: string;
+}
+
 /**
  * Enrich parsed messages with thread context (summary of each thread).
+ * When targetDateYyyyMmDd is set (e.g. todo generation for 06.02), only messages up to that date are included in the summary.
  */
 export async function enrichGmailMessagesWithThreadContext(
   userId: string,
   connectedAccountId: string,
   messages: ParsedGmailMessage[],
+  options?: EnrichThreadContextOptions,
 ): Promise<ParsedGmailMessage[]> {
   const threadIds = [
     ...new Set(messages.map((m) => m.threadId).filter(Boolean)),
@@ -352,6 +416,10 @@ export async function enrichGmailMessagesWithThreadContext(
   if (threadIds.length === 0) return messages;
 
   const threadMap = new Map<string, string>();
+  const summarizeOpts: SummarizeThreadOptions | undefined =
+    options?.targetDateYyyyMmDd
+      ? { targetDateYyyyMmDd: options.targetDateYyyyMmDd }
+      : undefined;
 
   await mapConcurrent(threadIds, THREAD_FETCH_CONCURRENCY, async (threadId) => {
     const response = await executeGmailFetchThread(userId, connectedAccountId, {
@@ -359,7 +427,7 @@ export async function enrichGmailMessagesWithThreadContext(
     }).catch(() => null);
     if (!response?.successful || !response.data) return;
 
-    const summary = summarizeThreadPayload(response.data);
+    const summary = summarizeThreadPayload(response.data, summarizeOpts);
     if (summary) threadMap.set(threadId, summary);
   });
 
@@ -378,6 +446,8 @@ export interface FetchGmailEmailsFullOptions {
   maxPages?: number;
   pageSize?: number;
   withThreadContext?: boolean;
+  /** When set with withThreadContext, thread context is limited to messages on or before this date (YYYY-MM-DD). Used by todo generation. */
+  targetDate?: string;
 }
 
 /**
@@ -412,12 +482,23 @@ export async function fetchGmailEmailsFull(
   if (parsed.length === 0) return [];
 
   if (options.withThreadContext) {
+    const threadOpts = options.targetDate
+      ? { targetDateYyyyMmDd: options.targetDate }
+      : undefined;
     const withThread = await enrichGmailMessagesWithThreadContext(
       userId,
       accountId,
       parsed,
+      threadOpts,
     );
-    return enrichMessagesWithMessageBodyFallback(userId, accountId, withThread);
+    return enrichMessagesWithMessageBodyFallback(
+      userId,
+      accountId,
+      withThread,
+      {
+        targetDateYyyyMmDd: options.targetDate,
+      },
+    );
   }
   return parsed;
 }

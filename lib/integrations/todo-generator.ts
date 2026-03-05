@@ -260,6 +260,8 @@ async function fetchCalendarSignalsFromSupabase(
  * Fetch Gmail signals for a date. Uses the same API as the Ask flow's
  * fetch_gmail_emails tool: fetchGmailEmailsFull with withThreadContext: true,
  * so we get snippet + thread context for each message (same content quality as Ask).
+ * Passes targetDate so thread context is limited to messages on or before that day
+ * (e.g. for 06.02, context is 01.02–06.02, not messages from 07.02–10.02).
  */
 async function fetchGmailSignals(
   userId: string,
@@ -272,6 +274,7 @@ async function fetchGmailSignals(
   const parsed = await fetchGmailEmailsFull(userId, {
     query,
     withThreadContext: true,
+    targetDate: date,
   });
 
   return parsed.map((msg) => ({

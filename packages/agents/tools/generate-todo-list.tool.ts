@@ -14,7 +14,7 @@ export const generateTodoListTool = new DynamicStructuredTool({
       .string()
       .optional()
       .describe(
-        "Calendar day in YYYY-MM-DD. Use when user says 'today', 'tomorrow', or a specific date. Defaults to today (server date).",
+        "Calendar day in YYYY-MM-DD. Must be the exact date the user asked tasks for (e.g. 'taski na 20.02' → 2026-02-20). Do NOT use the date of the emails or thread being viewed—always use the user-requested target date so created tasks have the correct due date. Defaults to today when omitted.",
       ),
     force: z
       .boolean()
