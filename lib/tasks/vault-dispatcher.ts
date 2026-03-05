@@ -11,6 +11,8 @@ export interface DispatchVaultTaskOptions {
   cooldownMinutes?: number;
   incremental?: boolean;
   sessionId?: string;
+  /** Event external IDs (e.g. from webhook) — vault agent will process only these atoms. */
+  externalIds?: string[];
 }
 
 async function findRecentVaultTask(
@@ -65,6 +67,7 @@ export async function dispatchVaultSyncTask(
         sinceAt: options.sinceAt ?? null,
         incremental,
         generatedFromEvent: options.source ?? "system.unknown",
+        externalIds: options.externalIds ?? undefined,
       },
     } as Json,
   });

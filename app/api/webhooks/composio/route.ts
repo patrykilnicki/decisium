@@ -492,17 +492,22 @@ export async function POST(request: NextRequest) {
       const result = await handleCalendarSyncEvent(payload);
       userId = result.userId;
       if (result.userId != null) {
-        // Real-time task sync: merge new tasks from all integrations.
+        const event = payload.data as unknown as TriggerEventData;
+        const signalHints = event.event_id
+          ? [{ eventId: event.event_id }]
+          : undefined;
         const dispatchResult = await dispatchTodoGenerationTask(result.userId, {
           source: "system.webhook.composio.calendar",
           date: new Date().toISOString().split("T")[0],
           incremental: true,
           cooldownMinutes: 2,
+          signalHints,
         });
-        await dispatchVaultSyncTask(result.userId, {
+        const vaultResult = await dispatchVaultSyncTask(result.userId, {
           source: "system.webhook.composio.calendar",
           incremental: true,
           cooldownMinutes: 10,
+          externalIds: event.event_id ? [event.event_id] : undefined,
         });
         await insertWebhookEventLog({
           eventType: payload.type,
@@ -521,12 +526,22 @@ export async function POST(request: NextRequest) {
               ok: true,
               detail: `taskId=${dispatchResult.taskId} reused=${dispatchResult.reused}`,
             },
+            {
+              step: "vault_dispatch",
+              ok: true,
+              detail: `taskId=${vaultResult.taskId} reused=${vaultResult.reused}`,
+            },
           ] as Json,
           result: {
             calendar: { processed: result.processed, stored: result.stored },
             dispatch: {
               taskId: dispatchResult.taskId,
               reused: dispatchResult.reused,
+            },
+            vault: {
+              taskId: vaultResult.taskId,
+              reused: vaultResult.reused,
+              externalIds: event.event_id ? [event.event_id] : undefined,
             },
           },
           httpStatus: 200,
@@ -585,13 +600,24 @@ export async function POST(request: NextRequest) {
     }
 
     if (userId) {
+      const gmailData = payload.data as Record<string, unknown> | undefined;
+      const signalHints = gmailData
+        ? [
+            {
+              threadId: gmailData.thread_id as string | undefined,
+              messageId: gmailData.message_id as string | undefined,
+              subject: gmailData.subject as string | undefined,
+            },
+          ]
+        : undefined;
       const dispatchResult = await dispatchTodoGenerationTask(userId, {
         source: `system.webhook.composio.${triggerSlug.split("_")[0].toLowerCase()}`,
         date: new Date().toISOString().split("T")[0],
         incremental: true,
         cooldownMinutes: 2,
+        signalHints,
       });
-      await dispatchVaultSyncTask(userId, {
+      const vaultResult = await dispatchVaultSyncTask(userId, {
         source: `system.webhook.composio.${triggerSlug.split("_")[0].toLowerCase()}`,
         incremental: true,
         cooldownMinutes: 10,
@@ -608,11 +634,20 @@ export async function POST(request: NextRequest) {
             ok: true,
             detail: `taskId=${dispatchResult.taskId} reused=${dispatchResult.reused}`,
           },
+          {
+            step: "vault_dispatch",
+            ok: true,
+            detail: `taskId=${vaultResult.taskId} reused=${vaultResult.reused}`,
+          },
         ] as Json,
         result: {
           dispatch: {
             taskId: dispatchResult.taskId,
             reused: dispatchResult.reused,
+          },
+          vault: {
+            taskId: vaultResult.taskId,
+            reused: vaultResult.reused,
           },
         },
         httpStatus: 200,
