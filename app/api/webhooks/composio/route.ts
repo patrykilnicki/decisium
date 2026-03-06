@@ -564,6 +564,8 @@ export async function POST(request: NextRequest) {
           )?.user_id
         : undefined);
 
+    // Only SENT (user sent email) triggers resolve — check if related tasks are done.
+    // All other Gmail triggers (e.g. GMAIL_NEW_GMAIL_MESSAGE) trigger todo merge only.
     if (triggerSlug === GMAIL_EMAIL_SENT_TRIGGER && userId) {
       const eventData = payload.data as unknown as GmailSentEventPayload;
       const result = await resolveGmailReply(supabase, userId, eventData);
@@ -579,12 +581,22 @@ export async function POST(request: NextRequest) {
             ok: result.errors.length === 0,
             detail: `processed=${result.processed} updated=${result.updated}`,
           },
+          ...(result.diagnostics
+            ? [
+                {
+                  step: "diagnostics",
+                  ok: true,
+                  detail: JSON.stringify(result.diagnostics).slice(0, 4000),
+                },
+              ]
+            : []),
         ] as Json,
         result: {
           gmail: {
             processed: result.processed,
             updated: result.updated,
             errors: result.errors,
+            diagnostics: result.diagnostics ?? null,
           },
         },
         errorMessage:
