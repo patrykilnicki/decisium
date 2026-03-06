@@ -4,6 +4,11 @@ import * as db from "@/lib/supabase/db";
 import { createLLM } from "@/packages/agents/lib/llm";
 import { createTodoGenerator } from "@/lib/integrations";
 import type { TodoItem } from "@/packages/agents/schemas/todo.schema";
+import {
+  getGmailConnectedAccountId,
+  enrichGmailMessagesWithThreadContext,
+  type ParsedGmailMessage,
+} from "@/packages/agents/lib/composio-gmail";
 import { z } from "zod";
 
 const GMAIL_EMAIL_SENT_TRIGGER = "GMAIL_EMAIL_SENT_TRIGGER";
@@ -63,6 +68,67 @@ function extractReplyTextFromPayload(parts: string[], raw: unknown): void {
     extractReplyTextFromPayload(parts, obj.data);
 }
 
+/**
+ * Try to find thread_id from nested payload structures.
+ * Composio may place it at different levels depending on trigger version.
+ */
+function extractThreadIdFromPayload(
+  payload: GmailSentEventPayload,
+): string | undefined {
+  const candidates = [
+    payload.thread_id,
+    (payload.data as Record<string, unknown> | undefined)?.thread_id,
+    (payload.data as Record<string, unknown> | undefined)?.threadId,
+    (payload.payload as Record<string, unknown> | undefined)?.thread_id,
+    (payload.payload as Record<string, unknown> | undefined)?.threadId,
+  ];
+  for (const c of candidates) {
+    if (typeof c === "string" && c.trim()) return c.trim();
+  }
+  return undefined;
+}
+
+/**
+ * Fetch thread context for a given threadId via Gmail API (Composio).
+ * Returns summarized conversation or empty string.
+ */
+async function fetchThreadContext(
+  userId: string,
+  threadId: string,
+): Promise<string> {
+  try {
+    const connectedAccountId = await getGmailConnectedAccountId(userId);
+    if (!connectedAccountId) return "";
+    const stub: ParsedGmailMessage = {
+      subject: "",
+      sender: "",
+      snippet: "",
+      timestamp: "",
+      messageId: "",
+      threadId,
+      labels: [],
+    };
+    const enriched = await enrichGmailMessagesWithThreadContext(
+      userId,
+      connectedAccountId,
+      [stub],
+    );
+    return enriched[0]?.threadContext ?? "";
+  } catch {
+    return "";
+  }
+}
+
+/** Remove universal email quote markers (>) so LLM sees cleaner content. No language-specific rules. */
+function stripQuotedLines(text: string): string {
+  if (!text.trim()) return "";
+  return text
+    .split("\n")
+    .filter((line) => !line.trim().startsWith(">"))
+    .join("\n")
+    .trim();
+}
+
 /** Extract thread ID from Gmail sourceRef (threadId or parse from sourceUrl). */
 function getThreadIdFromItem(item: TodoItem): string | null {
   const ref = item.sourceRef;
@@ -86,6 +152,7 @@ function getThreadIdFromItem(item: TodoItem): string | null {
 // https://platform.openai.com/docs/guides/structured-outputs#all-fields-must-be-required
 const ReplyAnalysisSchema = z.object({
   action: z.enum(["done", "update", "in_progress", "no_change"]),
+  confidence: z.number().min(0).max(1).optional().nullable(),
   reason: z.string().max(200).optional().nullable(),
   updatedTitle: z.string().max(200).optional().nullable(),
   updatedDueAt: z.string().optional().nullable(),
@@ -93,7 +160,7 @@ const ReplyAnalysisSchema = z.object({
 
 type ReplyAnalysis = z.infer<typeof ReplyAnalysisSchema>;
 
-const REPLY_ANALYSIS_PROMPT = `You are a task-status inference engine. You receive an existing task (title, summary, and what completing it looks like) that was created from an incoming email, and the user's outgoing reply in that same email thread. Your job is to infer the correct action.
+const REPLY_ANALYSIS_PROMPT = `You are a task-status inference engine. You receive an existing task (title, summary, and what completing it looks like) that was created from an incoming email, the original email thread for context, and the user's outgoing reply in that same email thread. The reply may include quoted/forwarded content (e.g. lines with ">", or blocks after "On ... wrote:"). Focus your analysis on the part the user newly wrote—usually the opening portion—and base your action on whether that new content fulfills the task. Your job is to infer the correct action.
 
 ## Actions
 
@@ -110,12 +177,15 @@ Signals: partial delivery ("here's part one"), explicit "working on it" language
 Signals: acknowledgments ("OK", "Thanks", "Got it"), forwarding without comment, auto-replies, signatures-only, pleasantries, or content unrelated to the task obligation.
 
 ## Rules
+- When an "Original email thread" is provided, use it to understand what was asked of the user and what the user was expected to do. This is the full conversation that led to the task creation. Compare the user's reply against these expectations.
+- The reply may include quoted/forwarded content (e.g. "On ... wrote:", lines with ">"). Identify what the user newly wrote versus quoted thread, and base your decision on the user's new content only.
 - Detect the user's language automatically; do not assume any particular language.
 - Focus on the *intent* of the reply, not keywords. A one-word reply that fulfills the task obligation counts as "done".
 - Compare the reply to "What completing the task looks like": if the user did that (e.g. sent a quote when the task was to send a quote), choose "done".
 - If the reply is ambiguous, prefer "no_change" over a wrong status update.
 - For "update": use YYYY-MM-DD for updatedDueAt. Resolve relative dates (e.g. "tomorrow", "Friday") against today: {{today}}.
 - For "done" or "no_change": omit updatedTitle and updatedDueAt.
+- confidence: a number 0.0–1.0 indicating how certain you are about your chosen action. 1.0 = absolutely certain, 0.5 = ambiguous/guessing.
 - reason: one sentence explaining your decision.`;
 
 async function analyzeReplyWithLlm(
@@ -124,6 +194,7 @@ async function analyzeReplyWithLlm(
   suggestedNextAction: string,
   replyText: string,
   subject: string | undefined,
+  originalThreadContext?: string,
 ): Promise<ReplyAnalysis> {
   const llm = createLLM({ temperature: 0.1, maxTokens: 256 });
   const structuredLlm = llm.withStructuredOutput(ReplyAnalysisSchema, {
@@ -140,6 +211,9 @@ async function analyzeReplyWithLlm(
     `Task summary: ${taskSummary}`,
     `What completing the task looks like: ${suggestedNextAction}`,
     subject ? `Email subject: "${subject}"` : "",
+    originalThreadContext
+      ? `\nOriginal email thread (for context):\n"""\n${originalThreadContext.slice(0, 3000)}\n"""`
+      : "",
     `\nUser's outgoing reply:\n"""\n${replyText}\n"""`,
   ];
 
@@ -155,6 +229,19 @@ export interface ResolveGmailReplyResult {
   processed: number;
   updated: number;
   errors: string[];
+  /** Diagnostic info logged alongside the result for debugging. */
+  diagnostics?: {
+    payloadKeys: string[];
+    threadIdSource: string;
+    replyTextLength: number;
+    matchedItems: number;
+    analyses: Array<{
+      itemId: string;
+      action: string;
+      confidence: number | null;
+      reason: string | null;
+    }>;
+  };
 }
 
 /**
@@ -165,9 +252,34 @@ export async function resolveGmailReply(
   userId: string,
   payload: GmailSentEventPayload,
 ): Promise<ResolveGmailReplyResult> {
-  const threadId = payload.thread_id?.trim();
+  const payloadKeys = Object.keys(payload).filter(
+    (k) => payload[k as keyof GmailSentEventPayload] != null,
+  );
+  console.log("[gmail-reply-resolver] payload keys:", payloadKeys.join(", "));
+
+  const threadId = extractThreadIdFromPayload(payload);
+  const threadIdSource = payload.thread_id?.trim()
+    ? "top-level"
+    : threadId
+      ? "nested-fallback"
+      : "missing";
+  console.log(
+    `[gmail-reply-resolver] thread_id=${threadId ?? "NONE"} (source: ${threadIdSource})`,
+  );
+
   if (!threadId) {
-    return { processed: 0, updated: 0, errors: ["Missing thread_id"] };
+    return {
+      processed: 0,
+      updated: 0,
+      errors: ["Missing thread_id in all payload locations"],
+      diagnostics: {
+        payloadKeys,
+        threadIdSource,
+        replyTextLength: 0,
+        matchedItems: 0,
+        analyses: [],
+      },
+    };
   }
 
   const parts: string[] = [];
@@ -203,15 +315,31 @@ export async function resolveGmailReply(
   }
   extractReplyTextFromPayload(parts, payload.data);
   extractReplyTextFromPayload(parts, payload.payload);
-  const replyText = [...new Set(parts)]
+  const rawReplyText = [...new Set(parts)]
     .filter(Boolean)
     .join("\n")
     .slice(0, 4000)
     .trim();
+  const replyText = stripQuotedLines(rawReplyText) || rawReplyText;
 
   if (!replyText) {
-    return { processed: 0, updated: 0, errors: ["No reply text to analyze"] };
+    return {
+      processed: 0,
+      updated: 0,
+      errors: ["No reply text to analyze"],
+      diagnostics: {
+        payloadKeys,
+        threadIdSource,
+        replyTextLength: 0,
+        matchedItems: 0,
+        analyses: [],
+      },
+    };
   }
+
+  console.log(
+    `[gmail-reply-resolver] replyText length=${replyText.length} preview="${replyText.slice(0, 120)}..."`,
+  );
 
   const dateStrings: string[] = [];
   const today = new Date().toISOString().split("T")[0];
@@ -229,7 +357,18 @@ export async function resolveGmailReply(
   );
 
   if (error || !rows?.length) {
-    return { processed: 0, updated: 0, errors: error ? [error.message] : [] };
+    return {
+      processed: 0,
+      updated: 0,
+      errors: error ? [error.message] : [],
+      diagnostics: {
+        payloadKeys,
+        threadIdSource,
+        replyTextLength: replyText.length,
+        matchedItems: 0,
+        analyses: [],
+      },
+    };
   }
 
   const generator = createTodoGenerator(supabase);
@@ -256,8 +395,22 @@ export async function resolveGmailReply(
     }
   }
 
+  console.log(
+    `[gmail-reply-resolver] matched ${toProcess.length} task(s) for thread ${threadId}`,
+  );
+
+  const originalThreadContext = await fetchThreadContext(userId, threadId);
+  if (originalThreadContext) {
+    console.log(
+      `[gmail-reply-resolver] fetched thread context (${originalThreadContext.length} chars)`,
+    );
+  }
+
   const errors: string[] = [];
   let updated = 0;
+  const analyses: NonNullable<
+    ResolveGmailReplyResult["diagnostics"]
+  >["analyses"] = [];
 
   for (const { snapshot, item } of toProcess) {
     try {
@@ -267,7 +420,20 @@ export async function resolveGmailReply(
         item.suggestedNextAction ?? item.summary,
         replyText,
         payload.subject,
+        originalThreadContext || undefined,
       );
+
+      analyses.push({
+        itemId: item.id,
+        action: analysis.action,
+        confidence: analysis.confidence ?? null,
+        reason: analysis.reason ?? null,
+      });
+
+      console.log(
+        `[gmail-reply-resolver] item=${item.id} action=${analysis.action} confidence=${analysis.confidence ?? "?"} reason="${analysis.reason ?? ""}"`,
+      );
+
       if (analysis.action === "no_change") continue;
 
       const patch: {
@@ -304,6 +470,13 @@ export async function resolveGmailReply(
     processed: toProcess.length,
     updated,
     errors,
+    diagnostics: {
+      payloadKeys,
+      threadIdSource,
+      replyTextLength: replyText.length,
+      matchedItems: toProcess.length,
+      analyses,
+    },
   };
 }
 
