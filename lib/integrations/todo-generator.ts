@@ -537,7 +537,8 @@ async function fetchCalendarSignalsFromSupabase(
  * so we get snippet + thread context for each message (same content quality as Ask).
  * Passes targetDate so thread context is limited to messages on or before that day
  * (e.g. for 06.02, context is 01.02–06.02, not messages from 07.02–10.02).
- * When scope is provided and has any lists, applies label/sender filters (accepted + block).
+ * When scope is provided and has any lists, applies label/sender filters.
+ * Semantics: empty accepted lists = accept all; only block lists (labelIdsBlocked, sendersBlocked) restrict.
  */
 async function fetchGmailSignals(
   userId: string,
