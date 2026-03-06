@@ -44,6 +44,7 @@ For EACH signal, briefly state:
 If a signal IS actionable, include a task for it. Even borderline signals where the user *might* need to act should produce a task — it is better to surface a low-confidence task than to miss a real one.
 
 Signals that are clearly automated notifications (CI bots, marketing, newsletters with no personal request) can be skipped.
+For calendar: respect the "Kind" label. "Kind: Meeting (2+ participants)" — create a preparation task. "Kind: Time block" — create a task ONLY if title/description clearly describe concrete work (e.g. "do something "); otherwise skip (time reserve).
 For email threads: read the Content in full. If the LAST message in the thread is from the user (the account owner / recipient), do NOT create a reply or follow-up task for that thread. Create at most ONE task per thread (one per conversation).
 
 Always output all generated text (title, summary, suggestedNextAction, etc.) in English.

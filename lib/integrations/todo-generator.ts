@@ -838,13 +838,26 @@ async function fetchAllSignals(
 const EMAIL_SNIPPET_MAX = 2000;
 const EMAIL_THREAD_CONTEXT_MAX = 6000;
 
+/**
+ * Calendar event is a "meeting" (needs preparation task) when there is more than one
+ * participant (owner + at least one other). Single or zero participants = time block / reserve.
+ */
+function isMeetingByParticipants(participants: string[]): boolean {
+  return participants.length > 1;
+}
+
 export function signalsToPromptContext(signals: IntegrationSignal[]): string {
   return signals
     .map((signal) => {
       if (signal.provider === "google_calendar") {
         const s = signal as CalendarEventSignal;
+        const meeting = isMeetingByParticipants(s.participants);
+        const kindHint = meeting
+          ? "Kind: Meeting (2+ participants) — create a preparation task per calendar rules."
+          : "Kind: Time block (single or no participants) — create a task ONLY if title/description clearly describes concrete work; otherwise do NOT create a task.";
         const parts = [
           `[CALENDAR] "${s.title}"`,
+          kindHint,
           `Start: ${s.startTime}`,
           s.endTime ? `End: ${s.endTime}` : "",
           s.participants.length > 0
@@ -903,6 +916,7 @@ DECISION FRAMEWORK — ask yourself for each signal:
 - Does this signal imply the user needs to DO something (reply, prepare, create, review, decide, deliver, follow up)?
 - Is there evidence in the content that someone is waiting for the user, or that the user committed to something?
 - {{calendarGuidance}}
+- CALENDAR RULES (apply in order): Each calendar signal is labeled "Kind: Meeting" or "Kind: Time block". (1) If Kind: Meeting (2+ participants): create exactly one meeting-preparation task based on title, description, and participants. (2) If Kind: Time block (single or no participants): create a task ONLY when the title and/or description semantically describe concrete work to be done (e.g. "create website", "draft proposal", "review document"). Use semantic understanding, not keyword lists. Do NOT create a task for generic reserves like "Focus time", "Deep work", "Block", "Reserve", "Busy" — those are just time blocks; omit them from your output.
 - For emails: read the Content section (preview and thread context) in full. Is the user expected to respond, take action, or make a decision — or is this informational / automated / marketing?
 - For email threads: read the full conversation flow in the Content. The Content shows messages in chronological order; "From:" or the sender name indicates who wrote each part. Who spoke last? Is the ball in the user's court? If the other party asked a question or is waiting for the user to reply, send something, or follow up — create a task. This includes Re: threads from colleagues, clients, or support.
 
@@ -942,9 +956,10 @@ You must output a task for every signal that meets the criteria above — do not
 Return [] only when no signal implies a concrete user action.`;
 
 function buildCalendarGuidance(t: Required<TodoPromptToggles>): string {
-  return t.prepForMeetings
-    ? "For calendar events: does this meeting require preparation, deliverables, or follow-up — or is it passive attendance / personal time?"
-    : "For calendar events: is this meeting something the user needs to actively attend or act upon — or is it passive attendance / personal time? Do NOT create preparation or deliverable tasks from calendar events.";
+  if (!t.prepForMeetings) {
+    return "For calendar events: do NOT create preparation or deliverable tasks. Treat calendar events as context only; do not output a task for them.";
+  }
+  return "For calendar events: use the Kind label (Meeting vs Time block) and participant count. Meetings (2+ participants): create one preparation task. Time blocks (1 or 0 participants): create a task only if title/description clearly describe actionable work; otherwise skip (time reserve).";
 }
 
 function buildSkipRules(t: Required<TodoPromptToggles>): string {
