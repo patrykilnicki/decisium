@@ -35,7 +35,7 @@ const SYSTEM_LABEL_DISPLAY_NAMES: Record<string, string> = {
   CATEGORY_SOCIAL: "Social",
 };
 
-/** System label IDs that user can add to block/keep lists (even if not in API response). */
+/** System label IDs that user can add to block list (even if not in API response). */
 const SYSTEM_LABEL_IDS = [
   "SPAM",
   "CATEGORY_FORUMS",
@@ -203,26 +203,11 @@ export function TodoEmailScopeSection() {
     }));
   }, []);
 
-  const addLabelAccepted = useCallback((id: string) => {
-    setScope((prev) => {
-      const list = prev.labelIdsAccepted ?? [];
-      if (list.includes(id)) return prev;
-      return { ...prev, labelIdsAccepted: [...list, id] };
-    });
-  }, []);
-
-  const removeLabelAccepted = useCallback((id: string) => {
-    setScope((prev) => ({
-      ...prev,
-      labelIdsAccepted: (prev.labelIdsAccepted ?? []).filter((x) => x !== id),
-    }));
-  }, []);
-
   const handleSave = useCallback(async () => {
     setSaving(true);
     try {
       const body = {
-        labelIdsAccepted: scope.labelIdsAccepted ?? [],
+        labelIdsAccepted: [], // zawsze puste: wszystkie etykiety są uwzględniane, user tylko blokuje
         labelIdsBlocked: scope.labelIdsBlocked ?? [],
         sendersAccepted: [], // zawsze puste: domyślnie wszyscy nadawcy są uwzględniani, user tylko blokuje
         sendersBlocked: scope.sendersBlocked ?? [],
@@ -248,7 +233,6 @@ export function TodoEmailScopeSection() {
   }, [scope]);
 
   const blockedIds = scope.labelIdsBlocked ?? [];
-  const acceptedIds = scope.labelIdsAccepted ?? [];
   const labelById = useMemo(() => {
     const m = new Map<string, GmailLabel>();
     for (const l of allSelectableLabels) m.set(l.id, l);
@@ -368,9 +352,9 @@ export function TodoEmailScopeSection() {
       <div>
         <h2 className="text-lg font-semibold">Zakres maili do zadań to-do</h2>
         <p className="text-sm text-muted-foreground">
-          Domyślnie uwzględniane są wszystkie e-maile. Możesz dodać etykiety,
-          które mają być pomijane (przeniesione poza skrzynkę) lub wybrać tylko
-          te, które mają być uwzględniane (zostaw w skrzynce).
+          Domyślnie uwzględniane są wszystkie e-maile i etykiety. Możesz dodać
+          etykiety lub nadawców do wykluczenia — wtedy nie będą brane pod uwagę
+          przy tworzeniu zadań to-do.
         </p>
       </div>
 
@@ -408,19 +392,11 @@ export function TodoEmailScopeSection() {
           <div className="space-y-4">
             <SectionBlock
               title="Przenieś poza skrzynkę"
-              description="Maile z tymi etykietami nie będą generować zadań to-do."
+              description="Maile z tymi etykietami nie będą brane pod uwagę przy tworzeniu zadań to-do. Domyślnie uwzględniane są wszystkie etykiety."
               labelIds={blockedIds}
               onAdd={addLabelBlocked}
               onRemove={removeLabelBlocked}
               addButtonLabel="Dodaj etykietę do wykluczenia"
-            />
-            <SectionBlock
-              title="Zostaw w skrzynce"
-              description="Opcjonalnie: tylko maile z tymi etykietami będą uwzględniane. Puste = wszystkie (poza wykluczonymi)."
-              labelIds={acceptedIds}
-              onAdd={addLabelAccepted}
-              onRemove={removeLabelAccepted}
-              addButtonLabel="Dodaj etykietę do uwzględnienia"
             />
           </div>
 
