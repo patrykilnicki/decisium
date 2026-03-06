@@ -362,6 +362,63 @@ export async function getGmailConnectedAccountId(
   return accounts[0]?.id ?? null;
 }
 
+// ─── Single message body (for reply resolver) ───────────────────────────────
+
+/**
+ * Extract plain text from a GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID response.
+ * Prefers text/plain from payload.parts when present (Gmail API structure).
+ */
+function getMessageBodyFromFetchResult(data: Record<string, unknown>): string {
+  const parts = data.parts ?? (data.payload as Record<string, unknown>)?.parts;
+  if (Array.isArray(parts) && parts.length > 0) {
+    let plain: string | undefined;
+    let html: string | undefined;
+    for (const p of parts) {
+      if (p == null || typeof p !== "object") continue;
+      const part = p as Record<string, unknown>;
+      const body = part.body as { data?: string } | undefined;
+      const b64 = body?.data;
+      if (typeof b64 !== "string" || !b64.trim()) continue;
+      const mimeType = String(
+        part.mimeType ?? part.mime_type ?? "",
+      ).toLowerCase();
+      try {
+        const decoded = Buffer.from(b64, "base64").toString("utf-8").trim();
+        if (!decoded) continue;
+        if (mimeType === "text/plain") plain = decoded;
+        else if (mimeType === "text/html") html = decoded;
+      } catch {
+        /* ignore */
+      }
+    }
+    if (plain) return plain;
+    if (html) return stripHtmlAndJunk(html);
+  }
+  return extractBodyFromMessagePayload(data);
+}
+
+/**
+ * Fetch a single message by ID via Composio and return its body as plain text.
+ * Used when resolving Gmail reply: we only fetch the message when we already
+ * know there is a matching task, so we get a single source of truth (same API
+ * as todo generation) instead of relying on webhook payload body shape.
+ */
+export async function fetchMessageBodyPlainText(
+  userId: string,
+  messageId: string,
+): Promise<string> {
+  if (!isComposioEnabled() || !messageId?.trim()) return "";
+  const connectedAccountId = await getGmailConnectedAccountId(userId);
+  if (!connectedAccountId) return "";
+  const res = await executeGmailFetchMessageByMessageId(
+    userId,
+    connectedAccountId,
+    { messageId: messageId.trim() },
+  ).catch(() => null);
+  if (!res || !res.successful || !res.data) return "";
+  return getMessageBodyFromFetchResult(res.data).slice(0, 4000).trim();
+}
+
 /**
  * List Gmail labels for the authenticated user (for todo scope settings UI).
  * Returns [] when Composio is disabled or user has no Gmail connection.
