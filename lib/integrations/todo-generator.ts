@@ -83,6 +83,25 @@ function scopeToLogJson(scope: TodoEmailScope | null): Json | null {
   } as Json;
 }
 
+/** Serialize prompt settings for todo_generation_logs.prompt_settings_used (effective toggles + customInstructions). */
+function promptSettingsToLogJson(
+  settings: TodoPromptSettings | null,
+): Json | null {
+  if (!settings) return null;
+  const t = { ...DEFAULT_TODO_PROMPT_TOGGLES, ...settings.toggles };
+  return {
+    toggles: {
+      fromCalendar: t.fromCalendar,
+      fromEmails: t.fromEmails,
+      replyTasks: t.replyTasks,
+      fromNewsletters: t.fromNewsletters,
+      prepForMeetings: t.prepForMeetings,
+      fromAutomatedBots: t.fromAutomatedBots,
+    },
+    customInstructions: settings.customInstructions?.trim() ?? null,
+  } as Json;
+}
+
 export interface TodoGenerateOptions {
   generatedFromEvent?: string;
   /** When merging, reason to set in payload.updatedBecause */
@@ -518,7 +537,8 @@ async function fetchCalendarSignalsFromSupabase(
  * so we get snippet + thread context for each message (same content quality as Ask).
  * Passes targetDate so thread context is limited to messages on or before that day
  * (e.g. for 06.02, context is 01.02–06.02, not messages from 07.02–10.02).
- * When scope is provided and has any lists, applies label/sender filters (accepted + block).
+ * When scope is provided and has any lists, applies label/sender filters.
+ * Semantics: empty accepted lists = accept all; only block lists (labelIdsBlocked, sendersBlocked) restrict.
  */
 async function fetchGmailSignals(
   userId: string,
@@ -1190,6 +1210,7 @@ export class TodoGenerator {
       extractedCount: triageResult.items.length,
       durationMs,
       emailScopeUsed: scopeToLogJson(emailScopeUsed),
+      promptSettingsUsed: promptSettingsToLogJson(promptSettings),
     });
 
     const newItems = triageResult.items;
@@ -1459,6 +1480,7 @@ export class TodoGenerator {
         extractedCount: 0,
         durationMs: Date.now() - startedAt,
         emailScopeUsed: scopeToLogJson(emailScopeUsed),
+        promptSettingsUsed: promptSettingsToLogJson(promptSettings),
       });
       return empty;
     }
@@ -1480,6 +1502,7 @@ export class TodoGenerator {
       extractedCount: triageResult.items.length,
       durationMs,
       emailScopeUsed: scopeToLogJson(emailScopeUsed),
+      promptSettingsUsed: promptSettingsToLogJson(promptSettings),
     });
 
     const list: TodoListOutput = TodoListOutputSchema.parse({
@@ -1567,6 +1590,8 @@ export class TodoGenerator {
       errorMessage?: string;
       /** Scope applied when fetching Gmail (for debugging). */
       emailScopeUsed?: Json | null;
+      /** Prompt settings used: toggles + custom instructions (for debugging). */
+      promptSettingsUsed?: Json | null;
     },
   ): Promise<void> {
     const logRow = {
@@ -1589,6 +1614,7 @@ export class TodoGenerator {
       duration_ms: payload.durationMs,
       error_message: payload.errorMessage ?? null,
       email_scope_used: payload.emailScopeUsed ?? null,
+      prompt_settings_used: payload.promptSettingsUsed ?? null,
     };
     const { error } = await db.insertOne(
       this.supabase,
