@@ -22,14 +22,42 @@ export interface GmailSentEventPayload {
   subject?: string;
   sender?: string;
   recipients?: string;
-  payload?: { body?: { data?: string }; snippet?: string };
+  payload?: { body?: { data?: string }; snippet?: string; parts?: unknown[] };
   /** Composio / provider may nest body under other keys */
   body?: { data?: string };
   snippet?: string;
   data?: unknown;
 }
 
-/** Extract readable text from nested payload (Composio can send body in various shapes). */
+/**
+ * Decode body from a Gmail-style part (body.data base64).
+ * Returns { plain: string } or { html: string } based on mimeType.
+ */
+function decodePartBody(part: Record<string, unknown>): {
+  plain?: string;
+  html?: string;
+} {
+  const body = part.body as { data?: string } | undefined;
+  const data = body?.data;
+  if (typeof data !== "string" || !data.trim()) return {};
+  const mimeType = String(part.mimeType ?? part.mime_type ?? "").toLowerCase();
+  try {
+    const decoded = Buffer.from(data, "base64").toString("utf-8");
+    if (!decoded.trim()) return {};
+    if (mimeType === "text/plain") return { plain: decoded.trim() };
+    if (mimeType === "text/html") return { html: decoded.trim() };
+    return { plain: decoded.trim() };
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Extract reply text from payload. Prefer text/plain when present (Gmail API
+ * uses payload.parts[] with mimeType; Composio may forward that). Otherwise
+ * collect snippet/message_text/body and strip HTML — Composio does not
+ * document GMAIL_EMAIL_SENT_TRIGGER body format, and providers often send HTML.
+ */
 function extractReplyTextFromPayload(parts: string[], raw: unknown): void {
   if (raw == null) return;
   if (typeof raw === "string") {
@@ -38,6 +66,22 @@ function extractReplyTextFromPayload(parts: string[], raw: unknown): void {
   }
   if (typeof raw !== "object") return;
   const obj = raw as Record<string, unknown>;
+
+  const payloadParts =
+    obj.parts ?? (obj.payload as Record<string, unknown> | undefined)?.parts;
+  if (Array.isArray(payloadParts) && payloadParts.length > 0) {
+    let plain: string | undefined;
+    let html: string | undefined;
+    for (const p of payloadParts) {
+      if (p == null || typeof p !== "object") continue;
+      const decoded = decodePartBody(p as Record<string, unknown>);
+      if (decoded.plain) plain = decoded.plain;
+      if (decoded.html) html = decoded.html;
+    }
+    if (plain) parts.push(plain);
+    else if (html) parts.push(html);
+  }
+
   if (typeof obj.message_text === "string" && obj.message_text.trim())
     parts.push(obj.message_text.trim());
   if (typeof obj.snippet === "string" && obj.snippet.trim())
@@ -62,7 +106,11 @@ function extractReplyTextFromPayload(parts: string[], raw: unknown): void {
       /* ignore */
     }
   }
-  if (obj.payload && typeof obj.payload === "object")
+  if (
+    obj.payload &&
+    typeof obj.payload === "object" &&
+    !Array.isArray(payloadParts)
+  )
     extractReplyTextFromPayload(parts, obj.payload);
   if (obj.data && typeof obj.data === "object")
     extractReplyTextFromPayload(parts, obj.data);
@@ -117,6 +165,29 @@ async function fetchThreadContext(
   } catch {
     return "";
   }
+}
+
+/**
+ * Strip HTML/CSS to plaintext so the LLM sees the actual message content.
+ * Gmail API returns multipart messages (text/plain and/or text/html); Composio
+ * does not document GMAIL_EMAIL_SENT_TRIGGER body format — in practice the
+ * body is often raw HTML. Without stripping, the LLM sees only markup and
+ * returns "no_change". Standard approach when plain text is not available.
+ */
+function stripHtmlToPlaintext(html: string): string {
+  if (!html.trim()) return "";
+  let out = html;
+  out = out.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, " ");
+  out = out.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, " ");
+  out = out.replace(/<[^>]+>/g, " ");
+  out = out.replace(/&nbsp;/gi, " ");
+  out = out.replace(/&amp;/gi, "&");
+  out = out.replace(/&lt;/gi, "<");
+  out = out.replace(/&gt;/gi, ">");
+  out = out.replace(/&quot;/gi, '"');
+  out = out.replace(/&#?\w+;/g, " ");
+  out = out.replace(/\s+/g, " ");
+  return out.trim();
 }
 
 /** Remove universal email quote markers (>) so LLM sees cleaner content. No language-specific rules. */
@@ -320,7 +391,12 @@ export async function resolveGmailReply(
     .join("\n")
     .slice(0, 4000)
     .trim();
-  const replyText = stripQuotedLines(rawReplyText) || rawReplyText;
+  const plainText = stripHtmlToPlaintext(rawReplyText);
+  const replyText =
+    stripQuotedLines(plainText) ||
+    plainText ||
+    stripQuotedLines(rawReplyText) ||
+    rawReplyText;
 
   if (!replyText) {
     return {
