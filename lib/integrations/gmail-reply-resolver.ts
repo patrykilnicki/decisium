@@ -272,10 +272,10 @@ Signals: acknowledgments ("OK", "Thanks", "Got it"), forwarding without comment,
 - Focus on the *intent* of the reply, not keywords. A one-word reply that fulfills the task obligation counts as "done".
 - Compare the reply to "What completing the task looks like": if the user did that (e.g. sent a quote when the task was to send a quote), choose "done".
 - If the reply is ambiguous, prefer "no_change" over a wrong status update.
-- For "update": use YYYY-MM-DD for updatedDueAt. Resolve relative dates (e.g. "tomorrow", "Friday") against today: {{today}}.
+- For "update": use YYYY-MM-DD for updatedDueAt. Resolve relative dates (e.g. "tomorrow", "Friday") against today: {{today}}. Use English for updatedTitle and reason.
 - For "done" or "no_change": omit updatedTitle and updatedDueAt.
 - confidence: a number 0.0–1.0 indicating how certain you are about your chosen action. 1.0 = absolutely certain, 0.5 = ambiguous/guessing.
-- reason: one sentence explaining your decision.`;
+- reason: one sentence in English explaining your decision.`;
 
 async function analyzeReplyWithLlm(
   taskTitle: string,

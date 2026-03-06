@@ -9,12 +9,14 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -54,8 +56,13 @@ interface IntegrationTodoItem {
   status: "open" | "in_progress" | "done";
   dueAt: string | null;
   sourceProvider?: string;
-  /** Link to source (e.g. Gmail thread URL for tasks from email). */
-  sourceRef?: { sourceUrl?: string };
+  sourceType?: string;
+  /** Link to source (e.g. Gmail thread URL); externalId from triage. */
+  sourceRef?: { sourceUrl?: string; externalId?: string };
+  actionabilityEvidence?: string | null;
+  confidence?: number | null;
+  suggestedNextAction?: string;
+  tags?: string[] | null;
 }
 
 /** Task that may be from a past day (overdue); snapshotDate is set for overdue items. */
@@ -144,6 +151,7 @@ interface TaskRowProps {
   task: TodoItemWithMeta;
   date: string;
   isOverdue: boolean;
+  onOpenDetail: () => void;
   onActionOpen: (type: "date" | "name") => void;
   onMarkResolved: () => void;
   onMarkUnresolved: () => void;
@@ -154,6 +162,7 @@ function TaskRow({
   task,
   date: _date,
   isOverdue,
+  onOpenDetail,
   onActionOpen,
   onMarkResolved,
   onMarkUnresolved,
@@ -173,8 +182,13 @@ function TaskRow({
         }
         aria-label={task.title}
         className="shrink-0"
+        onClick={(e) => e.stopPropagation()}
       />
-      <div className="flex min-w-0 flex-1 items-center gap-2">
+      <button
+        type="button"
+        onClick={onOpenDetail}
+        className="flex min-w-0 flex-1 items-center gap-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-md -m-1 p-1"
+      >
         <div className="min-w-0 flex-1">
           <span
             className={cn(
@@ -204,7 +218,7 @@ function TaskRow({
           </span>
         ) : null}
         <SourceLogo provider={task.sourceProvider} />
-      </div>
+      </button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
@@ -212,6 +226,7 @@ function TaskRow({
             size="icon"
             className="size-8 shrink-0"
             aria-label="Task actions"
+            onClick={(e) => e.stopPropagation()}
           >
             <CentralIcon
               name="IconBarsThree"
@@ -341,6 +356,16 @@ const PROVIDER_LOGO: Record<string, string> = {
   notion: "/app-logos/notion.svg",
 };
 
+const PROVIDER_TITLE: Record<string, string> = {
+  google_calendar: "Google Calendar",
+  gmail: "Gmail",
+  notion: "Notion",
+};
+
+function getProviderTitle(provider?: string): string {
+  return (provider && PROVIDER_TITLE[provider]) || provider || "Source";
+}
+
 function SourceLogo({ provider }: { provider?: string }) {
   const iconClass = "size-3";
   const logoSrc = provider ? PROVIDER_LOGO[provider] : null;
@@ -376,6 +401,199 @@ function SourceLogo({ provider }: { provider?: string }) {
   );
 }
 
+interface TaskDetailModalProps {
+  task: TodoItemWithMeta | null;
+  date: string;
+  onClose: () => void;
+  onMarkResolved: () => void;
+  onMarkUnresolved: () => void;
+  onActionOpen: (type: "date" | "name") => void;
+  onDelete: () => void;
+}
+
+function TaskDetailModal({
+  task,
+  date: _date,
+  onClose,
+  onMarkResolved,
+  onMarkUnresolved,
+  onActionOpen,
+  onDelete,
+}: TaskDetailModalProps) {
+  if (!task) return null;
+  const providerTitle = getProviderTitle(task.sourceProvider);
+  const openUrl =
+    task.sourceRef?.sourceUrl ??
+    (task.sourceProvider === "google_calendar"
+      ? "https://calendar.google.com"
+      : undefined);
+  const confidencePercent =
+    task.confidence != null ? Math.round(task.confidence * 100) : null;
+
+  return (
+    <Dialog open={!!task} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+        <DialogHeader className="gap-1">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <DialogTitle className="text-left text-lg leading-snug">
+                {task.title}
+              </DialogTitle>
+              <DialogDescription className="sr-only">
+                Task details: {task.summary}
+              </DialogDescription>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <SourceLogo provider={task.sourceProvider} />
+              {task.priority === "urgent" && (
+                <span className="rounded bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive">
+                  Urgent
+                </span>
+              )}
+            </div>
+          </div>
+        </DialogHeader>
+
+        <div className="flex flex-col gap-4 py-2">
+          <p className="text-sm text-muted-foreground">{task.summary}</p>
+
+          {task.urgentReason?.trim() && (
+            <div className="rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2">
+              <p className="text-xs font-medium text-destructive">Why urgent</p>
+              <p className="text-sm text-foreground">{task.urgentReason}</p>
+            </div>
+          )}
+
+          <div className="grid gap-3 text-sm">
+            {task.suggestedNextAction?.trim() && (
+              <div>
+                <p className="mb-1 text-xs font-medium text-muted-foreground">
+                  Suggested next action
+                </p>
+                <p className="text-foreground">{task.suggestedNextAction}</p>
+              </div>
+            )}
+            {task.actionabilityEvidence?.trim() && (
+              <div>
+                <p className="mb-1 text-xs font-medium text-muted-foreground">
+                  Evidence
+                </p>
+                <p className="italic text-foreground">
+                  &ldquo;{task.actionabilityEvidence}&rdquo;
+                </p>
+              </div>
+            )}
+            <div className="flex flex-wrap items-center gap-2">
+              {task.sourceProvider && (
+                <span className="rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">
+                  {providerTitle}
+                  {task.sourceType
+                    ? ` · ${task.sourceType.replace(/_/g, " ")}`
+                    : ""}
+                </span>
+              )}
+              {confidencePercent != null && (
+                <span className="rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">
+                  {confidencePercent}% confidence
+                </span>
+              )}
+              {task.tags && task.tags.length > 0 && (
+                <>
+                  {task.tags.map((tag) => (
+                    <span
+                      key={tag}
+                      className="rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground"
+                    >
+                      {tag}
+                    </span>
+                  ))}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <DialogFooter className="flex-col gap-2 sm:flex-row sm:flex-wrap">
+          {openUrl && (
+            <Button asChild className="w-full sm:w-auto">
+              <a href={openUrl} target="_blank" rel="noopener noreferrer">
+                Open in {providerTitle}
+              </a>
+            </Button>
+          )}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="w-full sm:w-auto">
+                Actions
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              {openUrl && (
+                <>
+                  <DropdownMenuItem asChild>
+                    <a
+                      href={openUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex cursor-pointer items-center gap-2"
+                    >
+                      <CentralIcon name="IconEmail1" size={16} />
+                      Open in {providerTitle}
+                    </a>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                </>
+              )}
+              <DropdownMenuItem
+                onClick={() => {
+                  onClose();
+                  if (task.status === "done") {
+                    onMarkUnresolved();
+                  } else {
+                    onMarkResolved();
+                  }
+                }}
+              >
+                <CentralIcon name="IconCircleCheck" size={16} />
+                {task.status === "done" ? "Mark as open" : "Mark as resolved"}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => {
+                  onClose();
+                  onActionOpen("date");
+                }}
+              >
+                <CentralIcon name="IconCalendar1" size={16} />
+                Change date
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => {
+                  onClose();
+                  onActionOpen("name");
+                }}
+              >
+                <CentralIcon name="IconPencil" size={16} />
+                Change name
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                variant="destructive"
+                onClick={() => {
+                  onClose();
+                  onDelete();
+                }}
+              >
+                <CentralIcon name="IconTrashCan" size={16} />
+                Delete
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function HomeContent({ userName, userId }: HomeContentProps) {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [journalValue, setJournalValue] = useState("");
@@ -389,6 +607,8 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
   const [generatingTasks, setGeneratingTasks] = useState(false);
   const [overdueItems, setOverdueItems] = useState<TodoItemWithMeta[]>([]);
   const [overdueLoading, setOverdueLoading] = useState(false);
+  const [detailModalTask, setDetailModalTask] =
+    useState<TodoItemWithMeta | null>(null);
   const [actionDialog, setActionDialog] = useState<null | {
     type: "date" | "name";
     task: TodoItemWithMeta;
@@ -782,6 +1002,7 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
                           task={task}
                           date={taskDate}
                           isOverdue={isOverdue}
+                          onOpenDetail={() => setDetailModalTask(task)}
                           onActionOpen={(type) =>
                             setActionDialog({
                               type,
@@ -825,6 +1046,50 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
             </button>
           </div>
         </section>
+
+        {/* Task detail modal */}
+        <TaskDetailModal
+          task={detailModalTask}
+          date={
+            detailModalTask
+              ? (detailModalTask.snapshotDate ??
+                toLocalDateString(selectedDate))
+              : ""
+          }
+          onClose={() => setDetailModalTask(null)}
+          onMarkResolved={() => {
+            if (!detailModalTask) return;
+            const d =
+              detailModalTask.snapshotDate ?? toLocalDateString(selectedDate);
+            setDetailModalTask(null);
+            patchItem(d, detailModalTask.id, "update", { status: "done" });
+          }}
+          onMarkUnresolved={() => {
+            if (!detailModalTask) return;
+            const d =
+              detailModalTask.snapshotDate ?? toLocalDateString(selectedDate);
+            setDetailModalTask(null);
+            patchItem(d, detailModalTask.id, "update", { status: "open" });
+          }}
+          onActionOpen={(type) => {
+            if (!detailModalTask) return;
+            const d =
+              detailModalTask.snapshotDate ?? toLocalDateString(selectedDate);
+            setDetailModalTask(null);
+            setActionDialog({
+              type,
+              task: detailModalTask,
+              date: d,
+            });
+          }}
+          onDelete={() => {
+            if (!detailModalTask) return;
+            const d =
+              detailModalTask.snapshotDate ?? toLocalDateString(selectedDate);
+            setDetailModalTask(null);
+            patchItem(d, detailModalTask.id, "delete");
+          }}
+        />
 
         {/* Task action dialogs */}
         <Dialog

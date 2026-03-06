@@ -815,7 +815,7 @@ For everything else — create a task if there is any reasonable chance the user
 TASK RULES:
 1. Each task dueAt MUST be "{{targetDate}}T00:00:00.000Z".
 2. Do NOT create duplicate tasks for the same underlying action. For email threads: at most ONE task per conversation (one per thread); if multiple signals belong to the same thread, output only one task for that thread (the single most actionable one), and only if the user has not already replied (last message in the thread is not from the user).
-3. Write titles as concise action items starting with a verb. Keep the source language of the signal.
+3. Write titles as concise action items starting with a verb. Always output all generated text (title, summary, suggestedNextAction, actionabilityEvidence, urgentReason) in English, regardless of the signal language.
 4. Set confidence (0.0–1.0) reflecting how certain you are that user action is truly required.
 5. Set actionabilityEvidence: a short quote or fact from the signal that proves the user must act.
 
@@ -824,18 +824,18 @@ PRIORITY — two levels:
 - "urgent": ONLY when you find explicit evidence of time pressure in the signal content — someone directly waiting for the user, a hard same-day deadline, or a scheduled commitment with a specific time. You MUST set "urgentReason" with a concrete fact from the signal. Do NOT use the word "today" in urgentReason — use the actual date or time from the signal instead (e.g. "Scheduled at 09:00 UTC" or "Deadline 2026-03-04").
   If you cannot quote a specific sentence or fact that proves it cannot wait, use "normal".
 
-Return a JSON array. Each object:
+Return a JSON array. Each object (all string fields in English):
 {
-  "title": "short actionable title (max 80 chars)",
-  "summary": "one sentence explaining what needs to be done",
+  "title": "short actionable title in English (max 80 chars)",
+  "summary": "one sentence in English explaining what needs to be done",
   "priority": "normal" or "urgent",
   "urgentReason": "only when urgent — concrete fact from the signal, max ~80 chars. Do not use the word 'today'; use date/time from the signal. Omit for normal.",
   "sourceProvider": "google_calendar" or "gmail",
   "sourceType": "calendar_event" or "message",
   "sourceExternalId": "ID from the source signal",
-  "actionabilityEvidence": "short quote or fact proving user action is required",
+  "actionabilityEvidence": "short quote or fact in English proving user action is required",
   "confidence": 0.0 to 1.0,
-  "suggestedNextAction": "concrete next step the user should take",
+  "suggestedNextAction": "concrete next step in English the user should take",
   "tags": ["relevant", "tags"]
 }
 
