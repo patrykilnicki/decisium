@@ -7,6 +7,7 @@ import type { TodoItem } from "@/packages/agents/schemas/todo.schema";
 import {
   getGmailConnectedAccountId,
   enrichGmailMessagesWithThreadContext,
+  fetchMessageBodyPlainText,
   type ParsedGmailMessage,
 } from "@/packages/agents/lib/composio-gmail";
 import { z } from "zod";
@@ -129,6 +130,23 @@ function extractThreadIdFromPayload(
     (payload.data as Record<string, unknown> | undefined)?.threadId,
     (payload.payload as Record<string, unknown> | undefined)?.thread_id,
     (payload.payload as Record<string, unknown> | undefined)?.threadId,
+  ];
+  for (const c of candidates) {
+    if (typeof c === "string" && c.trim()) return c.trim();
+  }
+  return undefined;
+}
+
+/** Extract message_id from payload (for fetching full message via Composio). */
+function extractMessageIdFromPayload(
+  payload: GmailSentEventPayload,
+): string | undefined {
+  const candidates = [
+    payload.message_id,
+    (payload.data as Record<string, unknown> | undefined)?.message_id,
+    (payload.data as Record<string, unknown> | undefined)?.messageId,
+    (payload.payload as Record<string, unknown> | undefined)?.message_id,
+    (payload.payload as Record<string, unknown> | undefined)?.messageId,
   ];
   for (const c of candidates) {
     if (typeof c === "string" && c.trim()) return c.trim();
@@ -304,6 +322,7 @@ export interface ResolveGmailReplyResult {
   diagnostics?: {
     payloadKeys: string[];
     threadIdSource: string;
+    replyTextSource?: "composio_fetch" | "payload_fallback";
     replyTextLength: number;
     matchedItems: number;
     analyses: Array<{
@@ -353,69 +372,7 @@ export async function resolveGmailReply(
     };
   }
 
-  const parts: string[] = [];
-  if (typeof payload.message_text === "string" && payload.message_text.trim())
-    parts.push(payload.message_text.trim());
-  if (typeof payload.snippet === "string" && payload.snippet.trim())
-    parts.push(payload.snippet.trim());
-  if (
-    typeof payload.payload?.snippet === "string" &&
-    payload.payload.snippet.trim()
-  )
-    parts.push(payload.payload.snippet.trim());
-  const bodyData = payload.payload as { body?: { data?: string } } | undefined;
-  if (typeof bodyData?.body?.data === "string") {
-    try {
-      const decoded = Buffer.from(bodyData.body.data, "base64").toString(
-        "utf-8",
-      );
-      if (decoded.trim()) parts.push(decoded.trim());
-    } catch {
-      // ignore decode errors
-    }
-  }
-  if (payload.body?.data) {
-    try {
-      const decoded = Buffer.from(payload.body.data, "base64").toString(
-        "utf-8",
-      );
-      if (decoded.trim()) parts.push(decoded.trim());
-    } catch {
-      /* ignore */
-    }
-  }
-  extractReplyTextFromPayload(parts, payload.data);
-  extractReplyTextFromPayload(parts, payload.payload);
-  const rawReplyText = [...new Set(parts)]
-    .filter(Boolean)
-    .join("\n")
-    .slice(0, 4000)
-    .trim();
-  const plainText = stripHtmlToPlaintext(rawReplyText);
-  const replyText =
-    stripQuotedLines(plainText) ||
-    plainText ||
-    stripQuotedLines(rawReplyText) ||
-    rawReplyText;
-
-  if (!replyText) {
-    return {
-      processed: 0,
-      updated: 0,
-      errors: ["No reply text to analyze"],
-      diagnostics: {
-        payloadKeys,
-        threadIdSource,
-        replyTextLength: 0,
-        matchedItems: 0,
-        analyses: [],
-      },
-    };
-  }
-
-  console.log(
-    `[gmail-reply-resolver] replyText length=${replyText.length} preview="${replyText.slice(0, 120)}..."`,
-  );
+  const messageId = extractMessageIdFromPayload(payload);
 
   const dateStrings: string[] = [];
   const today = new Date().toISOString().split("T")[0];
@@ -440,7 +397,7 @@ export async function resolveGmailReply(
       diagnostics: {
         payloadKeys,
         threadIdSource,
-        replyTextLength: replyText.length,
+        replyTextLength: 0,
         matchedItems: 0,
         analyses: [],
       },
@@ -473,6 +430,107 @@ export async function resolveGmailReply(
 
   console.log(
     `[gmail-reply-resolver] matched ${toProcess.length} task(s) for thread ${threadId}`,
+  );
+
+  if (toProcess.length === 0) {
+    return {
+      processed: 0,
+      updated: 0,
+      errors: [],
+      diagnostics: {
+        payloadKeys,
+        threadIdSource,
+        replyTextLength: 0,
+        matchedItems: 0,
+        analyses: [],
+      },
+    };
+  }
+
+  let replyText = "";
+  let replyTextSource: "composio_fetch" | "payload_fallback" =
+    "payload_fallback";
+
+  if (messageId) {
+    const fetched = await fetchMessageBodyPlainText(userId, messageId);
+    if (fetched) {
+      replyText = stripQuotedLines(fetched) || fetched;
+      replyTextSource = "composio_fetch";
+      console.log(
+        `[gmail-reply-resolver] reply from Composio fetch (message_id=${messageId}) length=${replyText.length}`,
+      );
+    }
+  }
+
+  if (!replyText.trim()) {
+    const parts: string[] = [];
+    if (typeof payload.message_text === "string" && payload.message_text.trim())
+      parts.push(payload.message_text.trim());
+    if (typeof payload.snippet === "string" && payload.snippet.trim())
+      parts.push(payload.snippet.trim());
+    if (
+      typeof payload.payload?.snippet === "string" &&
+      payload.payload.snippet.trim()
+    )
+      parts.push(payload.payload.snippet.trim());
+    const bodyData = payload.payload as
+      | { body?: { data?: string } }
+      | undefined;
+    if (typeof bodyData?.body?.data === "string") {
+      try {
+        const decoded = Buffer.from(bodyData.body.data, "base64").toString(
+          "utf-8",
+        );
+        if (decoded.trim()) parts.push(decoded.trim());
+      } catch {
+        /* ignore */
+      }
+    }
+    if (payload.body?.data) {
+      try {
+        const decoded = Buffer.from(payload.body.data, "base64").toString(
+          "utf-8",
+        );
+        if (decoded.trim()) parts.push(decoded.trim());
+      } catch {
+        /* ignore */
+      }
+    }
+    extractReplyTextFromPayload(parts, payload.data);
+    extractReplyTextFromPayload(parts, payload.payload);
+    const rawReplyText = [...new Set(parts)]
+      .filter(Boolean)
+      .join("\n")
+      .slice(0, 4000)
+      .trim();
+    const plainText = stripHtmlToPlaintext(rawReplyText);
+    replyText =
+      stripQuotedLines(plainText) ||
+      plainText ||
+      stripQuotedLines(rawReplyText) ||
+      rawReplyText;
+  }
+
+  if (!replyText || !replyText.trim()) {
+    return {
+      processed: toProcess.length,
+      updated: 0,
+      errors: [
+        "No reply text to analyze (fetch failed and payload had no usable body)",
+      ],
+      diagnostics: {
+        payloadKeys,
+        threadIdSource,
+        replyTextSource,
+        replyTextLength: 0,
+        matchedItems: toProcess.length,
+        analyses: [],
+      },
+    };
+  }
+
+  console.log(
+    `[gmail-reply-resolver] replyText source=${replyTextSource} length=${replyText.length} preview="${replyText.slice(0, 120)}..."`,
   );
 
   const originalThreadContext = await fetchThreadContext(userId, threadId);
@@ -549,6 +607,7 @@ export async function resolveGmailReply(
     diagnostics: {
       payloadKeys,
       threadIdSource,
+      replyTextSource,
       replyTextLength: replyText.length,
       matchedItems: toProcess.length,
       analyses,
