@@ -72,6 +72,17 @@ function hasAnyScope(scope: TodoEmailScope | null | undefined): boolean {
   );
 }
 
+/** Serialize scope for todo_generation_logs.email_scope_used (null → null). */
+function scopeToLogJson(scope: TodoEmailScope | null): Json | null {
+  if (!scope || !hasAnyScope(scope)) return null;
+  return {
+    labelIdsAccepted: scope.labelIdsAccepted ?? [],
+    labelIdsBlocked: scope.labelIdsBlocked ?? [],
+    sendersAccepted: scope.sendersAccepted ?? [],
+    sendersBlocked: scope.sendersBlocked ?? [],
+  } as Json;
+}
+
 export interface TodoGenerateOptions {
   generatedFromEvent?: string;
   /** When merging, reason to set in payload.updatedBecause */
@@ -672,6 +683,8 @@ async function fetchAllSignals(
 ): Promise<{
   signals: IntegrationSignal[];
   promptSettings: TodoPromptSettings | null;
+  /** Scope applied when fetching Gmail (for logging). Null = no filter. */
+  emailScopeUsed: TodoEmailScope | null;
 }> {
   const [scope, promptSettings] = await Promise.all([
     getTodoEmailScope(supabase, userId),
@@ -698,7 +711,11 @@ async function fetchAllSignals(
   if (t.fromEmails === false) {
     signals = signals.filter((s) => s.provider !== "gmail");
   }
-  return { signals, promptSettings: promptSettings ?? null };
+  return {
+    signals,
+    promptSettings: promptSettings ?? null,
+    emailScopeUsed: scope ?? null,
+  };
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1139,11 +1156,11 @@ export class TodoGenerator {
       return this.generateForDate(userId, date, options);
     }
 
-    const { signals: initialSignals, promptSettings } = await fetchAllSignals(
-      this.supabase,
-      userId,
-      date,
-    );
+    const {
+      signals: initialSignals,
+      promptSettings,
+      emailScopeUsed,
+    } = await fetchAllSignals(this.supabase, userId, date);
     if (initialSignals.length === 0) {
       return TodoListOutputSchema.parse({
         ...existing,
@@ -1172,6 +1189,7 @@ export class TodoGenerator {
       extractionLog: triageResult.extractionLog,
       extractedCount: triageResult.items.length,
       durationMs,
+      emailScopeUsed: scopeToLogJson(emailScopeUsed),
     });
 
     const newItems = triageResult.items;
@@ -1420,7 +1438,7 @@ export class TodoGenerator {
       return this.buildEmptyList(userId, date, "initial_generation");
     }
 
-    const { signals, promptSettings } = await fetchAllSignals(
+    const { signals, promptSettings, emailScopeUsed } = await fetchAllSignals(
       this.supabase,
       userId,
       date,
@@ -1440,6 +1458,7 @@ export class TodoGenerator {
         signalsSummary: [] as Json,
         extractedCount: 0,
         durationMs: Date.now() - startedAt,
+        emailScopeUsed: scopeToLogJson(emailScopeUsed),
       });
       return empty;
     }
@@ -1460,6 +1479,7 @@ export class TodoGenerator {
       extractionLog: triageResult.extractionLog,
       extractedCount: triageResult.items.length,
       durationMs,
+      emailScopeUsed: scopeToLogJson(emailScopeUsed),
     });
 
     const list: TodoListOutput = TodoListOutputSchema.parse({
@@ -1545,6 +1565,8 @@ export class TodoGenerator {
       extractedCount: number;
       durationMs: number;
       errorMessage?: string;
+      /** Scope applied when fetching Gmail (for debugging). */
+      emailScopeUsed?: Json | null;
     },
   ): Promise<void> {
     const logRow = {
@@ -1566,6 +1588,7 @@ export class TodoGenerator {
         []) as Json,
       duration_ms: payload.durationMs,
       error_message: payload.errorMessage ?? null,
+      email_scope_used: payload.emailScopeUsed ?? null,
     };
     const { error } = await db.insertOne(
       this.supabase,

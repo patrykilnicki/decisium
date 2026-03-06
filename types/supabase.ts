@@ -941,6 +941,7 @@ export type Database = {
           extracted_items: Json
           duration_ms: number | null
           error_message: string | null
+          email_scope_used: Json | null
           created_at: string | null
         }
         Insert: {
@@ -958,6 +959,7 @@ export type Database = {
           extracted_items?: Json
           duration_ms?: number | null
           error_message?: string | null
+          email_scope_used?: Json | null
           created_at?: string | null
         }
         Update: {
@@ -975,6 +977,7 @@ export type Database = {
           extracted_items?: Json
           duration_ms?: number | null
           error_message?: string | null
+          email_scope_used?: Json | null
           created_at?: string | null
         }
         Relationships: [
