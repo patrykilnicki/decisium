@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import {
@@ -15,6 +16,7 @@ function OnboardingContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const currentStep = parseInt(searchParams.get("step") || "1", 10);
+  const [isCompleting, setIsCompleting] = useState(false);
 
   function handleNextStep() {
     if (currentStep < TOTAL_STEPS) {
@@ -25,20 +27,35 @@ function OnboardingContent() {
   }
 
   async function handleComplete() {
-    const result = await completeOnboarding();
-    if (result.hasSyncTasks) {
-      router.push("/home?preparing=1");
-    } else {
-      router.push("/");
+    setIsCompleting(true);
+    try {
+      const result = await completeOnboarding();
+      if (result.hasSyncTasks) {
+        router.push("/home?preparing=1");
+      } else {
+        router.push("/");
+      }
+    } finally {
+      setIsCompleting(false);
     }
   }
 
   function renderStep() {
     switch (currentStep) {
       case 1:
-        return <StepConnectApps onComplete={handleNextStep} />;
+        return (
+          <StepConnectApps
+            onComplete={handleNextStep}
+            isCompleting={isCompleting}
+          />
+        );
       default:
-        return <StepConnectApps onComplete={handleNextStep} />;
+        return (
+          <StepConnectApps
+            onComplete={handleNextStep}
+            isCompleting={isCompleting}
+          />
+        );
     }
   }
 

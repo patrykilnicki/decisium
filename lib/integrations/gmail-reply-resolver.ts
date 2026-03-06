@@ -39,11 +39,13 @@ function getThreadIdFromItem(item: TodoItem): string | null {
   return match?.[1] ?? null;
 }
 
+// OpenAI structured outputs require optional fields to use .nullable() – see
+// https://platform.openai.com/docs/guides/structured-outputs#all-fields-must-be-required
 const ReplyAnalysisSchema = z.object({
   action: z.enum(["done", "update", "in_progress", "no_change"]),
-  reason: z.string().max(200).optional(),
-  updatedTitle: z.string().max(200).optional(),
-  updatedDueAt: z.string().optional(),
+  reason: z.string().max(200).optional().nullable(),
+  updatedTitle: z.string().max(200).optional().nullable(),
+  updatedDueAt: z.string().optional().nullable(),
 });
 
 type ReplyAnalysis = z.infer<typeof ReplyAnalysisSchema>;

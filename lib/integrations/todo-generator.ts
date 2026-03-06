@@ -72,23 +72,19 @@ function hasAnyScope(scope: TodoEmailScope | null | undefined): boolean {
   );
 }
 
-/** Serialize scope for todo_generation_logs.email_scope_used (null → null). */
-function scopeToLogJson(scope: TodoEmailScope | null): Json | null {
-  if (!scope || !hasAnyScope(scope)) return null;
+/** Serialize scope for todo_generation_logs.email_scope_used. Always returns an object so the log shows what was used (empty arrays = no filter). */
+function scopeToLogJson(scope: TodoEmailScope | null): Json {
   return {
-    labelIdsAccepted: scope.labelIdsAccepted ?? [],
-    labelIdsBlocked: scope.labelIdsBlocked ?? [],
-    sendersAccepted: scope.sendersAccepted ?? [],
-    sendersBlocked: scope.sendersBlocked ?? [],
+    labelIdsAccepted: scope?.labelIdsAccepted ?? [],
+    labelIdsBlocked: scope?.labelIdsBlocked ?? [],
+    sendersAccepted: scope?.sendersAccepted ?? [],
+    sendersBlocked: scope?.sendersBlocked ?? [],
   } as Json;
 }
 
-/** Serialize prompt settings for todo_generation_logs.prompt_settings_used (effective toggles + customInstructions). */
-function promptSettingsToLogJson(
-  settings: TodoPromptSettings | null,
-): Json | null {
-  if (!settings) return null;
-  const t = { ...DEFAULT_TODO_PROMPT_TOGGLES, ...settings.toggles };
+/** Serialize prompt settings for todo_generation_logs.prompt_settings_used. Always returns an object (defaults when null) so the log shows what was effectively used. */
+function promptSettingsToLogJson(settings: TodoPromptSettings | null): Json {
+  const t = { ...DEFAULT_TODO_PROMPT_TOGGLES, ...settings?.toggles };
   return {
     toggles: {
       fromCalendar: t.fromCalendar,
@@ -98,7 +94,7 @@ function promptSettingsToLogJson(
       prepForMeetings: t.prepForMeetings,
       fromAutomatedBots: t.fromAutomatedBots,
     },
-    customInstructions: settings.customInstructions?.trim() ?? null,
+    customInstructions: settings?.customInstructions?.trim() ?? null,
   } as Json;
 }
 
@@ -1136,6 +1132,8 @@ export class TodoGenerator {
         signalsSummary: [],
         extractedCount: existing.items.length,
         durationMs: 0,
+        emailScopeUsed: scopeToLogJson(null),
+        promptSettingsUsed: promptSettingsToLogJson(null),
       });
       return TodoListOutputSchema.parse({
         ...existing,
@@ -1613,9 +1611,18 @@ export class TodoGenerator {
         []) as Json,
       duration_ms: payload.durationMs,
       error_message: payload.errorMessage ?? null,
-      email_scope_used: payload.emailScopeUsed ?? null,
-      prompt_settings_used: payload.promptSettingsUsed ?? null,
+      email_scope_used: payload.emailScopeUsed ?? scopeToLogJson(null),
+      prompt_settings_used:
+        payload.promptSettingsUsed ?? promptSettingsToLogJson(null),
     };
+    console.log("[todo-generator] log", {
+      user_id: userId,
+      date,
+      run_type: payload.runType,
+      signals_count: payload.signalsCount,
+      email_scope_used: logRow.email_scope_used,
+      prompt_settings_used: logRow.prompt_settings_used,
+    });
     const { error } = await db.insertOne(
       this.supabase,
       "todo_generation_logs",

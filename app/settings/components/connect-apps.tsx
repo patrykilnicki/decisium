@@ -64,6 +64,8 @@ export interface ConnectAppsProps {
   showNotification?: boolean;
   /** When false, do not open sync modal after OAuth callback (e.g. during onboarding—sync runs on complete). Default true. */
   showSyncModalOnConnect?: boolean;
+  /** Called when the list of integrations is loaded or updated with the current count of connected integrations. */
+  onConnectedCountChange?: (connectedCount: number) => void;
 }
 
 export function ConnectApps({
@@ -72,6 +74,7 @@ export function ConnectApps({
   onSyncModalClose,
   showNotification = true,
   showSyncModalOnConnect = true,
+  onConnectedCountChange,
 }: ConnectAppsProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -134,6 +137,14 @@ export function ConnectApps({
   }, [fetchIntegrations]);
 
   useEffect(() => {
+    if (loading || !onConnectedCountChange) return;
+    const connectedCount = Object.values(integrations).filter(
+      (s) => s.connected,
+    ).length;
+    onConnectedCountChange(connectedCount);
+  }, [integrations, loading, onConnectedCountChange]);
+
+  useEffect(() => {
     const connected = searchParams.get("connected");
     const integrationId = searchParams.get("integration_id");
     const error = searchParams.get("error");
@@ -143,6 +154,7 @@ export function ConnectApps({
       setSyncProvider(connected);
       setSyncIntegrationId(integrationId);
       if (showSyncModalOnConnect) setSyncModalOpen(true);
+      fetchIntegrations();
       router.replace(returnTo);
     } else if (error && showNotification) {
       const messages: Record<string, string> = {
@@ -164,6 +176,7 @@ export function ConnectApps({
     returnTo,
     showNotification,
     showSyncModalOnConnect,
+    fetchIntegrations,
   ]);
 
   useEffect(() => {
