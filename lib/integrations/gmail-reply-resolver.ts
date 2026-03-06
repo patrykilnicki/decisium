@@ -18,6 +18,49 @@ export interface GmailSentEventPayload {
   sender?: string;
   recipients?: string;
   payload?: { body?: { data?: string }; snippet?: string };
+  /** Composio / provider may nest body under other keys */
+  body?: { data?: string };
+  snippet?: string;
+  data?: unknown;
+}
+
+/** Extract readable text from nested payload (Composio can send body in various shapes). */
+function extractReplyTextFromPayload(parts: string[], raw: unknown): void {
+  if (raw == null) return;
+  if (typeof raw === "string") {
+    if (raw.trim().length > 0) parts.push(raw.trim());
+    return;
+  }
+  if (typeof raw !== "object") return;
+  const obj = raw as Record<string, unknown>;
+  if (typeof obj.message_text === "string" && obj.message_text.trim())
+    parts.push(obj.message_text.trim());
+  if (typeof obj.snippet === "string" && obj.snippet.trim())
+    parts.push(obj.snippet.trim());
+  if (typeof obj.text === "string" && obj.text.trim())
+    parts.push(obj.text.trim());
+  if (typeof obj.content === "string" && obj.content.trim())
+    parts.push(obj.content.trim());
+  const body = obj.body;
+  if (
+    body &&
+    typeof body === "object" &&
+    typeof (body as { data?: string }).data === "string"
+  ) {
+    try {
+      const decoded = Buffer.from(
+        (body as { data: string }).data,
+        "base64",
+      ).toString("utf-8");
+      if (decoded.trim()) parts.push(decoded.trim());
+    } catch {
+      /* ignore */
+    }
+  }
+  if (obj.payload && typeof obj.payload === "object")
+    extractReplyTextFromPayload(parts, obj.payload);
+  if (obj.data && typeof obj.data === "object")
+    extractReplyTextFromPayload(parts, obj.data);
 }
 
 /** Extract thread ID from Gmail sourceRef (threadId or parse from sourceUrl). */
@@ -50,12 +93,12 @@ const ReplyAnalysisSchema = z.object({
 
 type ReplyAnalysis = z.infer<typeof ReplyAnalysisSchema>;
 
-const REPLY_ANALYSIS_PROMPT = `You are a task-status inference engine. You receive an existing task (title + summary) that was created from an incoming email, and the user's outgoing reply in that same email thread. Your job is to infer the correct action.
+const REPLY_ANALYSIS_PROMPT = `You are a task-status inference engine. You receive an existing task (title, summary, and what completing it looks like) that was created from an incoming email, and the user's outgoing reply in that same email thread. Your job is to infer the correct action.
 
 ## Actions
 
 **done** – The reply's *semantic meaning* indicates the task obligation is fulfilled.
-Signals: the user delivered the requested artifact, confirmed completion, sent the information that was asked for, or the conversation makes clear nothing further is needed from the user.
+Signals: the user delivered the requested artifact, confirmed completion, sent the information that was asked for, or the conversation makes clear nothing further is needed from the user. If the task was to "reply with X" or "send X" and the user's message clearly contains or delivers X (e.g. a quote, confirmation, document, answer), choose "done".
 
 **update** – The reply commits to a concrete future action or timeline that changes when/how the task should be tracked.
 Signals: explicit postponement with a date/time, scope change, delegation to someone else with a follow-up date. When you choose "update", you MUST set at least one of updatedTitle or updatedDueAt.
@@ -69,6 +112,7 @@ Signals: acknowledgments ("OK", "Thanks", "Got it"), forwarding without comment,
 ## Rules
 - Detect the user's language automatically; do not assume any particular language.
 - Focus on the *intent* of the reply, not keywords. A one-word reply that fulfills the task obligation counts as "done".
+- Compare the reply to "What completing the task looks like": if the user did that (e.g. sent a quote when the task was to send a quote), choose "done".
 - If the reply is ambiguous, prefer "no_change" over a wrong status update.
 - For "update": use YYYY-MM-DD for updatedDueAt. Resolve relative dates (e.g. "tomorrow", "Friday") against today: {{today}}.
 - For "done" or "no_change": omit updatedTitle and updatedDueAt.
@@ -77,6 +121,7 @@ Signals: acknowledgments ("OK", "Thanks", "Got it"), forwarding without comment,
 async function analyzeReplyWithLlm(
   taskTitle: string,
   taskSummary: string,
+  suggestedNextAction: string,
   replyText: string,
   subject: string | undefined,
 ): Promise<ReplyAnalysis> {
@@ -93,6 +138,7 @@ async function analyzeReplyWithLlm(
   const userParts = [
     `Task title: "${taskTitle}"`,
     `Task summary: ${taskSummary}`,
+    `What completing the task looks like: ${suggestedNextAction}`,
     subject ? `Email subject: "${subject}"` : "",
     `\nUser's outgoing reply:\n"""\n${replyText}\n"""`,
   ];
@@ -125,19 +171,43 @@ export async function resolveGmailReply(
   }
 
   const parts: string[] = [];
-  if (typeof payload.message_text === "string")
-    parts.push(payload.message_text);
-  if (typeof payload.payload?.snippet === "string")
-    parts.push(payload.payload.snippet);
+  if (typeof payload.message_text === "string" && payload.message_text.trim())
+    parts.push(payload.message_text.trim());
+  if (typeof payload.snippet === "string" && payload.snippet.trim())
+    parts.push(payload.snippet.trim());
+  if (
+    typeof payload.payload?.snippet === "string" &&
+    payload.payload.snippet.trim()
+  )
+    parts.push(payload.payload.snippet.trim());
   const bodyData = payload.payload as { body?: { data?: string } } | undefined;
   if (typeof bodyData?.body?.data === "string") {
     try {
-      parts.push(Buffer.from(bodyData.body.data, "base64").toString("utf-8"));
+      const decoded = Buffer.from(bodyData.body.data, "base64").toString(
+        "utf-8",
+      );
+      if (decoded.trim()) parts.push(decoded.trim());
     } catch {
       // ignore decode errors
     }
   }
-  const replyText = parts.filter(Boolean).join(" ").slice(0, 2000).trim();
+  if (payload.body?.data) {
+    try {
+      const decoded = Buffer.from(payload.body.data, "base64").toString(
+        "utf-8",
+      );
+      if (decoded.trim()) parts.push(decoded.trim());
+    } catch {
+      /* ignore */
+    }
+  }
+  extractReplyTextFromPayload(parts, payload.data);
+  extractReplyTextFromPayload(parts, payload.payload);
+  const replyText = [...new Set(parts)]
+    .filter(Boolean)
+    .join("\n")
+    .slice(0, 4000)
+    .trim();
 
   if (!replyText) {
     return { processed: 0, updated: 0, errors: ["No reply text to analyze"] };
@@ -194,6 +264,7 @@ export async function resolveGmailReply(
       const analysis = await analyzeReplyWithLlm(
         item.title,
         item.summary,
+        item.suggestedNextAction ?? item.summary,
         replyText,
         payload.subject,
       );
