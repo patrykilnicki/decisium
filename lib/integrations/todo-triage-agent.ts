@@ -21,6 +21,7 @@ import {
   processParsedTasksToItems,
   buildTodoItemDedupKeys,
   extractJsonArrayFromResponse,
+  enrichGmailItemsWithSourceUrl,
 } from "./todo-generator";
 
 const BATCH_SIZE = 7;
@@ -403,14 +404,20 @@ function oneTaskPerGmailThread(tasks: TodoItem[]): TodoItem[] {
 /**
  * Aggregate: cross-batch dedup and filter against existing snapshot items.
  * Gmail: one task per thread (best by confidence), then dedup by keys.
+ * Re-enrich with threadId from allSignals so dedup by thread works even when
+ * the batch only contained a different message from the same thread.
  */
 function finalize(state: typeof TriageState.State) {
-  const { batchedTasks, existingItemKeys } = state;
+  const { batchedTasks, existingItemKeys, allSignals } = state;
   if (!batchedTasks || batchedTasks.length === 0) {
     return { finalItems: [] };
   }
 
-  const onePerThread = oneTaskPerGmailThread(batchedTasks);
+  const withThreadIds = enrichGmailItemsWithSourceUrl(
+    batchedTasks,
+    allSignals ?? [],
+  );
+  const onePerThread = oneTaskPerGmailThread(withThreadIds);
   const existingSet = new Set(existingItemKeys ?? []);
   const seenKeys = new Set<string>();
   const deduped: TodoItem[] = [];

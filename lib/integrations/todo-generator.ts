@@ -3,7 +3,10 @@ import type { Database, Json } from "@/types/supabase";
 import type { Integration } from "@/types/database";
 import * as db from "@/lib/supabase/db";
 import { createLLM } from "@/packages/agents/lib/llm";
-import { fetchGmailEmailsFull } from "@/packages/agents/lib/composio-gmail";
+import {
+  fetchGmailEmailsFull,
+  fetchGmailMessagesForThread,
+} from "@/packages/agents/lib/composio-gmail";
 import {
   TodoListOutputSchema,
   type TodoItem,
@@ -378,7 +381,7 @@ function buildGmailThreadUrl(threadId: string): string {
  * For items sourced from Gmail, set sourceRef.sourceUrl so the UI can link to the email.
  * Looks up threadId from signals by messageId (sourceRef.externalId).
  */
-function enrichGmailItemsWithSourceUrl(
+export function enrichGmailItemsWithSourceUrl(
   items: TodoItem[],
   signals: IntegrationSignal[],
 ): TodoItem[] {
@@ -689,6 +692,100 @@ export function buildSystemPromptWithPreferences(
     date,
   );
   return prefsBlock + customBlock + "\n\n" + basePrompt;
+}
+
+/**
+ * Fetch only the signals implied by webhook hints (e.g. one Gmail thread).
+ * Use when merge is triggered by a single new-email webhook: we fetch only that
+ * thread instead of all emails for the day.
+ * Returns null when hints require calendar or full fetch (caller uses fetchAllSignals).
+ */
+async function fetchSignalsForHints(
+  supabase: SupabaseClient<Database>,
+  userId: string,
+  date: string,
+  hints: SignalHint[],
+): Promise<{
+  signals: IntegrationSignal[];
+  promptSettings: TodoPromptSettings | null;
+  emailScopeUsed: TodoEmailScope | null;
+} | null> {
+  const hasEventId = hints.some((h) => Boolean(h.eventId));
+  const threadIds = [
+    ...new Set(hints.map((h) => h.threadId).filter(Boolean) as string[]),
+  ];
+  const hasGmailHints =
+    threadIds.length > 0 || hints.some((h) => Boolean(h.messageId));
+  if (hasEventId || !hasGmailHints) return null;
+  if (threadIds.length === 0) return null;
+
+  const [scope, promptSettings] = await Promise.all([
+    getTodoEmailScope(supabase, userId),
+    getTodoPromptSettings(supabase, userId),
+  ]);
+
+  const allParsed: Awaited<ReturnType<typeof fetchGmailMessagesForThread>> = [];
+  for (const threadId of threadIds) {
+    const messages = await fetchGmailMessagesForThread(userId, threadId, {
+      targetDateYyyyMmDd: date,
+    });
+    allParsed.push(...messages);
+  }
+  if (allParsed.length === 0) {
+    return {
+      signals: [],
+      promptSettings: promptSettings ?? null,
+      emailScopeUsed: scope ?? null,
+    };
+  }
+
+  let gmailSignals: GmailSignal[] = allParsed.map((msg) => ({
+    provider: "gmail" as const,
+    subject: msg.subject,
+    sender: msg.sender,
+    snippet: msg.snippet,
+    timestamp: msg.timestamp,
+    messageId: msg.messageId,
+    threadId: msg.threadId,
+    threadContext: msg.threadContext,
+    labels: msg.labels,
+  }));
+
+  if (hasAnyScope(scope)) {
+    const blockedSenders = new Set(
+      (scope!.sendersBlocked ?? []).map((e) => e.toLowerCase().trim()),
+    );
+    const blockedLabels = new Set(scope!.labelIdsBlocked ?? []);
+    if (blockedSenders.size > 0 || blockedLabels.size > 0) {
+      gmailSignals = gmailSignals.filter((s) => {
+        if (blockedSenders.size > 0) {
+          const senderEmail = (s.sender ?? "").toLowerCase().includes("<")
+            ? (s.sender ?? "")
+                .replace(/.*<([^>]+)>.*/, "$1")
+                .trim()
+                .toLowerCase()
+            : (s.sender ?? "").trim().toLowerCase();
+          if (blockedSenders.has(senderEmail)) return false;
+        }
+        if (
+          blockedLabels.size > 0 &&
+          s.labels.some((l) => blockedLabels.has(l))
+        )
+          return false;
+        return true;
+      });
+    }
+  }
+
+  if (promptSettings?.toggles?.fromEmails === false) {
+    gmailSignals = [];
+  }
+
+  return {
+    signals: gmailSignals,
+    promptSettings: promptSettings ?? null,
+    emailScopeUsed: scope ?? null,
+  };
 }
 
 /** Fetch signals from all registered integrations. Calendar from Supabase; Gmail via Composio. Uses user's todo_email_scope and todo_prompt_settings (filters by fromCalendar/fromEmails). */
@@ -1174,21 +1271,40 @@ export class TodoGenerator {
       return this.generateForDate(userId, date, options);
     }
 
-    const {
-      signals: initialSignals,
-      promptSettings,
-      emailScopeUsed,
-    } = await fetchAllSignals(this.supabase, userId, date);
-    if (initialSignals.length === 0) {
+    let signals: IntegrationSignal[];
+    let promptSettings: TodoPromptSettings | null;
+    let emailScopeUsed: TodoEmailScope | null;
+
+    if (options?.signalHints?.length) {
+      const hinted = await fetchSignalsForHints(
+        this.supabase,
+        userId,
+        date,
+        options.signalHints,
+      );
+      if (hinted) {
+        signals = hinted.signals;
+        promptSettings = hinted.promptSettings;
+        emailScopeUsed = hinted.emailScopeUsed;
+      } else {
+        const full = await fetchAllSignals(this.supabase, userId, date);
+        signals = filterSignalsByHints(full.signals, options.signalHints);
+        promptSettings = full.promptSettings;
+        emailScopeUsed = full.emailScopeUsed;
+      }
+    } else {
+      const full = await fetchAllSignals(this.supabase, userId, date);
+      signals = full.signals;
+      promptSettings = full.promptSettings;
+      emailScopeUsed = full.emailScopeUsed;
+    }
+
+    if (signals.length === 0) {
       return TodoListOutputSchema.parse({
         ...existing,
         updatedBecause: "no_changes_detected",
       });
     }
-
-    const signals = options?.signalHints?.length
-      ? filterSignalsByHints(initialSignals, options.signalHints)
-      : initialSignals;
 
     const startedAt = Date.now();
     const triageResult = await runTriageSignals(
