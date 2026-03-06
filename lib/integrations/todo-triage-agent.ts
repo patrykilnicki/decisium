@@ -45,18 +45,20 @@ If a signal IS actionable, include a task for it. Even borderline signals where 
 Signals that are clearly automated notifications (CI bots, marketing, newsletters with no personal request) can be skipped.
 For email threads: read the Content in full. If the LAST message in the thread is from the user (the account owner / recipient), do NOT create a reply or follow-up task for that thread. Create at most ONE task per thread (one per conversation).
 
+Always output all generated text (title, summary, suggestedNextAction, etc.) in English.
+
 Return a JSON array of tasks. Each object:
 {
-  "title": "short actionable title (max 80 chars)",
-  "summary": "one sentence explaining what needs to be done",
+  "title": "short actionable title in English (max 80 chars)",
+  "summary": "one sentence in English explaining what needs to be done",
   "priority": "normal" or "urgent",
   "urgentReason": "only when urgent — concrete fact from the signal, max ~80 chars. Omit for normal.",
   "sourceProvider": "google_calendar" or "gmail",
   "sourceType": "calendar_event" or "message",
   "sourceExternalId": "ID from the source signal",
-  "actionabilityEvidence": "short quote or fact proving user action is required",
+  "actionabilityEvidence": "short quote or fact in English proving user action is required",
   "confidence": 0.0 to 1.0,
-  "suggestedNextAction": "concrete next step the user should take",
+  "suggestedNextAction": "concrete next step in English the user should take",
   "tags": ["relevant", "tags"]
 }
 
