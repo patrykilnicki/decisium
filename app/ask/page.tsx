@@ -1,56 +1,68 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { AskThread } from "@/packages/agents/schemas/ask.schema";
-import { ThreadList } from "@/app/ask/components/thread-list";
-import { NewThreadButton } from "@/app/ask/components/new-thread-button";
-import { ProtectedRoute } from "@/components/auth/protected-route";
-import { AppLayout } from "@/components/layout/app-layout";
+import { useRouter } from "next/navigation";
+import { ChatInput } from "@/components/chat/chat-input";
+import { useAskLayout } from "@/app/ask/ask-layout-context";
+import {
+  SuggestionCards,
+  type SuggestionItem,
+} from "@/app/ask/components/suggestion-cards";
 
 export default function AskPage() {
-  const [threads, setThreads] = useState<AskThread[]>([]);
-  const [loading, setLoading] = useState(true);
+  const router = useRouter();
+  const { loadThreads } = useAskLayout();
 
-  useEffect(() => {
-    loadThreads();
-  }, []);
-
-  async function loadThreads() {
+  async function handleSuggestionSelect(item: SuggestionItem) {
     try {
-      setLoading(true);
-      const response = await fetch("/api/ask/threads");
+      const response = await fetch("/api/ask/threads", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: item.title }),
+      });
       if (response.ok) {
-        const data = await response.json();
-        setThreads(data);
+        await loadThreads();
+        const thread = await response.json();
+        router.push(`/ask/${thread.id}`);
       }
     } catch (error) {
-      console.error("Failed to load threads:", error);
-    } finally {
-      setLoading(false);
+      console.error("Failed to create thread:", error);
+    }
+  }
+
+  async function handleAskSend(message: string) {
+    const response = await fetch("/api/ask/threads", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: message.slice(0, 80) }),
+    });
+    if (response.ok) {
+      await loadThreads();
+      const thread = await response.json();
+      router.push(`/ask/${thread.id}`);
     }
   }
 
   return (
-    <ProtectedRoute>
-      <AppLayout>
-        <div className="flex flex-col h-full">
-          <header className="border-b p-4">
-            <div className="flex items-center justify-between">
-              <h1 className="text-2xl font-bold">Ask AI</h1>
-              <NewThreadButton />
-            </div>
-          </header>
-          <div className="flex-1 overflow-y-auto p-4">
-            {loading ? (
-              <div className="flex items-center justify-center h-full">
-                <div className="text-muted-foreground">Loading...</div>
-              </div>
-            ) : (
-              <ThreadList threads={threads} />
-            )}
-          </div>
+    <div className="flex h-full w-full">
+      <div className="flex max-w-[640px] mx-auto flex-1 flex-col items-center justify-center gap-20 py-20">
+        <div className="flex w-full flex-col gap-12">
+          <h1 className="text-center text-[28px] font-semibold leading-9 tracking-[-0.28px] text-foreground">
+            Ask about your work, decisions or patterns
+          </h1>
+          <SuggestionCards onSelect={handleSuggestionSelect} />
         </div>
-      </AppLayout>
-    </ProtectedRoute>
+        <div className="flex w-full flex-col gap-1.5">
+          <ChatInput
+            variant="full"
+            placeholder="Ask anything..."
+            onSend={handleAskSend}
+          />
+          <p className="truncate text-center text-[11px] leading-5 tracking-[-0.11px] text-muted-foreground">
+            The agent could make mistakes. Please report any issue to improve
+            the experience
+          </p>
+        </div>
+      </div>
+    </div>
   );
 }

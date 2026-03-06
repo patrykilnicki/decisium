@@ -21,6 +21,7 @@ import {
   processParsedTasksToItems,
   buildTodoItemDedupKeys,
   extractJsonArrayFromResponse,
+  enrichGmailItemsWithSourceUrl,
 } from "./todo-generator";
 
 const BATCH_SIZE = 7;
@@ -43,6 +44,7 @@ For EACH signal, briefly state:
 If a signal IS actionable, include a task for it. Even borderline signals where the user *might* need to act should produce a task — it is better to surface a low-confidence task than to miss a real one.
 
 Signals that are clearly automated notifications (CI bots, marketing, newsletters with no personal request) can be skipped.
+For calendar: respect the "Kind" label. "Kind: Meeting (2+ participants)" — create a preparation task. "Kind: Time block" — create a task ONLY if title/description clearly describe concrete work (e.g. "do something "); otherwise skip (time reserve).
 For email threads: read the Content in full. If the LAST message in the thread is from the user (the account owner / recipient), do NOT create a reply or follow-up task for that thread. Create at most ONE task per thread (one per conversation).
 
 Always output all generated text (title, summary, suggestedNextAction, etc.) in English.
@@ -403,14 +405,20 @@ function oneTaskPerGmailThread(tasks: TodoItem[]): TodoItem[] {
 /**
  * Aggregate: cross-batch dedup and filter against existing snapshot items.
  * Gmail: one task per thread (best by confidence), then dedup by keys.
+ * Re-enrich with threadId from allSignals so dedup by thread works even when
+ * the batch only contained a different message from the same thread.
  */
 function finalize(state: typeof TriageState.State) {
-  const { batchedTasks, existingItemKeys } = state;
+  const { batchedTasks, existingItemKeys, allSignals } = state;
   if (!batchedTasks || batchedTasks.length === 0) {
     return { finalItems: [] };
   }
 
-  const onePerThread = oneTaskPerGmailThread(batchedTasks);
+  const withThreadIds = enrichGmailItemsWithSourceUrl(
+    batchedTasks,
+    allSignals ?? [],
+  );
+  const onePerThread = oneTaskPerGmailThread(withThreadIds);
   const existingSet = new Set(existingItemKeys ?? []);
   const seenKeys = new Set<string>();
   const deduped: TodoItem[] = [];

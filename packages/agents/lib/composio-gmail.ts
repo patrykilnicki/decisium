@@ -328,6 +328,76 @@ async function enrichMessagesWithMessageBodyFallback(
   });
 }
 
+/**
+ * Fetch a single Gmail thread by ID and return parsed messages with thread context.
+ * Used by todo merge when webhook delivers one new email: we only fetch that thread
+ * instead of all emails for the day.
+ */
+export async function fetchGmailMessagesForThread(
+  userId: string,
+  threadId: string,
+  options?: { targetDateYyyyMmDd?: string },
+): Promise<ParsedGmailMessage[]> {
+  if (!isComposioEnabled() || !threadId?.trim()) return [];
+  const connectedAccountId = await getGmailConnectedAccountId(userId);
+  if (!connectedAccountId) return [];
+
+  const res = await executeGmailFetchThread(userId, connectedAccountId, {
+    threadId: threadId.trim(),
+  }).catch(() => null);
+  if (!res?.successful || !res.data) return [];
+
+  let list = extractMessagesFromPayload(res.data);
+  if (!list) {
+    const data = (res.data as Record<string, unknown>).data ?? res.data;
+    list = extractMessagesFromPayload(data);
+  }
+  if (!Array.isArray(list) || list.length === 0) return [];
+
+  const summarizeOpts: SummarizeThreadOptions | undefined =
+    options?.targetDateYyyyMmDd
+      ? { targetDateYyyyMmDd: options.targetDateYyyyMmDd }
+      : undefined;
+  const threadContext = summarizeThreadPayload(
+    res.data as Record<string, unknown>,
+    summarizeOpts,
+  );
+
+  const cutoffMs = options?.targetDateYyyyMmDd
+    ? endOfDayUtcMs(options.targetDateYyyyMmDd)
+    : null;
+
+  const parsed: ParsedGmailMessage[] = [];
+  const rawList = list.filter(
+    (m): m is Record<string, unknown> => m != null && typeof m === "object",
+  );
+  const withTs = rawList
+    .map((m) => ({ msg: m, ts: getMessageTimestamp(m) ?? 0 }))
+    .sort((a, b) => a.ts - b.ts);
+  const toUse =
+    cutoffMs != null ? withTs.filter(({ ts }) => ts <= cutoffMs) : withTs;
+
+  for (const { msg } of toUse) {
+    const normalized = {
+      ...msg,
+      messageId:
+        (msg as Record<string, unknown>).messageId ??
+        (msg as Record<string, unknown>).id ??
+        "",
+      thread_id: threadId,
+      threadId,
+    };
+    const p = parseGmailMessage(normalized as Record<string, unknown>);
+    parsed.push({
+      ...p,
+      threadId: threadId,
+      threadContext: threadContext.slice(0, 6000),
+      snippet: (p.snippet ?? "").trim() || threadContext.slice(0, 2000),
+    });
+  }
+  return parsed;
+}
+
 async function mapConcurrent<T, R>(
   items: T[],
   concurrency: number,

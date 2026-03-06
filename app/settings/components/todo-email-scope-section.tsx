@@ -132,7 +132,7 @@ export function TodoEmailScopeSection() {
         const err = await res.json();
         setNotification({
           type: "error",
-          message: err.error ?? "Nie udało się pobrać etykiet",
+          message: err.error ?? "Failed to fetch labels",
         });
         return;
       }
@@ -141,7 +141,7 @@ export function TodoEmailScopeSection() {
     } catch {
       setNotification({
         type: "error",
-        message: "Nie udało się pobrać etykiet",
+        message: "Failed to fetch labels",
       });
     } finally {
       setLabelsLoading(false);
@@ -207,9 +207,9 @@ export function TodoEmailScopeSection() {
     setSaving(true);
     try {
       const body = {
-        labelIdsAccepted: [], // zawsze puste: wszystkie etykiety są uwzględniane, user tylko blokuje
+        labelIdsAccepted: [], // always empty: all labels included, user only blocks
         labelIdsBlocked: scope.labelIdsBlocked ?? [],
-        sendersAccepted: [], // zawsze puste: domyślnie wszyscy nadawcy są uwzględniani, user tylko blokuje
+        sendersAccepted: [], // always empty: all senders included by default, user only blocks
         sendersBlocked: scope.sendersBlocked ?? [],
       };
       const res = await fetch("/api/settings/todo-email-scope", {
@@ -219,13 +219,13 @@ export function TodoEmailScopeSection() {
       });
       if (!res.ok) {
         const err = await res.json();
-        throw new Error(err.error ?? "Zapis nie powiódł się");
+        throw new Error(err.error ?? "Save failed");
       }
-      setNotification({ type: "success", message: "Zapisano ustawienia" });
+      setNotification({ type: "success", message: "Settings saved" });
     } catch (e) {
       setNotification({
         type: "error",
-        message: e instanceof Error ? e.message : "Zapis nie powiódł się",
+        message: e instanceof Error ? e.message : "Save failed",
       });
     } finally {
       setSaving(false);
@@ -264,14 +264,14 @@ export function TodoEmailScopeSection() {
             <button
               type="button"
               className="rounded p-0.5 hover:bg-black/10 dark:hover:bg-white/10"
-              aria-label="Opcje"
+              aria-label="Options"
             >
               <CentralIcon name="IconDotGrid1x3Vertical" size={16} />
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem variant="destructive" onSelect={onRemove}>
-              Usuń
+              Remove
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -337,7 +337,7 @@ export function TodoEmailScopeSection() {
           ))}
           {labelIds.length === 0 && (
             <li className="text-sm text-muted-foreground">
-              Brak etykiet — wszystkie maile są uwzględniane
+              No labels — all emails are included
             </li>
           )}
         </ul>
@@ -350,11 +350,11 @@ export function TodoEmailScopeSection() {
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="text-lg font-semibold">Zakres maili do zadań to-do</h2>
+        <h2 className="text-lg font-semibold">Email scope for to-do tasks</h2>
         <p className="text-sm text-muted-foreground">
-          Domyślnie uwzględniane są wszystkie e-maile i etykiety. Możesz dodać
-          etykiety lub nadawców do wykluczenia — wtedy nie będą brane pod uwagę
-          przy tworzeniu zadań to-do.
+          By default all emails and labels are included. You can add labels or
+          senders to exclude — they will not be considered when creating to-do
+          tasks.
         </p>
       </div>
 
@@ -372,11 +372,11 @@ export function TodoEmailScopeSection() {
       )}
 
       {scopeLoading ? (
-        <p className="text-sm text-muted-foreground">Ładowanie…</p>
+        <p className="text-sm text-muted-foreground">Loading…</p>
       ) : (
         <>
           <div className="flex items-center gap-2">
-            <Label className="text-base font-medium">Etykiety Gmail</Label>
+            <Label className="text-base font-medium">Gmail labels</Label>
             <Button
               type="button"
               variant="ghost"
@@ -385,34 +385,32 @@ export function TodoEmailScopeSection() {
               disabled={labelsLoading}
             >
               <CentralIcon name="IconRotate" size={16} />
-              {labelsLoading ? "Ładowanie…" : "Odśwież listę"}
+              {labelsLoading ? "Loading…" : "Refresh list"}
             </Button>
           </div>
 
           <div className="space-y-4">
             <SectionBlock
-              title="Przenieś poza skrzynkę"
-              description="Maile z tymi etykietami nie będą brane pod uwagę przy tworzeniu zadań to-do. Domyślnie uwzględniane są wszystkie etykiety."
+              title="Exclude from scope"
+              description="Emails with these labels will not be considered when creating to-do tasks. By default all labels are included."
               labelIds={blockedIds}
               onAdd={addLabelBlocked}
               onRemove={removeLabelBlocked}
-              addButtonLabel="Dodaj etykietę do wykluczenia"
+              addButtonLabel="Add label to exclude"
             />
           </div>
 
-          {/* Senders: tylko blokowani (domyślnie wszyscy są uwzględniani) */}
+          {/* Senders: only blocked (all senders included by default) */}
           <div className="space-y-2 rounded-lg border bg-muted/30 p-4">
             <div>
-              <Label className="text-base font-medium">
-                Zablokowani nadawcy
-              </Label>
+              <Label className="text-base font-medium">Blocked senders</Label>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Maile od tych adresów nie będą generować zadań to-do. Jeden
-                adres na linię.
+                Emails from these addresses will not generate to-do tasks. One
+                address per line.
               </p>
             </div>
             <Textarea
-              placeholder="np. newsletter@example.com"
+              placeholder="e.g. newsletter@example.com"
               value={sendersToText(scope.sendersBlocked)}
               onChange={(e) =>
                 setScope((prev) => ({
@@ -426,7 +424,7 @@ export function TodoEmailScopeSection() {
           </div>
 
           <Button onClick={handleSave} disabled={saving}>
-            {saving ? "Zapisywanie…" : "Zapisz"}
+            {saving ? "Saving…" : "Save"}
           </Button>
         </>
       )}

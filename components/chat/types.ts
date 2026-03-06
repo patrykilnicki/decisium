@@ -69,10 +69,6 @@ export interface ChatContainerProps {
   onSend: (message: string) => Promise<void>;
   isLoading?: boolean;
   placeholder?: string;
-  emptyStateTitle?: string;
-  emptyStateDescription?: string;
-  /** Custom empty state content (overrides emptyStateTitle/Description when set) */
-  emptyState?: React.ReactNode;
 }
 
 // SSE event types for streaming

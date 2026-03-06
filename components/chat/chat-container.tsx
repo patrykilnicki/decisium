@@ -14,9 +14,6 @@ export function ChatContainer({
   onSend,
   isLoading = false,
   placeholder = "Type a message...",
-  emptyStateTitle = "Start a conversation",
-  emptyStateDescription = "Send a message to begin.",
-  emptyState,
 }: ChatContainerProps) {
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -73,22 +70,7 @@ export function ChatContainer({
         className="flex-1 overflow-y-auto scroll-smooth min-h-0"
       >
         {isEmpty ? (
-          // Empty State (custom or default)
-          (emptyState ?? (
-            <div className="flex flex-col items-center justify-center h-full p-8 text-center">
-              <div className="size-16 rounded-full bg-muted flex items-center justify-center mb-4">
-                <CentralIcon
-                  name="IconBubbleText"
-                  size={32}
-                  className="text-muted-foreground"
-                />
-              </div>
-              <h2 className="text-xl font-semibold mb-2">{emptyStateTitle}</h2>
-              <p className="text-muted-foreground text-sm max-w-sm">
-                {emptyStateDescription}
-              </p>
-            </div>
-          ))
+          <div className="flex-1 min-h-0" />
         ) : (
           // Messages List
           <div className="max-w-4xl mx-auto p-4 space-y-4">

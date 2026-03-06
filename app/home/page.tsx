@@ -6,7 +6,7 @@ import { ProtectedRoute } from "@/components/auth/protected-route";
 import { AppLayout } from "@/components/layout/app-layout";
 import { HomeContent } from "@/app/home/components/home-content";
 import { createClient } from "@/lib/supabase/client";
-import { Loader2 } from "lucide-react";
+import { CentralIcon } from "@/components/ui/central-icon";
 
 const POLL_INTERVAL_MS = 1500;
 
@@ -72,9 +72,11 @@ function HomePageContent() {
       <AppLayout>
         {showLoader ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-4 text-muted-foreground">
-            <Loader2 className="h-10 w-10 animate-spin" aria-hidden />
-            <p className="text-sm font-medium">Configuring your dashboard</p>
-            <p className="text-xs">Syncing your calendar and data...</p>
+            <CentralIcon name="IconLoader" size={24} className="animate-spin" />
+            <p className="text-sm font-semibold">Configuring your dashboard</p>
+            <p className="text-xs text-muted-foreground">
+              Syncing your calendar and data...
+            </p>
           </div>
         ) : (
           <div className="flex h-full min-h-0 flex-col overflow-y-auto overflow-x-hidden overscroll-y-auto scroll-smooth">
@@ -93,7 +95,11 @@ export default function HomePage() {
         <ProtectedRoute>
           <AppLayout>
             <div className="flex flex-1 flex-col items-center justify-center gap-4 text-muted-foreground">
-              <Loader2 className="h-10 w-10 animate-spin" aria-hidden />
+              <CentralIcon
+                name="IconLoader"
+                size={24}
+                className="animate-spin"
+              />
             </div>
           </AppLayout>
         </ProtectedRoute>

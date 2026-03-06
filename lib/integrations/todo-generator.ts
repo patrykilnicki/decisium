@@ -3,7 +3,10 @@ import type { Database, Json } from "@/types/supabase";
 import type { Integration } from "@/types/database";
 import * as db from "@/lib/supabase/db";
 import { createLLM } from "@/packages/agents/lib/llm";
-import { fetchGmailEmailsFull } from "@/packages/agents/lib/composio-gmail";
+import {
+  fetchGmailEmailsFull,
+  fetchGmailMessagesForThread,
+} from "@/packages/agents/lib/composio-gmail";
 import {
   TodoListOutputSchema,
   type TodoItem,
@@ -378,7 +381,7 @@ function buildGmailThreadUrl(threadId: string): string {
  * For items sourced from Gmail, set sourceRef.sourceUrl so the UI can link to the email.
  * Looks up threadId from signals by messageId (sourceRef.externalId).
  */
-function enrichGmailItemsWithSourceUrl(
+export function enrichGmailItemsWithSourceUrl(
   items: TodoItem[],
   signals: IntegrationSignal[],
 ): TodoItem[] {
@@ -691,6 +694,100 @@ export function buildSystemPromptWithPreferences(
   return prefsBlock + customBlock + "\n\n" + basePrompt;
 }
 
+/**
+ * Fetch only the signals implied by webhook hints (e.g. one Gmail thread).
+ * Use when merge is triggered by a single new-email webhook: we fetch only that
+ * thread instead of all emails for the day.
+ * Returns null when hints require calendar or full fetch (caller uses fetchAllSignals).
+ */
+async function fetchSignalsForHints(
+  supabase: SupabaseClient<Database>,
+  userId: string,
+  date: string,
+  hints: SignalHint[],
+): Promise<{
+  signals: IntegrationSignal[];
+  promptSettings: TodoPromptSettings | null;
+  emailScopeUsed: TodoEmailScope | null;
+} | null> {
+  const hasEventId = hints.some((h) => Boolean(h.eventId));
+  const threadIds = [
+    ...new Set(hints.map((h) => h.threadId).filter(Boolean) as string[]),
+  ];
+  const hasGmailHints =
+    threadIds.length > 0 || hints.some((h) => Boolean(h.messageId));
+  if (hasEventId || !hasGmailHints) return null;
+  if (threadIds.length === 0) return null;
+
+  const [scope, promptSettings] = await Promise.all([
+    getTodoEmailScope(supabase, userId),
+    getTodoPromptSettings(supabase, userId),
+  ]);
+
+  const allParsed: Awaited<ReturnType<typeof fetchGmailMessagesForThread>> = [];
+  for (const threadId of threadIds) {
+    const messages = await fetchGmailMessagesForThread(userId, threadId, {
+      targetDateYyyyMmDd: date,
+    });
+    allParsed.push(...messages);
+  }
+  if (allParsed.length === 0) {
+    return {
+      signals: [],
+      promptSettings: promptSettings ?? null,
+      emailScopeUsed: scope ?? null,
+    };
+  }
+
+  let gmailSignals: GmailSignal[] = allParsed.map((msg) => ({
+    provider: "gmail" as const,
+    subject: msg.subject,
+    sender: msg.sender,
+    snippet: msg.snippet,
+    timestamp: msg.timestamp,
+    messageId: msg.messageId,
+    threadId: msg.threadId,
+    threadContext: msg.threadContext,
+    labels: msg.labels,
+  }));
+
+  if (hasAnyScope(scope)) {
+    const blockedSenders = new Set(
+      (scope!.sendersBlocked ?? []).map((e) => e.toLowerCase().trim()),
+    );
+    const blockedLabels = new Set(scope!.labelIdsBlocked ?? []);
+    if (blockedSenders.size > 0 || blockedLabels.size > 0) {
+      gmailSignals = gmailSignals.filter((s) => {
+        if (blockedSenders.size > 0) {
+          const senderEmail = (s.sender ?? "").toLowerCase().includes("<")
+            ? (s.sender ?? "")
+                .replace(/.*<([^>]+)>.*/, "$1")
+                .trim()
+                .toLowerCase()
+            : (s.sender ?? "").trim().toLowerCase();
+          if (blockedSenders.has(senderEmail)) return false;
+        }
+        if (
+          blockedLabels.size > 0 &&
+          s.labels.some((l) => blockedLabels.has(l))
+        )
+          return false;
+        return true;
+      });
+    }
+  }
+
+  if (promptSettings?.toggles?.fromEmails === false) {
+    gmailSignals = [];
+  }
+
+  return {
+    signals: gmailSignals,
+    promptSettings: promptSettings ?? null,
+    emailScopeUsed: scope ?? null,
+  };
+}
+
 /** Fetch signals from all registered integrations. Calendar from Supabase; Gmail via Composio. Uses user's todo_email_scope and todo_prompt_settings (filters by fromCalendar/fromEmails). */
 async function fetchAllSignals(
   supabase: SupabaseClient<Database>,
@@ -741,13 +838,26 @@ async function fetchAllSignals(
 const EMAIL_SNIPPET_MAX = 2000;
 const EMAIL_THREAD_CONTEXT_MAX = 6000;
 
+/**
+ * Calendar event is a "meeting" (needs preparation task) when there is more than one
+ * participant (owner + at least one other). Single or zero participants = time block / reserve.
+ */
+function isMeetingByParticipants(participants: string[]): boolean {
+  return participants.length > 1;
+}
+
 export function signalsToPromptContext(signals: IntegrationSignal[]): string {
   return signals
     .map((signal) => {
       if (signal.provider === "google_calendar") {
         const s = signal as CalendarEventSignal;
+        const meeting = isMeetingByParticipants(s.participants);
+        const kindHint = meeting
+          ? "Kind: Meeting (2+ participants) — create a preparation task per calendar rules."
+          : "Kind: Time block (single or no participants) — create a task ONLY if title/description clearly describes concrete work; otherwise do NOT create a task.";
         const parts = [
           `[CALENDAR] "${s.title}"`,
+          kindHint,
           `Start: ${s.startTime}`,
           s.endTime ? `End: ${s.endTime}` : "",
           s.participants.length > 0
@@ -806,6 +916,7 @@ DECISION FRAMEWORK — ask yourself for each signal:
 - Does this signal imply the user needs to DO something (reply, prepare, create, review, decide, deliver, follow up)?
 - Is there evidence in the content that someone is waiting for the user, or that the user committed to something?
 - {{calendarGuidance}}
+- CALENDAR RULES (apply in order): Each calendar signal is labeled "Kind: Meeting" or "Kind: Time block". (1) If Kind: Meeting (2+ participants): create exactly one meeting-preparation task based on title, description, and participants. (2) If Kind: Time block (single or no participants): create a task ONLY when the title and/or description semantically describe concrete work to be done (e.g. "create website", "draft proposal", "review document"). Use semantic understanding, not keyword lists. Do NOT create a task for generic reserves like "Focus time", "Deep work", "Block", "Reserve", "Busy" — those are just time blocks; omit them from your output.
 - For emails: read the Content section (preview and thread context) in full. Is the user expected to respond, take action, or make a decision — or is this informational / automated / marketing?
 - For email threads: read the full conversation flow in the Content. The Content shows messages in chronological order; "From:" or the sender name indicates who wrote each part. Who spoke last? Is the ball in the user's court? If the other party asked a question or is waiting for the user to reply, send something, or follow up — create a task. This includes Re: threads from colleagues, clients, or support.
 
@@ -845,9 +956,10 @@ You must output a task for every signal that meets the criteria above — do not
 Return [] only when no signal implies a concrete user action.`;
 
 function buildCalendarGuidance(t: Required<TodoPromptToggles>): string {
-  return t.prepForMeetings
-    ? "For calendar events: does this meeting require preparation, deliverables, or follow-up — or is it passive attendance / personal time?"
-    : "For calendar events: is this meeting something the user needs to actively attend or act upon — or is it passive attendance / personal time? Do NOT create preparation or deliverable tasks from calendar events.";
+  if (!t.prepForMeetings) {
+    return "For calendar events: do NOT create preparation or deliverable tasks. Treat calendar events as context only; do not output a task for them.";
+  }
+  return "For calendar events: use the Kind label (Meeting vs Time block) and participant count. Meetings (2+ participants): create one preparation task. Time blocks (1 or 0 participants): create a task only if title/description clearly describe actionable work; otherwise skip (time reserve).";
 }
 
 function buildSkipRules(t: Required<TodoPromptToggles>): string {
@@ -1174,21 +1286,40 @@ export class TodoGenerator {
       return this.generateForDate(userId, date, options);
     }
 
-    const {
-      signals: initialSignals,
-      promptSettings,
-      emailScopeUsed,
-    } = await fetchAllSignals(this.supabase, userId, date);
-    if (initialSignals.length === 0) {
+    let signals: IntegrationSignal[];
+    let promptSettings: TodoPromptSettings | null;
+    let emailScopeUsed: TodoEmailScope | null;
+
+    if (options?.signalHints?.length) {
+      const hinted = await fetchSignalsForHints(
+        this.supabase,
+        userId,
+        date,
+        options.signalHints,
+      );
+      if (hinted) {
+        signals = hinted.signals;
+        promptSettings = hinted.promptSettings;
+        emailScopeUsed = hinted.emailScopeUsed;
+      } else {
+        const full = await fetchAllSignals(this.supabase, userId, date);
+        signals = filterSignalsByHints(full.signals, options.signalHints);
+        promptSettings = full.promptSettings;
+        emailScopeUsed = full.emailScopeUsed;
+      }
+    } else {
+      const full = await fetchAllSignals(this.supabase, userId, date);
+      signals = full.signals;
+      promptSettings = full.promptSettings;
+      emailScopeUsed = full.emailScopeUsed;
+    }
+
+    if (signals.length === 0) {
       return TodoListOutputSchema.parse({
         ...existing,
         updatedBecause: "no_changes_detected",
       });
     }
-
-    const signals = options?.signalHints?.length
-      ? filterSignalsByHints(initialSignals, options.signalHints)
-      : initialSignals;
 
     const startedAt = Date.now();
     const triageResult = await runTriageSignals(

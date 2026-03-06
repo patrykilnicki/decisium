@@ -8,11 +8,9 @@ import {
   ChatMessageType,
   type ChatRole,
 } from "@/components/chat";
-import { ProtectedRoute } from "@/components/auth/protected-route";
-import { AppLayout } from "@/components/layout/app-layout";
 import { Button } from "@/components/ui/button";
 import { CentralIcon } from "@/components/ui/central-icon";
-import Link from "next/link";
+import { useAskLayout } from "@/app/ask/ask-layout-context";
 import type { AskMessage } from "@/types/database";
 
 function transformMessage(msg: AskMessage): ChatMessageType {
@@ -27,6 +25,8 @@ function transformMessage(msg: AskMessage): ChatMessageType {
 export default function ThreadPage() {
   const params = useParams();
   const threadId = params.threadId as string;
+  const { threads } = useAskLayout();
+
   const [initialLoading, setInitialLoading] = useState(true);
 
   const {
@@ -62,19 +62,16 @@ export default function ThreadPage() {
           : [];
         setMessages(validMessages);
       }
-    } catch (error) {
-      console.error("Failed to load messages:", error);
+    } catch (err) {
+      console.error("Failed to load messages:", err);
       setMessages([]);
     } finally {
       setInitialLoading(false);
     }
   }, [threadId, setMessages]);
 
-  // Load initial messages
   useEffect(() => {
-    if (threadId) {
-      loadMessages();
-    }
+    if (threadId) loadMessages();
   }, [threadId, loadMessages]);
 
   const handleSend = useCallback(
@@ -85,90 +82,73 @@ export default function ThreadPage() {
   );
 
   const failedTasks = failedTaskIds ?? [];
+  const currentThread = threads.find((t) => t.id === threadId);
+  const threadTitle = currentThread?.title || "Untitled Conversation";
 
   return (
-    <ProtectedRoute>
-      <AppLayout>
-        <div className="flex flex-col h-full relative min-h-0">
-          {/* Header */}
-          <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 z-10 shrink-0">
-            <div className="flex items-center gap-4 p-4">
-              <Button variant="ghost" size="sm" asChild>
-                <Link href="/ask">← Back</Link>
-              </Button>
-              <h1 className="text-lg font-semibold">Conversation</h1>
-            </div>
-          </header>
-
-          {/* Chat Area */}
-          {initialLoading ? (
-            <div className="flex-1 flex items-center justify-center min-h-0">
-              <div className="flex flex-col items-center gap-3 text-muted-foreground">
-                <CentralIcon
-                  name="IconLoader"
-                  size={24}
-                  className="animate-spin"
-                />
-                <span className="text-sm">Loading messages...</span>
-              </div>
-            </div>
-          ) : (
-            <ChatContainer
-              messages={messages}
-              thinkingState={thinkingState}
-              onSend={handleSend}
-              isLoading={isLoading}
-              placeholder="Ask about your patterns, history, or insights..."
-              emptyStateTitle="Start the conversation"
-              emptyStateDescription="Ask me anything about your data, patterns, or get insights from your history."
-            />
-          )}
-
-          {failedTasks.length > 0 && (
-            <div className="px-4 pb-4">
-              <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <span>
-                    Some steps failed. You can retry, resume, or cancel.
-                  </span>
-                  <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => retryTask?.(failedTasks[0])}
-                    >
-                      Retry
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => resumeTask?.(failedTasks[0])}
-                    >
-                      Resume
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => cancelTask?.(failedTasks[0])}
-                    >
-                      Cancel
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Error display */}
-          {error && (
-            <div className="absolute bottom-20 left-4 right-4 mx-auto max-w-3xl">
-              <div className="px-4 py-2 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-lg">
-                {error}
-              </div>
-            </div>
-          )}
+    <div className="relative flex min-h-0 flex-1 flex-col">
+      <header className="shrink-0 border-b border-border bg-background px-4 py-3">
+        <h1 className="truncate text-lg font-semibold text-foreground">
+          {threadTitle}
+        </h1>
+      </header>
+      {initialLoading ? (
+        <div className="flex flex-1 items-center justify-center min-h-0">
+          <div className="flex flex-col items-center gap-3 text-muted-foreground">
+            <CentralIcon name="IconLoader" size={24} className="animate-spin" />
+            <span className="text-sm">Loading messages...</span>
+          </div>
         </div>
-      </AppLayout>
-    </ProtectedRoute>
+      ) : (
+        <ChatContainer
+          messages={messages}
+          thinkingState={thinkingState}
+          onSend={handleSend}
+          isLoading={isLoading}
+          placeholder="Ask about your patterns, history, or insights..."
+        />
+      )}
+
+      {failedTasks.length > 0 && (
+        <div className="shrink-0 px-4 pb-4">
+          <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <span>Some steps failed. You can retry, resume, or cancel.</span>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => retryTask?.(failedTasks[0])}
+                >
+                  Retry
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => resumeTask?.(failedTasks[0])}
+                >
+                  Resume
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => cancelTask?.(failedTasks[0])}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {error && (
+        <div className="absolute bottom-20 left-4 right-4 z-10 mx-auto max-w-3xl">
+          <div className="rounded-lg border border-destructive/20 bg-destructive/10 px-4 py-2 text-sm text-destructive">
+            {error}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

@@ -42,12 +42,12 @@ const DEFAULT_TOGGLES: Record<ToggleKey, boolean> = {
 };
 
 const TOGGLE_LABELS: Record<ToggleKey, string> = {
-  fromCalendar: "Uwzględniaj kalendarz",
-  fromEmails: "Uwzględniaj maile",
-  replyTasks: "Zadania typu «odpowiedz na e-mail»",
-  fromNewsletters: "Zadania z newsletterów / marketingu",
-  prepForMeetings: "Zadania «przygotowanie do spotkania» z kalendarza",
-  fromAutomatedBots: "Zadania z wiadomości od botów/automatów",
+  fromCalendar: "Include calendar",
+  fromEmails: "Include emails",
+  replyTasks: "«Reply to email» tasks",
+  fromNewsletters: "Tasks from newsletters / marketing",
+  prepForMeetings: "«Meeting prep» tasks from calendar",
+  fromAutomatedBots: "Tasks from bot/automation messages",
 };
 
 const CUSTOM_INSTRUCTIONS_MAX = 1000;
@@ -112,11 +112,11 @@ export function TodoPromptSettingsSection() {
         const err = await res.json();
         throw new Error(err.error ?? "Failed to save");
       }
-      setNotification({ type: "success", message: "Zapisano" });
+      setNotification({ type: "success", message: "Saved" });
     } catch (e) {
       setNotification({
         type: "error",
-        message: e instanceof Error ? e.message : "Nie udało się zapisać",
+        message: e instanceof Error ? e.message : "Failed to save",
       });
     } finally {
       setSaving(false);
@@ -128,10 +128,10 @@ export function TodoPromptSettingsSection() {
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="text-lg font-semibold">Generowanie zadań to-do</h2>
+        <h2 className="text-lg font-semibold">To-do task generation</h2>
         <p className="text-sm text-muted-foreground">
-          Wybierz, z jakich źródeł i typów mają powstawać zadania. Możesz też
-          dodać własne instrukcje dla modelu.
+          Choose which sources and types should create tasks. You can also add
+          custom instructions for the model.
         </p>
       </div>
 
@@ -149,11 +149,13 @@ export function TodoPromptSettingsSection() {
       )}
 
       {loading ? (
-        <p className="text-sm text-muted-foreground">Ładowanie…</p>
+        <p className="text-sm text-muted-foreground">Loading…</p>
       ) : (
         <>
           <div className="space-y-3">
-            <Label className="text-base font-medium">Źródła i typy zadań</Label>
+            <Label className="text-base font-medium">
+              Sources and task types
+            </Label>
             <ul className="space-y-2 rounded-md border p-3">
               {TOGGLE_KEYS.map((key) => (
                 <li key={key} className="flex items-center gap-2">
@@ -178,11 +180,11 @@ export function TodoPromptSettingsSection() {
               htmlFor="custom-instructions"
               className="text-base font-medium"
             >
-              Własne instrukcje
+              Custom instructions
             </Label>
             <Textarea
               id="custom-instructions"
-              placeholder="Np. Twórz tylko zadania z spotkań z klientem. Pomijaj małe spotkania wewnętrzne."
+              placeholder="E.g. Only create tasks from client meetings. Skip small internal meetings."
               value={customInstructions}
               onChange={(e) =>
                 setCustomInstructions(
@@ -194,12 +196,12 @@ export function TodoPromptSettingsSection() {
               className="resize-none"
             />
             <p className="text-xs text-muted-foreground">
-              {customInstructions.length}/{CUSTOM_INSTRUCTIONS_MAX} znaków
+              {customInstructions.length}/{CUSTOM_INSTRUCTIONS_MAX} characters
             </p>
           </div>
 
           <Button onClick={handleSave} disabled={saving}>
-            {saving ? "Zapisywanie…" : "Zapisz"}
+            {saving ? "Saving…" : "Save"}
           </Button>
         </>
       )}
