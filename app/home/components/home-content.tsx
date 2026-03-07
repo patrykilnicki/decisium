@@ -23,13 +23,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { useSupabaseRealtime } from "@/lib/realtime";
 import { createClient } from "@/lib/supabase/client";
@@ -582,11 +576,7 @@ function TaskDetailModal({
               {task.tags && task.tags.length > 0 && (
                 <>
                   {task.tags.map((tag) => (
-                    <Badge
-                      key={tag}
-                      variant="outline"
-                      className="font-normal"
-                    >
+                    <Badge key={tag} variant="outline" className="font-normal">
                       {tag}
                     </Badge>
                   ))}
