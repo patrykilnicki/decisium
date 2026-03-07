@@ -8,7 +8,7 @@ import {
   WeeklySummaryContent,
   MonthlySummaryContent,
 } from "@/packages/agents/schemas/summary.schema";
-import { storeEmbedding } from "@/lib/embeddings/store";
+import { storeMemory } from "@/lib/memory/memory-service";
 import { format } from "date-fns";
 
 function lastMessageContentAsString(
@@ -239,12 +239,15 @@ Generate the summary for the given date and data. Return only the JSON object.
     } else {
       summaryText = JSON.stringify(summaryContent);
     }
-    await storeEmbedding({
+    await storeMemory({
       userId,
       content: summaryText,
+      memoryType: "semantic",
+      source: "summary",
+      sourceId: (summary as { id: string }).id,
+      importance: 0.8,
       metadata: {
         type: "daily_summary",
-        source_id: (summary as { id: string }).id,
         date,
       },
     });
@@ -477,12 +480,15 @@ Not:
   // Generate embedding
   try {
     const summaryText = `${summaryContent.patterns.join(". ")}. ${summaryContent.themes.join(". ")}. ${summaryContent.insights.join(". ")}`;
-    await storeEmbedding({
+    await storeMemory({
       userId,
       content: summaryText,
+      memoryType: "semantic",
+      source: "summary",
+      sourceId: (summary as { id: string }).id,
+      importance: 1.0,
       metadata: {
         type: "weekly_summary",
-        source_id: (summary as { id: string }).id,
         date: weekStart,
       },
     });
@@ -690,12 +696,15 @@ Not:
   // Generate embedding
   try {
     const summaryText = `${summaryContent.trends.join(". ")}. ${summaryContent.strategic_insights.join(". ")}. ${summaryContent.reflections.join(". ")}`;
-    await storeEmbedding({
+    await storeMemory({
       userId,
       content: summaryText,
+      memoryType: "semantic",
+      source: "summary",
+      sourceId: (summary as { id: string }).id,
+      importance: 1.2,
       metadata: {
         type: "monthly_summary",
-        source_id: (summary as { id: string }).id,
         date: monthStart,
       },
     });

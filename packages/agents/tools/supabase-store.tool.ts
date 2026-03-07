@@ -1,6 +1,7 @@
 import { DynamicStructuredTool } from "@langchain/core/tools";
 import { z } from "zod";
 import * as db from "@/lib/supabase/db";
+import { storeMemory } from "@/lib/memory/memory-service";
 
 function formatEmbeddingValue(value: unknown): string | null | undefined {
   if (value == null) return value as null | undefined;
@@ -26,6 +27,8 @@ export const supabaseStoreTool = new DynamicStructuredTool({
 - monthly_summaries: For monthly summaries (requires: user_id, month_start, content as JSONB)
 - ask_threads: For Ask AI conversation threads (requires: user_id, title)
 - ask_messages: For Ask AI messages (requires: thread_id, role ('user'|'assistant'|'system'), content)
+- todo_items: For task items (requires: user_id, id, date, title, summary, source_provider, source_type, suggested_next_action)
+- user_signals: For user preference/signals (requires: user_id, signal_type, description)
 - embeddings: For vector embeddings (requires: user_id, content, embedding as array, metadata as JSONB)`,
   schema: z.object({
     table: z
@@ -36,6 +39,8 @@ export const supabaseStoreTool = new DynamicStructuredTool({
         "monthly_summaries",
         "ask_threads",
         "ask_messages",
+        "todo_items",
+        "user_signals",
         "embeddings",
       ])
       .describe(
@@ -115,12 +120,108 @@ export const supabaseStoreTool = new DynamicStructuredTool({
         | "monthly_summaries"
         | "ask_threads"
         | "ask_messages"
+        | "todo_items"
+        | "user_signals"
         | "embeddings",
       data as never,
     );
 
     if (error) {
       throw new Error(`Failed to store data in ${table}: ${error.message}`);
+    }
+
+    // Unified memory ingestion for high-value sources written through this tool.
+    try {
+      if (
+        table === "daily_events" &&
+        typeof data.user_id === "string" &&
+        typeof data.content === "string"
+      ) {
+        await storeMemory({
+          userId: data.user_id,
+          content: data.content,
+          memoryType: "episodic",
+          source: "daily_event",
+          sourceId:
+            typeof (result as { id?: string })?.id === "string"
+              ? (result as { id?: string }).id
+              : undefined,
+          importance: 0.5,
+          ttl: "7 days",
+          metadata: {
+            type: "daily_event",
+            date: data.date,
+            role: data.role,
+          },
+        });
+      }
+
+      if (
+        table === "todo_items" &&
+        typeof data.user_id === "string" &&
+        (typeof data.title === "string" || typeof data.summary === "string")
+      ) {
+        const todoContent = [
+          data.title,
+          data.summary,
+          data.suggested_next_action,
+        ]
+          .filter(
+            (value): value is string =>
+              typeof value === "string" && value.trim().length > 0,
+          )
+          .join(". ");
+        if (todoContent) {
+          await storeMemory({
+            userId: data.user_id,
+            content: todoContent,
+            memoryType: "task",
+            source: "task",
+            sourceId: typeof data.id === "string" ? data.id : undefined,
+            importance:
+              data.status === "done"
+                ? 0.7
+                : data.priority === "urgent"
+                  ? 1.4
+                  : 1.0,
+            ttl: data.status === "done" ? "14 days" : null,
+            metadata: {
+              type: "task_item",
+              date: data.date,
+              status: data.status,
+              priority: data.priority,
+            },
+          });
+        }
+      }
+
+      if (
+        table === "user_signals" &&
+        typeof data.user_id === "string" &&
+        typeof data.description === "string"
+      ) {
+        await storeMemory({
+          userId: data.user_id,
+          content: data.description,
+          memoryType: "semantic",
+          source: "insight",
+          sourceId:
+            typeof (result as { id?: string })?.id === "string"
+              ? (result as { id?: string }).id
+              : undefined,
+          importance: 1.5,
+          metadata: {
+            type: "user_signal",
+            signal_type: data.signal_type,
+            impact_area: data.impact_area,
+          },
+        });
+      }
+    } catch (ingestError) {
+      console.error(
+        `[supabase_store] Memory ingestion failed for ${table}:`,
+        ingestError,
+      );
     }
 
     return JSON.stringify(result);

@@ -10,3 +10,4 @@ export { fetchGmailEmailsTool } from "./fetch-gmail-emails.tool";
 export { analyzeGmailEmailsTool } from "./analyze-gmail-emails.tool";
 export { vaultCreateDocumentTool } from "./vault-create-document.tool";
 export { vaultUpdateDocumentTool } from "./vault-update-document.tool";
+export { taskSearchTool } from "./task-search.tool";

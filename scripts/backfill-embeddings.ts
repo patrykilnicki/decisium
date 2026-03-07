@@ -1,15 +1,15 @@
 /**
- * Backfill embeddings for existing daily_events and summaries.
+ * Backfill embeddings for existing memory sources.
  * Run: pnpm backfill-embeddings
  *
- * New daily notes are auto-embedded when saved. This script populates
- * embeddings for existing data created before that feature.
+ * This script populates embeddings for historical data and migrates
+ * memory coverage for RAG retrieval (events, summaries, tasks, signals, ask messages).
  */
 import "dotenv/config";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "../types/supabase";
 import * as db from "../lib/supabase/db";
-import { storeEmbedding } from "../lib/embeddings/store";
+import { storeMemory } from "../lib/memory/memory-service";
 
 const supabase = createClient<Database>(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -58,12 +58,15 @@ async function backfillDailyEvents() {
   let count = 0;
   for (const event of toEmbed) {
     try {
-      await storeEmbedding({
+      await storeMemory({
         userId: event.user_id,
         content: event.content,
+        memoryType: "episodic",
+        source: "daily_event",
+        sourceId: event.id,
+        ttl: "7 days",
         metadata: {
           type: "daily_event",
-          source_id: event.id,
           date: event.date,
         },
       });
@@ -144,12 +147,20 @@ async function backfillSummaries() {
 
     for (const s of toEmbed) {
       try {
-        await storeEmbedding({
+        await storeMemory({
           userId: s.user_id,
           content: contentStr(s.content),
+          memoryType: "semantic",
+          source: "summary",
+          sourceId: s.id,
+          importance:
+            type === "monthly_summary"
+              ? 1.2
+              : type === "weekly_summary"
+                ? 1.0
+                : 0.8,
           metadata: {
             type,
-            source_id: s.id,
             date: String(s[dateCol] ?? ""),
           },
         });
@@ -165,14 +176,149 @@ async function backfillSummaries() {
   return total;
 }
 
+async function backfillTodoItems() {
+  const { data: todos, error } = await db.selectMany(
+    supabase,
+    "todo_items",
+    {},
+    {
+      columns:
+        "id, user_id, date, title, summary, priority, status, source_provider, source_type, suggested_next_action",
+      order: { column: "updated_at", ascending: false },
+    },
+  );
+  if (error) throw new Error(`Failed to fetch todo_items: ${error.message}`);
+  let count = 0;
+  for (const todo of todos ?? []) {
+    const content = [todo.title, todo.summary, todo.suggested_next_action]
+      .filter(Boolean)
+      .join(". ");
+    if (!content) continue;
+    try {
+      await storeMemory({
+        userId: todo.user_id,
+        content,
+        memoryType: "task",
+        source: "task",
+        sourceId: todo.id,
+        importance: todo.priority === "urgent" ? 1.4 : 1.0,
+        ttl: todo.status === "done" ? "14 days" : null,
+        metadata: {
+          type: "task_item",
+          date: todo.date,
+          status: todo.status,
+          source_provider: todo.source_provider,
+          source_type: todo.source_type,
+        },
+      });
+      count++;
+    } catch (err) {
+      console.error(`[backfill] Failed to embed todo ${todo.id}:`, err);
+    }
+  }
+  return count;
+}
+
+async function backfillUserSignals() {
+  const { data: signals, error } = await db.selectMany(
+    supabase,
+    "user_signals",
+    {},
+    {
+      columns: "id, user_id, signal_type, description, impact_area",
+      order: { column: "created_at", ascending: false },
+    },
+  );
+  if (error) throw new Error(`Failed to fetch user_signals: ${error.message}`);
+  let count = 0;
+  for (const signal of signals ?? []) {
+    if (!signal.description?.trim()) continue;
+    try {
+      await storeMemory({
+        userId: signal.user_id,
+        content: signal.description,
+        memoryType: "semantic",
+        source: "insight",
+        sourceId: signal.id,
+        importance: 1.5,
+        metadata: {
+          type: "user_signal",
+          signal_type: signal.signal_type,
+          impact_area: signal.impact_area,
+        },
+      });
+      count++;
+    } catch (err) {
+      console.error(`[backfill] Failed to embed signal ${signal.id}:`, err);
+    }
+  }
+  return count;
+}
+
+async function backfillAskMessages() {
+  const { data: messages, error } = await db.selectMany(
+    supabase,
+    "ask_messages",
+    {},
+    {
+      columns: "id, thread_id, role, content, created_at",
+      order: { column: "created_at", ascending: false },
+    },
+  );
+  if (error) throw new Error(`Failed to fetch ask_messages: ${error.message}`);
+
+  // map thread -> user
+  const threadIds = [...new Set((messages ?? []).map((row) => row.thread_id))];
+  const { data: threads } = await db.selectMany(
+    supabase,
+    "ask_threads",
+    { id: threadIds },
+    { columns: "id,user_id" },
+  );
+  const threadUser = new Map(
+    (threads ?? []).map((row) => [row.id, row.user_id]),
+  );
+  let count = 0;
+  for (const message of messages ?? []) {
+    const userId = threadUser.get(message.thread_id);
+    if (!userId || !message.content?.trim()) continue;
+    try {
+      await storeMemory({
+        userId,
+        content: message.content,
+        memoryType: "conversation",
+        source: "agent",
+        sourceId: message.id,
+        ttl: "7 days",
+        metadata: {
+          type: "ask_message",
+          thread_id: message.thread_id,
+          role: message.role,
+          date: (message.created_at ?? "").slice(0, 10),
+        },
+      });
+      count++;
+    } catch (err) {
+      console.error(
+        `[backfill] Failed to embed ask message ${message.id}:`,
+        err,
+      );
+    }
+  }
+  return count;
+}
+
 async function main() {
   console.log("[backfill] Starting embeddings backfill...\n");
 
   const eventsCount = await backfillDailyEvents();
   const summariesCount = await backfillSummaries();
+  const tasksCount = await backfillTodoItems();
+  const signalsCount = await backfillUserSignals();
+  const askCount = await backfillAskMessages();
 
   console.log(
-    `\n[backfill] Done. Embedded ${eventsCount} daily events, ${summariesCount} summaries.`,
+    `\n[backfill] Done. Embedded ${eventsCount} events, ${summariesCount} summaries, ${tasksCount} tasks, ${signalsCount} user signals, ${askCount} ask messages.`,
   );
 }
 

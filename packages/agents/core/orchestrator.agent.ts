@@ -6,7 +6,7 @@ import type { DynamicStructuredTool } from "@langchain/core/tools";
 
 import { hasToolCalls } from "../lib/router";
 import { getOrchestratorTools } from "../tools/registry";
-import { supabaseStoreTool, embeddingGeneratorTool } from "../tools";
+import { supabaseStoreTool } from "../tools";
 import { handleAgentError } from "../lib/error-handler";
 import { logLlmUsage } from "../lib/llm-usage";
 import { logPromptPayload } from "../lib/prompt-logs";
@@ -26,6 +26,7 @@ import {
   isComposioEnabled,
 } from "../lib/composio";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { storeMemory } from "@/lib/memory/memory-service";
 
 import { createTodoGenerator } from "@/lib/integrations";
 
@@ -210,27 +211,19 @@ async function saveMessagesNode(
     // Generate embedding for user message
     if (savedUserId) {
       try {
-        const embeddingResultStr = await embeddingGeneratorTool.invoke({
+        await storeMemory({
+          userId: state.userId,
           content: state.userMessage,
+          memoryType: "conversation",
+          source: "agent",
+          sourceId: savedUserId,
+          ttl: "7 days",
+          metadata: {
+            type: "ask_message",
+            thread_id: state.threadId,
+            date: state.currentDate,
+          },
         });
-        const embeddingResult = JSON.parse(embeddingResultStr);
-
-        if (embeddingResult?.embedding?.length > 0) {
-          await supabaseStoreTool.invoke({
-            table: "embeddings",
-            data: {
-              user_id: state.userId,
-              content: state.userMessage,
-              embedding: embeddingResult.embedding,
-              metadata: {
-                type: "ask_message",
-                source_id: savedUserId,
-                thread_id: state.threadId,
-                date: state.currentDate,
-              },
-            },
-          });
-        }
       } catch (e) {
         console.error(
           "[saveMessagesNode] Error storing user message embedding:",
@@ -260,27 +253,19 @@ async function saveMessagesNode(
     // Generate embedding for assistant message
     if (savedAssistantId && assistantContent) {
       try {
-        const embeddingResultStr = await embeddingGeneratorTool.invoke({
+        await storeMemory({
+          userId: state.userId,
           content: assistantContent,
+          memoryType: "conversation",
+          source: "agent",
+          sourceId: savedAssistantId,
+          ttl: "7 days",
+          metadata: {
+            type: "ask_message",
+            thread_id: state.threadId,
+            date: state.currentDate,
+          },
         });
-        const embeddingResult = JSON.parse(embeddingResultStr);
-
-        if (embeddingResult?.embedding?.length > 0) {
-          await supabaseStoreTool.invoke({
-            table: "embeddings",
-            data: {
-              user_id: state.userId,
-              content: assistantContent,
-              embedding: embeddingResult.embedding,
-              metadata: {
-                type: "ask_message",
-                source_id: savedAssistantId,
-                thread_id: state.threadId,
-                date: state.currentDate,
-              },
-            },
-          });
-        }
       } catch (e) {
         console.error(
           "[saveMessagesNode] Error storing assistant message embedding:",

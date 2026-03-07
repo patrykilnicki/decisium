@@ -10,18 +10,22 @@ export function formatMemoryForPrompt(
   let formatted = "";
 
   for (const result of results) {
-    const levelLabel = {
-      monthly: "Monthly Insights",
-      weekly: "Weekly Patterns",
-      daily: "Daily Summaries",
-      raw: "Raw Events",
-    }[result.hierarchy_level];
+    const levelLabel =
+      (
+        {
+          monthly: "Monthly Insights",
+          weekly: "Weekly Patterns",
+          daily: "Daily Summaries",
+          raw: "Raw Events",
+          semantic: "Semantic Memories",
+        } as Record<string, string>
+      )[result.hierarchy_level] ?? "Relevant Memories";
 
     formatted += `\n## ${levelLabel}\n\n`;
 
     for (const fragment of result.fragments) {
       formatted += `- ${fragment.content}\n`;
-      if (fragment.metadata.date) {
+      if (fragment.metadata?.date) {
         formatted += `  (Date: ${fragment.metadata.date})\n`;
       }
     }
@@ -40,12 +44,16 @@ export function getMemoryContext(
   let currentChars = 0;
 
   for (const result of results) {
-    const levelLabel = {
-      monthly: "Monthly Insights",
-      weekly: "Weekly Patterns",
-      daily: "Daily Summaries",
-      raw: "Raw Events",
-    }[result.hierarchy_level];
+    const levelLabel =
+      (
+        {
+          monthly: "Monthly Insights",
+          weekly: "Weekly Patterns",
+          daily: "Daily Summaries",
+          raw: "Raw Events",
+          semantic: "Semantic Memories",
+        } as Record<string, string>
+      )[result.hierarchy_level] ?? "Relevant Memories";
 
     const sectionHeader = `\n## ${levelLabel}\n\n`;
     if (currentChars + sectionHeader.length > maxChars) break;

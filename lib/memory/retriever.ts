@@ -17,7 +17,19 @@ interface EmbeddingRow {
   metadata: unknown;
   similarity: number;
   created_at: string;
+  memory_type?: string | null;
+  source?: string | null;
+  source_id?: string | null;
+  importance?: number | null;
+  expires_at?: string | null;
 }
+
+type MemoryTypeValue =
+  | "semantic"
+  | "episodic"
+  | "procedural"
+  | "conversation"
+  | "task";
 
 interface ActivityAtomRow {
   id: string;
@@ -33,6 +45,42 @@ interface ActivityAtomRow {
 
 function getSupabase() {
   return createAdminClient() as import("@supabase/supabase-js").SupabaseClient<Database>;
+}
+
+function scoreWithImportanceAndRecency(params: {
+  similarity: number;
+  importance?: number | null;
+  createdAt: string;
+}): number {
+  const importanceWeight = (params.importance ?? 0.5) * 0.15;
+  const createdAtMs = new Date(params.createdAt).getTime();
+  const ageDays = Number.isFinite(createdAtMs)
+    ? Math.max(0, (Date.now() - createdAtMs) / (1000 * 60 * 60 * 24))
+    : 365;
+  const recencyWeight = Math.max(0, 1 - ageDays / 30) * 0.2;
+  return params.similarity + importanceWeight + recencyWeight;
+}
+
+function uniqueMemoryKey(fragment: MemoryFragment): string {
+  const metadata = (fragment.metadata ?? {}) as Record<string, unknown>;
+  const source = fragment.source ?? String(metadata.source ?? "unknown");
+  const sourceId = fragment.source_id ?? String(metadata.source_id ?? "none");
+  return `${source}:${sourceId}:${fragment.content}`;
+}
+
+function toMemoryType(
+  value: string | null | undefined,
+): MemoryTypeValue | undefined {
+  if (
+    value === "semantic" ||
+    value === "episodic" ||
+    value === "procedural" ||
+    value === "conversation" ||
+    value === "task"
+  ) {
+    return value;
+  }
+  return undefined;
 }
 
 // ============================================
@@ -64,52 +112,67 @@ export async function retrieveMemory(
   options: {
     threshold?: number;
     limit?: number;
-    hierarchyLevel?: "monthly" | "weekly" | "daily" | "raw";
+    memoryTypes?: Array<
+      "semantic" | "episodic" | "procedural" | "conversation" | "task"
+    >;
+    sources?: string[];
+    includeExpired?: boolean;
   } = {},
 ): Promise<MemoryRetrievalResult> {
-  const { threshold = 0.5, limit = 10, hierarchyLevel = "monthly" } = options;
+  const {
+    threshold = 0.4,
+    limit = 30,
+    memoryTypes,
+    sources,
+    includeExpired = false,
+  } = options;
 
   // Generate embedding for query
   const { embedding } = await generateEmbedding(query);
   // Convert number array to PostgreSQL array string format for pgvector
   const queryEmbeddingString = `[${embedding.join(",")}]`;
 
-  // Search embeddings using pgvector
+  // Search embeddings using pgvector.
+  // New SQL supports memory_types/source filters, but we keep this loosely typed
+  // to stay compatible with generated TS types during migration rollout.
   const { data, error } = await getSupabase().rpc("match_embeddings", {
     query_embedding: queryEmbeddingString,
     match_user_id: userId,
     match_threshold: threshold,
     match_count: limit,
-    match_type:
-      hierarchyLevel === "raw" ? "daily_event" : `${hierarchyLevel}_summary`,
-  });
+    match_type: undefined,
+    match_memory_types: memoryTypes,
+    match_sources: sources,
+    include_expired: includeExpired,
+  } as never);
 
   if (error) {
     throw new Error(`Memory retrieval failed: ${error.message}`);
   }
 
-  const fragments: MemoryFragment[] = (data || []).map(
-    (item: EmbeddingRow) => ({
+  const fragments: MemoryFragment[] = (data || [])
+    .map((item: EmbeddingRow) => ({
       id: item.id,
       user_id: item.user_id,
       content: item.content,
       metadata: item.metadata as MemoryMetadata,
       similarity: item.similarity,
       created_at: item.created_at,
-    }),
-  );
-
-  if (fragments.length === 0 && hierarchyLevel === "monthly") {
-    // Log once per query - new daily notes are auto-embedded; backfill needed for existing data
-    console.info(
-      `[memory] No embeddings for user ${userId}. New notes are auto-embedded. ` +
-        "Run `pnpm backfill-embeddings` to populate from existing events/summaries.",
-    );
-  }
+      memory_type: toMemoryType(item.memory_type),
+      source: item.source ?? undefined,
+      source_id: item.source_id ?? undefined,
+      importance: item.importance ?? undefined,
+      final_score: scoreWithImportanceAndRecency({
+        similarity: item.similarity,
+        importance: item.importance,
+        createdAt: item.created_at,
+      }),
+    }))
+    .sort((a, b) => (b.final_score ?? 0) - (a.final_score ?? 0));
 
   return {
     fragments,
-    hierarchy_level: hierarchyLevel,
+    hierarchy_level: "semantic",
     total_found: fragments.length,
   };
 }
@@ -127,54 +190,12 @@ export async function retrieveHierarchicalMemory(
     limitPerLevel?: number;
   } = {},
 ): Promise<MemoryRetrievalResult[]> {
-  const { threshold = 0.5, limitPerLevel = 10 } = options;
-
-  const levels: Array<"monthly" | "weekly" | "daily" | "raw"> = [
-    "monthly",
-    "weekly",
-    "daily",
-    "raw",
-  ];
-
-  const results: MemoryRetrievalResult[] = [];
-
-  for (const level of levels) {
-    try {
-      const result = await retrieveMemory(query, userId, {
-        threshold,
-        limit: limitPerLevel,
-        hierarchyLevel: level,
-      });
-
-      if (result.fragments.length > 0) {
-        results.push(result);
-        // Always query all levels (monthly → weekly → daily → raw) so that
-        // individual events (daily_event / raw) are included; do not break early.
-      }
-    } catch (error) {
-      console.error(`Error retrieving ${level} memory:`, error);
-      // Continue to next level
-    }
-  }
-
-  // Fallback: if no results found in hierarchical search, try searching all types with lower threshold
-  if (results.length === 0) {
-    try {
-      const fallbackResult = await retrieveMemoryAllTypes(query, userId, {
-        threshold: Math.min(threshold, 0.25), // Use lower threshold for fallback
-        limit: limitPerLevel * 3, // Get more results in fallback
-      });
-
-      if (fallbackResult.fragments.length > 0) {
-        results.push(fallbackResult);
-      }
-    } catch (error) {
-      console.error("Error in fallback memory retrieval:", error);
-      // If fallback also fails, return empty results
-    }
-  }
-
-  return results;
+  const { threshold = 0.4, limitPerLevel = 20 } = options;
+  const result = await retrieveMemory(query, userId, {
+    threshold,
+    limit: limitPerLevel * 2,
+  });
+  return result.fragments.length > 0 ? [result] : [];
 }
 
 /** Search across all embedding types (no match_type filter). Use as fallback when hierarchical returns nothing. */
@@ -183,39 +204,11 @@ export async function retrieveMemoryAllTypes(
   userId: string,
   options: { threshold?: number; limit?: number } = {},
 ): Promise<MemoryRetrievalResult> {
-  const { threshold = 0.25, limit = 30 } = options;
-  const { embedding } = await generateEmbedding(query);
-  // Convert number array to PostgreSQL array string format for pgvector
-  const queryEmbeddingString = `[${embedding.join(",")}]`;
-
-  const { data, error } = await getSupabase().rpc("match_embeddings", {
-    query_embedding: queryEmbeddingString,
-    match_user_id: userId,
-    match_threshold: threshold,
-    match_count: limit,
-    match_type: undefined,
+  const { threshold = 0.25, limit = 40 } = options;
+  return retrieveMemory(query, userId, {
+    threshold,
+    limit,
   });
-
-  if (error) {
-    throw new Error(`Memory retrieval failed: ${error.message}`);
-  }
-
-  const fragments: MemoryFragment[] = (data || []).map(
-    (item: EmbeddingRow) => ({
-      id: item.id,
-      user_id: item.user_id,
-      content: item.content,
-      metadata: item.metadata as MemoryMetadata,
-      similarity: item.similarity,
-      created_at: item.created_at,
-    }),
-  );
-
-  return {
-    fragments,
-    hierarchy_level: "raw",
-    total_found: fragments.length,
-  };
 }
 
 // ============================================
@@ -285,22 +278,24 @@ export async function retrieveIntegratedMemory(
   } = {},
 ): Promise<IntegrationMemoryResult> {
   const {
-    threshold = 0.4,
+    threshold = 0.35,
     limitMemory = 40,
     limitAtoms = 25,
     includeAtoms = true,
   } = options;
 
-  // Get hierarchical memory (all levels: monthly, weekly, daily, raw) so
-  // individual events (daily_event) are included; limit per level = limitMemory/4
-  const memoryResults = await retrieveHierarchicalMemory(query, userId, {
+  const memoryResult = await retrieveMemory(query, userId, {
     threshold,
-    limitPerLevel: Math.ceil(limitMemory / 4),
+    limit: limitMemory,
   });
-
-  // Combine all memory fragments
-  const allFragments: MemoryFragment[] = memoryResults.flatMap(
-    (result) => result.fragments,
+  const uniqueFragments = new Map<string, MemoryFragment>();
+  for (const fragment of memoryResult.fragments) {
+    const key = uniqueMemoryKey(fragment);
+    if (uniqueFragments.has(key)) continue;
+    uniqueFragments.set(key, fragment);
+  }
+  const allFragments = [...uniqueFragments.values()].sort(
+    (a, b) => (b.final_score ?? b.similarity) - (a.final_score ?? a.similarity),
   );
 
   // Get activity atoms if enabled
@@ -317,16 +312,10 @@ export async function retrieveIntegratedMemory(
     }
   }
 
-  // Determine hierarchy level based on what was found
-  let hierarchyLevel = "raw";
-  if (memoryResults.length > 0) {
-    hierarchyLevel = memoryResults[0].hierarchy_level;
-  }
-
   return {
     fragments: allFragments,
     activityAtoms,
-    hierarchyLevel,
+    hierarchyLevel: "semantic",
     totalFound: allFragments.length + activityAtoms.length,
   };
 }

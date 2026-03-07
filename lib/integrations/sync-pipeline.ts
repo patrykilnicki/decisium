@@ -1,11 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "@/types/supabase";
-import type { ActivityAtomInsert, EmbeddingInsert } from "@/types/database";
+import type { ActivityAtomInsert } from "@/types/database";
 import * as db from "@/lib/supabase/db";
-import {
-  generateEmbedding,
-  generateEmbeddings,
-} from "@/lib/embeddings/generate";
+import { generateEmbedding } from "@/lib/embeddings/generate";
+import { storeMemory } from "@/lib/memory/memory-service";
 import { OAuthManager, Integration } from "./oauth-manager";
 import {
   ActivityAtom,
@@ -573,37 +571,29 @@ export class SyncPipeline {
         const BATCH_SIZE = 20;
         for (let i = 0; i < atomsToGenerateEmbeddings.length; i += BATCH_SIZE) {
           const batch = atomsToGenerateEmbeddings.slice(i, i + BATCH_SIZE);
-          const contents = batch.map((atom) => atom.content);
 
           try {
-            const embeddings = await generateEmbeddings(contents);
-
             // Store embeddings and map to atoms
             for (let j = 0; j < batch.length; j++) {
               const atom = batch[j];
-              const embedding = embeddings[j];
-
-              // Convert number array to PostgreSQL array string format for pgvector
-              const embeddingString = `[${embedding.embedding.join(",")}]`;
-
-              const insertData: EmbeddingInsert = {
-                user_id: integration.userId,
+              const memoryId = await storeMemory({
+                userId: integration.userId,
                 content: atom.content,
-                embedding: embeddingString,
+                memoryType: "episodic",
+                source: integration.provider === "gmail" ? "gmail" : "calendar",
+                sourceId: atom.externalId,
+                importance: 0.4,
                 metadata: {
                   type: "activity_atom",
                   provider: integration.provider,
                   external_id: atom.externalId,
                   atom_type: atom.atomType,
                   date: atom.occurredAt.toISOString().split("T")[0],
-                } as Json,
-              };
+                },
+              });
 
-              const { data: embeddingData, error: embeddingError } =
-                await db.insertOne(this.supabase, "embeddings", insertData);
-
-              if (!embeddingError && embeddingData) {
-                embeddingMap.set(atom.externalId, embeddingData.id);
+              if (memoryId) {
+                embeddingMap.set(atom.externalId, memoryId);
                 embeddingsGenerated++;
               }
             }

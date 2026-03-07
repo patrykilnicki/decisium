@@ -1,10 +1,11 @@
 import { StateGraph, END, START } from "@langchain/langgraph";
 import { createBaseAgent } from "../lib/agent-base";
-import { supabaseStoreTool, embeddingGeneratorTool } from "../tools";
+import { supabaseStoreTool } from "../tools";
 import { buildAgentContext } from "../lib/context";
 import { handleAgentError } from "../lib/error-handler";
 import { logLlmUsage } from "../lib/llm-usage";
 import { logPromptPayload } from "../lib/prompt-logs";
+import { storeMemory } from "@/lib/memory/memory-service";
 import {
   createOrchestratorGraph,
   processOrchestratorMessage,
@@ -67,34 +68,19 @@ async function storeAskEmbedding(params: {
   currentDate: string;
 }): Promise<void> {
   try {
-    const embeddingResultStr = await embeddingGeneratorTool.invoke({
+    await storeMemory({
+      userId: params.userId,
       content: params.content,
+      memoryType: "conversation",
+      source: "agent",
+      sourceId: params.sourceId,
+      ttl: "7 days",
+      metadata: {
+        type: "ask_message",
+        thread_id: params.threadId,
+        date: params.currentDate,
+      },
     });
-    const embeddingResult =
-      typeof embeddingResultStr === "string"
-        ? JSON.parse(embeddingResultStr)
-        : embeddingResultStr;
-
-    if (
-      embeddingResult?.embedding &&
-      Array.isArray(embeddingResult.embedding) &&
-      embeddingResult.embedding.length > 0
-    ) {
-      await supabaseStoreTool.invoke({
-        table: "embeddings",
-        data: {
-          user_id: params.userId,
-          content: params.content,
-          embedding: embeddingResult.embedding,
-          metadata: {
-            type: "ask_message",
-            source_id: params.sourceId,
-            thread_id: params.threadId,
-            date: params.currentDate,
-          },
-        },
-      });
-    }
   } catch (embeddingError) {
     console.error("Error storing embedding for ask message:", embeddingError);
   }

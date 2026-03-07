@@ -80,7 +80,10 @@ export const memorySearchTool = new DynamicStructuredTool({
           fragmentIds.add(f.id);
           fragmentResults.push({
             content: f.content,
-            metadata: f.metadata as Record<string, unknown>,
+            metadata: {
+              ...(f.metadata as Record<string, unknown>),
+              final_score: f.final_score,
+            },
             similarity: f.similarity,
             hierarchy_level: expanded.hierarchyLevel,
           });
@@ -93,7 +96,10 @@ export const memorySearchTool = new DynamicStructuredTool({
         fragmentIds.add(fragment.id);
         fragmentResults.push({
           content: fragment.content,
-          metadata: fragment.metadata as Record<string, unknown>,
+          metadata: {
+            ...(fragment.metadata as Record<string, unknown>),
+            final_score: fragment.final_score,
+          },
           similarity: fragment.similarity,
           hierarchy_level: integrated.hierarchyLevel,
         });
@@ -109,15 +115,22 @@ export const memorySearchTool = new DynamicStructuredTool({
         fragmentIds.add(fragment.id);
         fragmentResults.push({
           content: fragment.content,
-          metadata: fragment.metadata as Record<string, unknown>,
+          metadata: {
+            ...(fragment.metadata as Record<string, unknown>),
+            final_score: fragment.final_score,
+          },
           similarity: fragment.similarity,
           hierarchy_level: "all",
         });
       }
 
-      const bySimilarity = [...fragmentResults].sort(
-        (a, b) => (b.similarity ?? 0) - (a.similarity ?? 0),
-      );
+      const bySimilarity = [...fragmentResults].sort((a, b) => {
+        const aFinal =
+          (a.metadata?.final_score as number | undefined) ?? a.similarity ?? 0;
+        const bFinal =
+          (b.metadata?.final_score as number | undefined) ?? b.similarity ?? 0;
+        return bFinal - aFinal;
+      });
       const formattedResults: MemorySearchResultItem[] = [
         ...bySimilarity,
         ...integrated.activityAtoms.map((atom) => ({

@@ -5,20 +5,27 @@ import {
   retrieveMemoryAllTypes,
 } from "@/lib/memory/retriever";
 import { searchVaultChunks } from "@/lib/vault/vault-retriever";
+import { searchTaskItems } from "@/lib/memory/task-retriever";
+import { rerankCandidates } from "@/packages/agents/lib/rerank";
 
 interface KnowledgeSearchItem {
+  id: string;
   content: string;
   similarity: number;
-  source: "memory" | "vault";
+  source: "memory" | "vault" | "task";
   document_id?: string;
   heading_path?: string | null;
   metadata?: Record<string, unknown>;
+  base_score?: number;
+  rerank_score?: number;
 }
 
 const MAX_RESULTS_CAP = 60;
 const FEW_RESULTS_THRESHOLD = 8;
 const EXPAND_THRESHOLD = 0.25;
 const EXPAND_LIMIT_MULTIPLIER = 2;
+const RAG_RETRIEVER_V2_ENABLED =
+  (process.env.RAG_RETRIEVER_V2_ENABLED || "true").toLowerCase() !== "false";
 
 function clampLimit(value: number): number {
   return Math.min(MAX_RESULTS_CAP, Math.max(5, Math.round(value)));
@@ -67,118 +74,124 @@ export const knowledgeSearchTool = new DynamicStructuredTool({
       const initialThreshold = useExpandedParams ? EXPAND_THRESHOLD : 0.4;
       const limitMultiplier = useExpandedParams ? EXPAND_LIMIT_MULTIPLIER : 1;
       const perSourceLimit = Math.ceil((limit * limitMultiplier) / 2);
-
-      const runSearch = async () => {
-        const [integrated, vaultResults] = await Promise.all([
-          retrieveIntegratedMemory(query, userId, {
-            threshold: initialThreshold,
-            limitMemory: perSourceLimit,
-            limitAtoms: Math.floor(perSourceLimit / 2),
-            includeAtoms: true,
-          }),
-          searchVaultChunks(query, userId, {
-            threshold: initialThreshold,
-            limit: perSourceLimit,
-          }),
-        ]);
-
-        const extra = await retrieveMemoryAllTypes(query, userId, {
+      const [integrated, vaultResults, extra, taskResults] = await Promise.all([
+        retrieveIntegratedMemory(query, userId, {
+          threshold: initialThreshold,
+          limitMemory: perSourceLimit,
+          limitAtoms: Math.floor(perSourceLimit / 2),
+          includeAtoms: true,
+        }),
+        searchVaultChunks(query, userId, {
+          threshold: initialThreshold,
+          limit: perSourceLimit,
+        }),
+        retrieveMemoryAllTypes(query, userId, {
           threshold: useExpandedParams ? 0.2 : 0.25,
           limit: perSourceLimit,
-        });
+        }),
+        RAG_RETRIEVER_V2_ENABLED
+          ? searchTaskItems({
+              userId,
+              query,
+              limit: perSourceLimit,
+            })
+          : Promise.resolve([]),
+      ]);
 
-        return { integrated, vaultResults, extra };
-      };
-
-      const { integrated, vaultResults, extra } = await runSearch();
-
-      const fragmentIds = new Set<string>();
-      const atomIds = new Set<string>();
-      const items: KnowledgeSearchItem[] = [];
-
-      const addMemoryResults = (
-        fragments: {
-          id: string;
-          content: string;
-          similarity: number;
-          metadata?: unknown;
-        }[],
-        atoms: {
-          id: string;
-          content: string;
-          similarity: number;
-          provider: string;
-          atomType: string;
-          occurredAt: Date;
-          title?: string;
-          sourceUrl?: string;
-        }[],
-        hierarchyLevel: string,
-      ) => {
-        for (const f of fragments) {
-          if (fragmentIds.has(f.id)) continue;
-          fragmentIds.add(f.id);
-          items.push({
-            content: f.content,
-            similarity: f.similarity,
-            source: "memory",
-            metadata: {
-              ...(f.metadata as Record<string, unknown>),
-              hierarchy_level: hierarchyLevel,
-            },
-          });
-        }
-        for (const atom of atoms) {
-          if (atomIds.has(atom.id)) continue;
-          atomIds.add(atom.id);
-          items.push({
-            content: atom.content,
-            similarity: atom.similarity,
-            source: "memory",
-            metadata: {
-              type: "activity_atom",
-              provider: atom.provider,
-              atom_type: atom.atomType,
-              occurred_at: atom.occurredAt.toISOString(),
-              title: atom.title,
-              source_url: atom.sourceUrl,
-            },
-          });
+      // MergeCandidates stage: normalize, dedupe, and prepare candidate set for reranking.
+      const candidateMap = new Map<string, KnowledgeSearchItem>();
+      const upsertCandidate = (item: KnowledgeSearchItem) => {
+        const existing = candidateMap.get(item.id);
+        if (!existing || (item.base_score ?? 0) > (existing.base_score ?? 0)) {
+          candidateMap.set(item.id, item);
         }
       };
 
-      addMemoryResults(
-        integrated.fragments,
-        integrated.activityAtoms,
-        integrated.hierarchyLevel,
-      );
-
-      for (const f of extra.fragments) {
-        if (fragmentIds.has(f.id)) continue;
-        fragmentIds.add(f.id);
-        items.push({
-          content: f.content,
-          similarity: f.similarity,
+      for (const fragment of integrated.fragments) {
+        upsertCandidate({
+          id: `memory:${fragment.id}`,
+          content: fragment.content,
+          similarity: fragment.similarity,
           source: "memory",
-          metadata: { hierarchy_level: "all" },
+          base_score: fragment.final_score ?? fragment.similarity,
+          metadata: {
+            ...(fragment.metadata as Record<string, unknown>),
+            hierarchy_level: integrated.hierarchyLevel,
+            memory_type: fragment.memory_type,
+            source: fragment.source,
+            source_id: fragment.source_id,
+            importance: fragment.importance,
+          },
         });
       }
 
-      for (const r of vaultResults) {
-        items.push({
-          content: r.content,
-          similarity: r.similarity,
+      for (const atom of integrated.activityAtoms) {
+        upsertCandidate({
+          id: `atom:${atom.id}`,
+          content: atom.content,
+          similarity: atom.similarity,
+          source: "memory",
+          base_score: atom.similarity,
+          metadata: {
+            type: "activity_atom",
+            provider: atom.provider,
+            atom_type: atom.atomType,
+            occurred_at: atom.occurredAt.toISOString(),
+            title: atom.title,
+            source_url: atom.sourceUrl,
+          },
+        });
+      }
+
+      for (const fragment of extra.fragments) {
+        upsertCandidate({
+          id: `memory-extra:${fragment.id}`,
+          content: fragment.content,
+          similarity: fragment.similarity,
+          source: "memory",
+          base_score: fragment.final_score ?? fragment.similarity,
+          metadata: {
+            ...(fragment.metadata as Record<string, unknown>),
+            hierarchy_level: "all",
+          },
+        });
+      }
+
+      for (const vault of vaultResults) {
+        upsertCandidate({
+          id: `vault:${vault.id}`,
+          content: vault.content,
+          similarity: vault.similarity,
           source: "vault",
-          document_id: r.document_id,
-          heading_path: r.heading_path,
+          document_id: vault.document_id,
+          heading_path: vault.heading_path,
+          base_score: vault.similarity,
         });
       }
 
+      for (const task of taskResults) {
+        upsertCandidate({
+          id: `task:${task.id}`,
+          content: task.content,
+          similarity: task.similarity,
+          source: "task",
+          base_score: task.similarity,
+          metadata: {
+            type: "task_item",
+            status: task.status,
+            priority: task.priority,
+            due_at: task.due_at,
+            updated_at: task.updated_at,
+          },
+        });
+      }
+
+      const mergedCandidates = [...candidateMap.values()];
       const needsExpand =
-        !useExpandedParams && items.length < FEW_RESULTS_THRESHOLD;
+        !useExpandedParams && mergedCandidates.length < FEW_RESULTS_THRESHOLD;
 
       if (needsExpand) {
-        const [expandIntegrated, expandVault] = await Promise.all([
+        const [expandIntegrated, expandVault, expandTasks] = await Promise.all([
           retrieveIntegratedMemory(query, userId, {
             threshold: EXPAND_THRESHOLD,
             limitMemory: perSourceLimit * 2,
@@ -189,51 +202,86 @@ export const knowledgeSearchTool = new DynamicStructuredTool({
             threshold: EXPAND_THRESHOLD,
             limit: perSourceLimit * 2,
           }),
+          searchTaskItems({
+            userId,
+            query,
+            limit: perSourceLimit * 2,
+          }),
         ]);
 
-        for (const f of expandIntegrated.fragments) {
-          if (fragmentIds.has(f.id)) continue;
-          fragmentIds.add(f.id);
-          items.push({
-            content: f.content,
-            similarity: f.similarity,
+        for (const fragment of expandIntegrated.fragments) {
+          upsertCandidate({
+            id: `memory-expand:${fragment.id}`,
+            content: fragment.content,
+            similarity: fragment.similarity,
             source: "memory",
+            base_score: fragment.final_score ?? fragment.similarity,
             metadata: {
-              ...(f.metadata as Record<string, unknown>),
+              ...(fragment.metadata as Record<string, unknown>),
               hierarchy_level: expandIntegrated.hierarchyLevel,
             },
           });
         }
-        for (const atom of expandIntegrated.activityAtoms) {
-          if (atomIds.has(atom.id)) continue;
-          atomIds.add(atom.id);
-          items.push({
-            content: atom.content,
-            similarity: atom.similarity,
-            source: "memory",
-            metadata: {
-              type: "activity_atom",
-              provider: atom.provider,
-              atom_type: atom.atomType,
-              occurred_at: atom.occurredAt.toISOString(),
-              title: atom.title,
-              source_url: atom.sourceUrl,
-            },
+        for (const vault of expandVault) {
+          upsertCandidate({
+            id: `vault-expand:${vault.id}`,
+            content: vault.content,
+            similarity: vault.similarity,
+            source: "vault",
+            document_id: vault.document_id,
+            heading_path: vault.heading_path,
+            base_score: vault.similarity,
           });
         }
-        for (const r of expandVault) {
-          items.push({
-            content: r.content,
-            similarity: r.similarity,
-            source: "vault",
-            document_id: r.document_id,
-            heading_path: r.heading_path,
+        for (const task of expandTasks) {
+          upsertCandidate({
+            id: `task-expand:${task.id}`,
+            content: task.content,
+            similarity: task.similarity,
+            source: "task",
+            base_score: task.similarity,
+            metadata: {
+              type: "task_item",
+              status: task.status,
+              priority: task.priority,
+              due_at: task.due_at,
+              updated_at: task.updated_at,
+            },
           });
         }
       }
 
-      const sorted = [...items].sort((a, b) => b.similarity - a.similarity);
-      const topResults = sorted.slice(0, limit);
+      const reranked = RAG_RETRIEVER_V2_ENABLED
+        ? await rerankCandidates({
+            query,
+            items: [...candidateMap.values()].map((item) => ({
+              id: item.id,
+              content: item.content,
+              score: item.base_score ?? item.similarity,
+            })),
+          })
+        : [...candidateMap.values()]
+            .sort(
+              (a, b) =>
+                (b.base_score ?? b.similarity) - (a.base_score ?? a.similarity),
+            )
+            .map((item) => ({
+              id: item.id,
+              score: item.base_score ?? item.similarity,
+            }));
+      const rerankById = new Map(reranked.map((row) => [row.id, row.score]));
+
+      const topResults = [...candidateMap.values()]
+        .map((item) => ({
+          ...item,
+          rerank_score: rerankById.get(item.id),
+        }))
+        .sort(
+          (a, b) =>
+            (b.rerank_score ?? b.base_score ?? b.similarity) -
+            (a.rerank_score ?? a.base_score ?? a.similarity),
+        )
+        .slice(0, Math.min(limit, 8));
 
       const totalFound = topResults.length;
       const suggestFollowUp =
@@ -245,6 +293,7 @@ export const knowledgeSearchTool = new DynamicStructuredTool({
         (x) => x.source === "memory",
       ).length;
       const vaultCount = topResults.filter((x) => x.source === "vault").length;
+      const taskCount = topResults.filter((x) => x.source === "task").length;
 
       return JSON.stringify({
         results: topResults.map((r) => ({
@@ -254,13 +303,19 @@ export const knowledgeSearchTool = new DynamicStructuredTool({
           document_id: r.document_id,
           heading_path: r.heading_path,
           metadata: r.metadata,
+          rerank_score: r.rerank_score,
         })),
         total_found: totalFound,
         memory_count: memoryCount,
         vault_count: vaultCount,
+        task_count: taskCount,
         query_used: query,
         suggest_follow_up: suggestFollowUp,
         expanded_automatically: needsExpand,
+        metrics: {
+          merged_candidates: candidateMap.size,
+          reranked_candidates: reranked.length,
+        },
       });
     } catch (error) {
       console.error("[knowledge_search] Error:", error);
@@ -269,6 +324,7 @@ export const knowledgeSearchTool = new DynamicStructuredTool({
         total_found: 0,
         memory_count: 0,
         vault_count: 0,
+        task_count: 0,
         query_used: query,
         suggest_follow_up: true,
         error: error instanceof Error ? error.message : "Unknown error",

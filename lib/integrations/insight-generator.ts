@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "@/types/supabase";
 import type { InsightSourceInsert } from "@/types/database";
 import * as db from "@/lib/supabase/db";
-import { generateEmbedding } from "@/lib/embeddings/generate";
+import { storeMemory } from "@/lib/memory/memory-service";
 import { StoredActivityAtom } from "./sync-pipeline";
 
 // ============================================
@@ -543,28 +543,20 @@ export class InsightGenerator {
     // Generate embedding for the summary
     let embeddingId: string | undefined;
     try {
-      const { embedding } = await generateEmbedding(data.summary);
-      // Convert number array to PostgreSQL array string format for pgvector
-      const embeddingString = `[${embedding.join(",")}]`;
-      const { data: embeddingData, error: embeddingError } = await db.insertOne(
-        this.supabase,
-        "embeddings",
-        {
-          user_id: userId,
-          content: data.summary,
-          embedding: embeddingString,
-          metadata: {
-            type: "insight_source",
-            source_type: data.sourceType,
-            granularity: data.granularity,
-            period_start: data.periodStart.toISOString().split("T")[0],
-          } as Json,
+      embeddingId = await storeMemory({
+        userId,
+        content: data.summary,
+        memoryType: "semantic",
+        source: "insight",
+        sourceId: `${data.sourceType}:${data.granularity}:${data.periodStart.toISOString().split("T")[0]}`,
+        importance: 1.5,
+        metadata: {
+          type: "insight_source",
+          source_type: data.sourceType,
+          granularity: data.granularity,
+          period_start: data.periodStart.toISOString().split("T")[0],
         },
-      );
-
-      if (!embeddingError && embeddingData) {
-        embeddingId = embeddingData.id;
-      }
+      });
     } catch (error) {
       console.error("Error generating embedding for insight:", error);
     }
