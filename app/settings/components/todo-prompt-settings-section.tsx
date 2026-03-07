@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
+import { TodoPromptSettingsSectionSkeleton } from "./todo-prompt-settings-section-skeleton";
 
 const TOGGLE_KEYS = [
   "fromCalendar",
@@ -126,7 +127,7 @@ export function TodoPromptSettingsSection() {
   const effectiveToggles = { ...DEFAULT_TOGGLES, ...toggles };
 
   return (
-    <div className="space-y-4">
+    <div className={cn("space-y-4", loading && "min-h-[280px]")}>
       <div>
         <h2 className="text-lg font-semibold">To-do task generation</h2>
         <p className="text-sm text-muted-foreground">
@@ -149,7 +150,7 @@ export function TodoPromptSettingsSection() {
       )}
 
       {loading ? (
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <TodoPromptSettingsSectionSkeleton />
       ) : (
         <>
           <div className="space-y-3">

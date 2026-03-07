@@ -12,6 +12,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { CentralIcon } from "@/components/ui/central-icon";
+import { TodoEmailScopeSectionSkeleton } from "./todo-email-scope-section-skeleton";
 
 interface GmailLabel {
   id: string;
@@ -152,15 +153,17 @@ export function TodoEmailScopeSection() {
     fetchIntegrations();
   }, [fetchIntegrations]);
 
+  /** When Gmail connected, fetch scope and labels in parallel. */
   useEffect(() => {
-    if (gmailConnected) fetchScope();
-    else setScopeLoading(false);
-  }, [gmailConnected, fetchScope]);
-
-  /** Auto-fetch labels when Gmail is connected and scope is loaded. */
-  useEffect(() => {
-    if (gmailConnected && !scopeLoading) fetchLabels();
-  }, [gmailConnected, scopeLoading, fetchLabels]);
+    if (!gmailConnected) {
+      setScopeLoading(false);
+      setLabelsLoading(false);
+      return;
+    }
+    setScopeLoading(true);
+    setLabelsLoading(true);
+    Promise.all([fetchScope(), fetchLabels()]);
+  }, [gmailConnected, fetchScope, fetchLabels]);
 
   useEffect(() => {
     if (notification) {
@@ -345,10 +348,13 @@ export function TodoEmailScopeSection() {
     );
   }
 
-  if (integrationsLoading || !gmailConnected) return null;
+  const sectionLoading =
+    integrationsLoading || (gmailConnected && (scopeLoading || labelsLoading));
+
+  if (!gmailConnected && !integrationsLoading) return null;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 min-h-[200px]">
       <div>
         <h2 className="text-lg font-semibold">Email scope for to-do tasks</h2>
         <p className="text-sm text-muted-foreground">
@@ -371,8 +377,8 @@ export function TodoEmailScopeSection() {
         </div>
       )}
 
-      {scopeLoading ? (
-        <p className="text-sm text-muted-foreground">Loading…</p>
+      {sectionLoading ? (
+        <TodoEmailScopeSectionSkeleton />
       ) : (
         <>
           <div className="flex items-center gap-2">

@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { CentralIcon } from "@/components/ui/central-icon";
 import { IntegrationCard } from "./integration-card";
+import { IntegrationsSectionSkeleton } from "./integrations-section-skeleton";
 import { SyncModal } from "./sync-modal";
 
 export interface Integration {
@@ -257,6 +258,20 @@ export function ConnectApps({
   const configs = providersFilter
     ? INTEGRATIONS_CONFIG.filter((c) => providersFilter.includes(c.provider))
     : INTEGRATIONS_CONFIG;
+
+  if (loading) {
+    return (
+      <>
+        <IntegrationsSectionSkeleton />
+        <SyncModal
+          open={syncModalOpen}
+          onClose={handleSyncModalClose}
+          provider={syncProvider}
+          integrationId={syncIntegrationId}
+        />
+      </>
+    );
+  }
 
   return (
     <>
