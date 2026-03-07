@@ -1,5 +1,6 @@
 "use client";
 
+import { SupabaseRealtimeProvider } from "@/lib/realtime";
 import { Nav } from "@/components/layout/nav";
 
 interface AppLayoutProps {
@@ -8,11 +9,13 @@ interface AppLayoutProps {
 
 export function AppLayout({ children }: AppLayoutProps) {
   return (
-    <div className="flex h-screen">
-      <Nav />
-      <main className="flex-1 overflow-hidden flex flex-col min-h-0">
-        {children}
-      </main>
-    </div>
+    <SupabaseRealtimeProvider>
+      <div className="flex h-screen">
+        <Nav />
+        <main className="flex-1 overflow-hidden flex flex-col min-h-0">
+          {children}
+        </main>
+      </div>
+    </SupabaseRealtimeProvider>
   );
 }
