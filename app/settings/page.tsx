@@ -11,6 +11,7 @@ import {
   TodoEmailScopeSection,
   TodoPromptSettingsSection,
 } from "@/app/settings/components";
+import { SettingsPageSkeleton } from "@/app/settings/components/settings-page-skeleton";
 import { createClient } from "@/lib/supabase/client";
 
 function SettingsContent() {
@@ -70,7 +71,7 @@ export default function SettingsPage() {
   return (
     <ProtectedRoute>
       <AppLayout>
-        <Suspense fallback={<div className="p-4">Loading settings...</div>}>
+        <Suspense fallback={<SettingsPageSkeleton />}>
           <SettingsContent />
         </Suspense>
       </AppLayout>

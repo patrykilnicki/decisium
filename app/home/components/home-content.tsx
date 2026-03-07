@@ -26,6 +26,8 @@ import { useSupabaseRealtime } from "@/lib/realtime";
 import { createClient } from "@/lib/supabase/client";
 import * as db from "@/lib/supabase/db";
 import { cn } from "@/lib/utils";
+import { TasksSectionSkeleton } from "@/app/home/components/tasks-section-skeleton";
+import { CalendarSectionSkeleton } from "@/app/home/components/calendar-section-skeleton";
 
 interface HomeContentProps {
   userName: string | null;
@@ -942,11 +944,14 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
         <section className="flex w-full flex-col gap-4">
           <h2 className="text-xl font-serif">Tasks</h2>
 
-          <div className="overflow-hidden rounded-2xl border border-border bg-card w-full">
+          <div
+            className={cn(
+              "overflow-hidden rounded-2xl border border-border bg-card w-full",
+              (tasksLoading || (isToday && overdueLoading)) && "min-h-[280px]",
+            )}
+          >
             {tasksLoading || (isToday && overdueLoading) ? (
-              <p className="px-5 py-4 text-sm text-muted-foreground">
-                Loading tasks...
-              </p>
+              <TasksSectionSkeleton />
             ) : !isToday && hasSnapshot === false ? (
               <div className="flex flex-col gap-4 px-5 py-6">
                 <p className="text-sm text-muted-foreground">
@@ -1175,11 +1180,14 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
         {/* Calendar section */}
         <section className="flex w-full max-w-[720px] flex-col gap-4">
           <h2 className="text-xl font-serif">Calendar</h2>
-          <div className="flex flex-col gap-1">
+          <div
+            className={cn(
+              "flex flex-col gap-1",
+              calendarLoading && "min-h-[180px]",
+            )}
+          >
             {calendarLoading ? (
-              <p className="py-4 text-sm text-muted-foreground">
-                Loading calendar...
-              </p>
+              <CalendarSectionSkeleton />
             ) : calendarEvents.length === 0 ? (
               <p className="py-4 text-sm text-muted-foreground">
                 No events for this day
