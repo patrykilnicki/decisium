@@ -60,8 +60,12 @@ interface IntegrationTodoItem {
   dueAt: string | null;
   sourceProvider?: string;
   sourceType?: string;
-  /** Link to source (e.g. Gmail thread URL); externalId from triage. */
-  sourceRef?: { sourceUrl?: string; externalId?: string };
+  /** Link to source (e.g. Gmail thread URL); externalId from triage; sender for Gmail. */
+  sourceRef?: {
+    sourceUrl?: string;
+    externalId?: string;
+    sender?: string;
+  };
   actionabilityEvidence?: string | null;
   confidence?: number | null;
   suggestedNextAction?: string;
@@ -150,6 +154,16 @@ function getGreeting() {
   return "Good evening";
 }
 
+/** Normalize sender string to email for block list (e.g. "Name <a@b.com>" → "a@b.com"). */
+function normalizeSenderToEmail(sender: string): string {
+  const s = sender.trim();
+  if (s.includes("<") && s.includes(">")) {
+    const match = s.match(/<([^>]+)>/);
+    return match ? match[1].trim().toLowerCase() : s.toLowerCase();
+  }
+  return s.toLowerCase();
+}
+
 interface TaskRowProps {
   task: TodoItemWithMeta;
   date: string;
@@ -159,6 +173,7 @@ interface TaskRowProps {
   onMarkResolved: () => void;
   onMarkUnresolved: () => void;
   onDelete: () => void;
+  onBlockSender?: (sender: string) => void;
 }
 
 function TaskRow({
@@ -170,6 +185,7 @@ function TaskRow({
   onMarkResolved,
   onMarkUnresolved,
   onDelete,
+  onBlockSender,
 }: TaskRowProps) {
   return (
     <div
@@ -250,6 +266,16 @@ function TaskRow({
                 <CentralIcon name="IconEmail1" size={16} />
                 Show mail
               </a>
+            </DropdownMenuItem>
+          ) : null}
+          {task.sourceProvider === "gmail" &&
+          task.sourceRef?.sender &&
+          onBlockSender ? (
+            <DropdownMenuItem
+              onClick={() => onBlockSender(task.sourceRef!.sender!)}
+            >
+              <CentralIcon name="IconBlock" size={16} />
+              Block sender
             </DropdownMenuItem>
           ) : null}
           <DropdownMenuItem onClick={onMarkResolved}>
@@ -412,6 +438,7 @@ interface TaskDetailModalProps {
   onMarkUnresolved: () => void;
   onActionOpen: (type: "date" | "name") => void;
   onDelete: () => void;
+  onBlockSender?: (sender: string) => void;
 }
 
 function TaskDetailModal({
@@ -422,6 +449,7 @@ function TaskDetailModal({
   onMarkUnresolved,
   onActionOpen,
   onDelete,
+  onBlockSender,
 }: TaskDetailModalProps) {
   if (!task) return null;
   const providerTitle = getProviderTitle(task.sourceProvider);
@@ -578,6 +606,19 @@ function TaskDetailModal({
                 <CentralIcon name="IconPencil" size={16} />
                 Change name
               </DropdownMenuItem>
+              {task.sourceProvider === "gmail" &&
+              task.sourceRef?.sender &&
+              onBlockSender ? (
+                <DropdownMenuItem
+                  onClick={() => {
+                    onBlockSender(task.sourceRef!.sender!);
+                    onClose();
+                  }}
+                >
+                  <CentralIcon name="IconBlock" size={16} />
+                  Block sender
+                </DropdownMenuItem>
+              ) : null}
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 variant="destructive"
@@ -691,6 +732,40 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
       setActionPending(false);
     }
   }
+
+  const blockSender = useCallback(async (sender: string) => {
+    const email = normalizeSenderToEmail(sender);
+    if (!email) return;
+    try {
+      const getRes = await fetch("/api/settings/todo-email-scope", {
+        credentials: "include",
+      });
+      if (!getRes.ok) return;
+      const scope = (await getRes.json()) as {
+        sendersBlocked?: string[];
+        labelIdsBlocked?: string[];
+        labelIdsAccepted?: string[];
+        sendersAccepted?: string[];
+      };
+      const current = scope.sendersBlocked ?? [];
+      if (current.map((e) => e.toLowerCase()).includes(email)) return;
+      const sendersBlocked = [...current, email];
+      const patchRes = await fetch("/api/settings/todo-email-scope", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          labelIdsAccepted: scope.labelIdsAccepted ?? [],
+          labelIdsBlocked: scope.labelIdsBlocked ?? [],
+          sendersAccepted: scope.sendersAccepted ?? [],
+          sendersBlocked,
+        }),
+      });
+      if (!patchRes.ok) return;
+    } catch {
+      // ignore
+    }
+  }, []);
 
   const displayName =
     typeof userName === "string" && userName !== "there"
@@ -1034,6 +1109,7 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
                           onDelete={() =>
                             patchItem(taskDate, task.id, "delete")
                           }
+                          onBlockSender={blockSender}
                         />
                       );
                     })}
@@ -1100,6 +1176,7 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
             setDetailModalTask(null);
             patchItem(d, detailModalTask.id, "delete");
           }}
+          onBlockSender={blockSender}
         />
 
         {/* Task action dialogs */}

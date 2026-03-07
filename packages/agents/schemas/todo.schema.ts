@@ -13,6 +13,8 @@ export const TodoSourceRefSchema = z.object({
   sourceUrl: z.string().url().optional(),
   /** Gmail thread ID for matching sent replies to tasks. */
   threadId: z.string().optional(),
+  /** Sender email (e.g. for Gmail tasks) for "block sender" action. */
+  sender: z.string().optional(),
 });
 export type TodoSourceRef = z.infer<typeof TodoSourceRefSchema>;
 
@@ -65,5 +67,7 @@ export const TodoListOutputSchema = z.object({
   items: z.array(TodoItemSchema),
   stats: TodoListStatsSchema,
   version: z.literal("1.0"),
+  /** Dedup keys of user-deleted items; regenerated/merged tasks matching these keys are not re-added. */
+  deletedDedupKeys: z.array(z.string()).optional(),
 });
 export type TodoListOutput = z.infer<typeof TodoListOutputSchema>;
