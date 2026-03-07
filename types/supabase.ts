@@ -993,6 +993,84 @@ export type Database = {
           },
         ]
       }
+      todo_items: {
+        Row: {
+          confidence: number
+          created_at: string | null
+          date: string
+          due_at: string | null
+          id: string
+          priority: string
+          snapshot_id: string | null
+          source_provider: string
+          source_ref: Json
+          source_type: string
+          status: string
+          suggested_next_action: string
+          summary: string
+          tags: string[]
+          title: string
+          updated_at: string | null
+          urgent_reason: string | null
+          user_id: string
+        }
+        Insert: {
+          confidence?: number
+          created_at?: string | null
+          date: string
+          due_at?: string | null
+          id: string
+          priority: string
+          snapshot_id?: string | null
+          source_provider: string
+          source_ref?: Json
+          source_type: string
+          status?: string
+          suggested_next_action: string
+          summary: string
+          tags?: string[]
+          title: string
+          updated_at?: string | null
+          urgent_reason?: string | null
+          user_id: string
+        }
+        Update: {
+          confidence?: number
+          created_at?: string | null
+          date?: string
+          due_at?: string | null
+          id?: string
+          priority?: string
+          snapshot_id?: string | null
+          source_provider?: string
+          source_ref?: Json
+          source_type?: string
+          status?: string
+          suggested_next_action?: string
+          summary?: string
+          tags?: string[]
+          title?: string
+          updated_at?: string | null
+          urgent_reason?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "todo_items_snapshot_id_fkey"
+            columns: ["snapshot_id"]
+            isOneToOne: false
+            referencedRelation: "todo_snapshots"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "todo_items_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       todo_snapshots: {
         Row: {
           created_at: string | null

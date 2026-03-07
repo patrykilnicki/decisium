@@ -303,9 +303,13 @@ function normalizeLegacyTodoPayload(payload: unknown): unknown {
     const prov = (it as { sourceProvider?: string }).sourceProvider ?? "";
     byProvider[prov] = (byProvider[prov] ?? 0) + 1;
   }
+  const deletedDedupKeys = Array.isArray(raw.deletedDedupKeys)
+    ? raw.deletedDedupKeys.filter((k): k is string => typeof k === "string")
+    : undefined;
   return {
     ...raw,
     items: normalizedItems,
+    deletedDedupKeys,
     stats: {
       ...(typeof raw.stats === "object" && raw.stats ? raw.stats : {}),
       total: normalizedItems.length,
@@ -396,14 +400,19 @@ export function enrichGmailItemsWithSourceUrl(
     if (item.sourceProvider !== "gmail" || !item.sourceRef?.externalId)
       return item;
     const gmail = gmailByMessageId.get(item.sourceRef.externalId);
-    const threadId = gmail?.threadId;
-    if (!threadId) return item;
+    if (!gmail) return item;
+    const threadId = gmail.threadId;
     return {
       ...item,
       sourceRef: {
         ...item.sourceRef,
-        sourceUrl: buildGmailThreadUrl(threadId),
-        threadId,
+        ...(threadId
+          ? {
+              sourceUrl: buildGmailThreadUrl(threadId),
+              threadId,
+            }
+          : {}),
+        sender: gmail.sender,
       },
     };
   });
@@ -470,6 +479,18 @@ export function buildTodoItemDedupKeys(item: {
     keys.add(`thread:gmail:${item.sourceRef.threadId.trim()}`);
   }
   return [...keys];
+}
+
+function filterItemsByDeletedKeys(
+  items: TodoItem[],
+  deletedDedupKeys: string[] | undefined,
+): TodoItem[] {
+  if (!deletedDedupKeys?.length) return items;
+  const deletedSet = new Set(deletedDedupKeys);
+  return items.filter((item) => {
+    const keys = buildTodoItemDedupKeys(item);
+    return !keys.some((k) => deletedSet.has(k));
+  });
 }
 
 /**
@@ -1218,6 +1239,117 @@ function buildSignalsSummary(signals: IntegrationSignal[]): Json {
 // TodoGenerator — day-scoped, generate-once logic
 // ═══════════════════════════════════════════════════════════════
 
+interface TodoSnapshotMetadata {
+  snapshotId: string;
+  userId: string;
+  date: string;
+  listId: string;
+  generatedAt: string;
+  updatedBecause: TodoListOutput["updatedBecause"];
+  version: "1.0";
+  deletedDedupKeys: string[];
+  legacyItems?: TodoItem[];
+}
+
+interface TodoItemDbRow {
+  user_id: string;
+  id: string;
+  date: string;
+  title: string;
+  summary: string;
+  priority: "normal" | "urgent";
+  urgent_reason: string | null;
+  status: "open" | "in_progress" | "done";
+  due_at: string | null;
+  source_provider: string;
+  source_type: string;
+  source_ref: Json;
+  confidence: number;
+  tags: string[] | null;
+  suggested_next_action: string;
+}
+
+function parseTodoUpdateReason(
+  value: unknown,
+): TodoListOutput["updatedBecause"] {
+  const allowed: TodoListOutput["updatedBecause"][] = [
+    "initial_generation",
+    "new_integration_context",
+    "webhook_change_detected",
+    "manual_regeneration",
+    "resolved_items_pruned",
+    "no_changes_detected",
+    "cached",
+    "user_edit",
+  ];
+  if (typeof value !== "string") return "initial_generation";
+  if (!allowed.includes(value as TodoListOutput["updatedBecause"]))
+    return "initial_generation";
+  return value as TodoListOutput["updatedBecause"];
+}
+
+function toTodoItem(row: TodoItemDbRow): TodoItem {
+  const sourceRef =
+    row.source_ref &&
+    typeof row.source_ref === "object" &&
+    !Array.isArray(row.source_ref)
+      ? (row.source_ref as TodoItem["sourceRef"])
+      : {};
+  return {
+    id: row.id,
+    title: row.title,
+    summary: row.summary,
+    priority: row.priority,
+    urgentReason: row.urgent_reason ?? undefined,
+    status: row.status,
+    dueAt: row.due_at,
+    sourceProvider: row.source_provider,
+    sourceType: row.source_type,
+    sourceRef,
+    confidence: clampConfidence(row.confidence, 0.8),
+    tags: Array.isArray(row.tags) ? row.tags : [],
+    suggestedNextAction: row.suggested_next_action,
+  };
+}
+
+function toTodoItemDbInsert(
+  userId: string,
+  date: string,
+  item: TodoItem,
+): Record<string, unknown> {
+  return {
+    user_id: userId,
+    id: item.id,
+    date,
+    title: item.title,
+    summary: item.summary,
+    priority: item.priority,
+    urgent_reason: item.urgentReason ?? null,
+    status: item.status,
+    due_at: item.dueAt,
+    source_provider: item.sourceProvider,
+    source_type: item.sourceType,
+    source_ref: (item.sourceRef ?? {}) as Json,
+    confidence: clampConfidence(item.confidence, 0.8),
+    tags: item.tags,
+    suggested_next_action: item.suggestedNextAction,
+    updated_at: new Date().toISOString(),
+  };
+}
+
+function toSnapshotPayload(payload: TodoListOutput): Record<string, unknown> {
+  return {
+    listId: payload.listId,
+    userId: payload.userId,
+    date: payload.date,
+    generatedAt: payload.generatedAt,
+    updatedBecause: payload.updatedBecause,
+    stats: payload.stats,
+    version: payload.version,
+    deletedDedupKeys: payload.deletedDedupKeys ?? [],
+  };
+}
+
 export class TodoGenerator {
   private supabase: SupabaseClient<Database>;
 
@@ -1225,11 +1357,6 @@ export class TodoGenerator {
     this.supabase = supabase;
   }
 
-  /**
-   * Main entry point. Returns tasks for a given date.
-   * If tasks already exist in the DB for that date, returns them.
-   * If not, generates new ones from Composio + LLM and persists.
-   */
   async getOrGenerateForDate(
     userId: string,
     date: string,
@@ -1252,14 +1379,9 @@ export class TodoGenerator {
         updatedBecause: "cached",
       });
     }
-
     return this.generateForDate(userId, date, options);
   }
 
-  /**
-   * Force regenerate tasks for a specific date (webhook / manual refresh).
-   * Overwrites any existing snapshot for that date.
-   */
   async regenerateForDate(
     userId: string,
     date: string,
@@ -1271,20 +1393,18 @@ export class TodoGenerator {
     });
   }
 
-  /**
-   * Incremental update: fetch fresh signals, extract tasks, add only those not
-   * already in the snapshot (by sourceRef.externalId). Use after webhook/sync
-   * so new emails/events create only new tasks without overwriting existing.
-   */
   async mergeNewTasksForDate(
     userId: string,
     date: string,
     options?: TodoGenerateOptions,
   ): Promise<TodoListOutput> {
-    const existing = await this.getSnapshotForDate(userId, date);
-    if (!existing) {
-      return this.generateForDate(userId, date, options);
-    }
+    const metadata = await this.getSnapshotMetadataForDate(userId, date);
+    if (!metadata) return this.generateForDate(userId, date, options);
+    const existingItems = await this.getTodoItemsForDate(
+      userId,
+      date,
+      metadata,
+    );
 
     let signals: IntegrationSignal[];
     let promptSettings: TodoPromptSettings | null;
@@ -1316,8 +1436,15 @@ export class TodoGenerator {
 
     if (signals.length === 0) {
       return TodoListOutputSchema.parse({
-        ...existing,
+        listId: metadata.listId,
+        userId,
+        date,
+        generatedAt: new Date().toISOString(),
         updatedBecause: "no_changes_detected",
+        items: existingItems,
+        stats: buildStats(existingItems),
+        version: "1.0",
+        deletedDedupKeys: metadata.deletedDedupKeys,
       });
     }
 
@@ -1325,7 +1452,7 @@ export class TodoGenerator {
     const triageResult = await runTriageSignals(
       signals,
       date,
-      existing.items,
+      existingItems,
       promptSettings,
     );
     const durationMs = Date.now() - startedAt;
@@ -1342,40 +1469,41 @@ export class TodoGenerator {
       promptSettingsUsed: promptSettingsToLogJson(promptSettings),
     });
 
-    const newItems = triageResult.items;
-
-    if (newItems.length === 0) {
+    const newItemsFiltered = filterItemsByDeletedKeys(
+      triageResult.items,
+      metadata.deletedDedupKeys,
+    );
+    if (newItemsFiltered.length === 0) {
       return TodoListOutputSchema.parse({
-        ...existing,
+        listId: metadata.listId,
+        userId,
+        date,
         generatedAt: new Date().toISOString(),
         updatedBecause: options?.updatedBecause ?? "no_changes_detected",
+        items: existingItems,
+        stats: buildStats(existingItems),
+        version: "1.0",
+        deletedDedupKeys: metadata.deletedDedupKeys,
       });
     }
 
-    const mergedItems = [...existing.items, ...newItems];
-    const reason =
-      options?.updatedBecause ??
-      ("webhook_change_detected" as TodoListOutput["updatedBecause"]);
-
-    const list: TodoListOutput = TodoListOutputSchema.parse({
-      listId: existing.listId,
-      userId: existing.userId,
-      date: existing.date,
+    await this.insertOrUpsertTodoItemsForDate(userId, date, newItemsFiltered);
+    const merged = [...existingItems, ...newItemsFiltered];
+    const list = TodoListOutputSchema.parse({
+      listId: metadata.listId,
+      userId,
+      date,
       generatedAt: new Date().toISOString(),
-      updatedBecause: reason,
-      items: mergedItems,
-      stats: buildStats(mergedItems),
+      updatedBecause: options?.updatedBecause ?? "webhook_change_detected",
+      items: merged,
+      stats: buildStats(merged),
       version: "1.0",
+      deletedDedupKeys: metadata.deletedDedupKeys,
     });
-
     await this.upsertSnapshot(userId, date, list, options?.generatedFromEvent);
     return list;
   }
 
-  /**
-   * Returns existing snapshot for the date if any. Never generates.
-   * Use for "only from cache" reads (e.g. non-today dates before user clicks Generate).
-   */
   async getCachedForDate(
     userId: string,
     date: string,
@@ -1383,11 +1511,6 @@ export class TodoGenerator {
     return this.getSnapshotForDate(userId, date);
   }
 
-  /**
-   * Overdue = open items from previous days. Returns items with snapshotDate so UI can show "From yesterday".
-   * Fetches all relevant snapshots in one query (user_id + date in [yesterday, ...]) then parses payloads.
-   * @param options.today - Reference date YYYY-MM-DD (e.g. client's local today); if omitted uses server date.
-   */
   async getOverdueItems(
     userId: string,
     options?: { days?: number; today?: string },
@@ -1405,45 +1528,25 @@ export class TodoGenerator {
     }
     if (dateStrings.length === 0) return [];
 
-    const { data: rows, error } = await db.selectMany(
-      this.supabase,
-      "todo_snapshots",
-      { user_id: userId, date: dateStrings },
-      { columns: "date, payload" },
-    );
-
+    const { data, error } = await this.supabase
+      .from("todo_items")
+      .select("*")
+      .eq("user_id", userId)
+      .in("date", dateStrings)
+      .neq("status", "done");
     if (error) {
       console.warn(
-        "[todo-generator] getOverdueItems selectMany error:",
+        "[todo-generator] getOverdueItems select error:",
         error.message,
       );
       return [];
     }
-
-    const result: Array<TodoItem & { snapshotDate: string }> = [];
-    for (const row of rows ?? []) {
-      const dateStr = (row as { date: string }).date;
-      const payload = (row as { payload: unknown }).payload;
-      if (!dateStr || !payload) continue;
-      try {
-        const snapshot = TodoListOutputSchema.parse(
-          normalizeLegacyTodoPayload(payload),
-        );
-        for (const item of snapshot.items) {
-          if (item.status !== "done") {
-            result.push({ ...item, snapshotDate: dateStr });
-          }
-        }
-      } catch {
-        // Skip snapshots with invalid or legacy payload shape
-      }
-    }
-    return result;
+    return (data ?? []).map((row) => {
+      const item = toTodoItem(row as unknown as TodoItemDbRow);
+      return { ...item, snapshotDate: (row as { date: string }).date };
+    });
   }
 
-  /**
-   * Update one item in a snapshot (status, title, or dueAt). Persists to DB.
-   */
   async updateItemInSnapshot(
     userId: string,
     date: string,
@@ -1454,98 +1557,106 @@ export class TodoGenerator {
       dueAt?: string | null;
     },
   ): Promise<TodoListOutput> {
-    const snapshot = await this.getSnapshotForDate(userId, date);
-    if (!snapshot) throw new Error(`No snapshot for date ${date}`);
-    const index = snapshot.items.findIndex((i) => i.id === itemId);
-    if (index === -1) throw new Error(`Item ${itemId} not found in snapshot`);
-    const items = [...snapshot.items];
-    const next: TodoItem = { ...items[index], ...patch };
-    if (patch.title != null) next.title = patch.title;
-    if (patch.status != null) next.status = patch.status;
-    if (patch.dueAt !== undefined) next.dueAt = patch.dueAt;
-    items[index] = next;
-    const list = TodoListOutputSchema.parse({
-      ...snapshot,
-      items,
-      stats: buildStats(items),
-      generatedAt: new Date().toISOString(),
-      updatedBecause: "user_edit",
-    });
-    await this.upsertSnapshot(userId, date, list);
-    return list;
+    const metadata = await this.getSnapshotMetadataForDate(userId, date);
+    if (!metadata) throw new Error(`No snapshot for date ${date}`);
+    const item = await this.getTodoItemByDateAndId(userId, date, itemId);
+    if (!item) throw new Error(`Item ${itemId} not found in snapshot`);
+    const updatePayload: Record<string, unknown> = {
+      updated_at: new Date().toISOString(),
+    };
+    if (patch.status !== undefined) updatePayload.status = patch.status;
+    if (patch.title !== undefined) updatePayload.title = patch.title;
+    if (patch.dueAt !== undefined) updatePayload.due_at = patch.dueAt;
+    const { error } = await db.update(
+      this.supabase,
+      "todo_items",
+      { user_id: userId, date, id: itemId },
+      updatePayload as never,
+    );
+    if (error) throw new Error(`Failed to update todo item: ${error.message}`);
+    return this.refreshSnapshotAndReturnList(
+      userId,
+      date,
+      "user_edit",
+      metadata.listId,
+      metadata.deletedDedupKeys,
+    );
   }
 
-  /**
-   * Remove one item from a snapshot (delete).
-   */
   async removeItemFromSnapshot(
     userId: string,
     date: string,
     itemId: string,
   ): Promise<TodoListOutput> {
-    const snapshot = await this.getSnapshotForDate(userId, date);
-    if (!snapshot) throw new Error(`No snapshot for date ${date}`);
-    const items = snapshot.items.filter((i) => i.id !== itemId);
-    if (items.length === snapshot.items.length)
-      throw new Error(`Item ${itemId} not found`);
-    const list = TodoListOutputSchema.parse({
-      ...snapshot,
-      items,
-      stats: buildStats(items),
-      generatedAt: new Date().toISOString(),
-      updatedBecause: "user_edit",
+    const metadata = await this.getSnapshotMetadataForDate(userId, date);
+    if (!metadata) throw new Error(`No snapshot for date ${date}`);
+    const row = await this.getTodoItemByDateAndId(userId, date, itemId);
+    if (!row) throw new Error(`Item ${itemId} not found`);
+    const deletedItem = toTodoItem(row);
+    const { error } = await db.remove(this.supabase, "todo_items", {
+      user_id: userId,
+      date,
+      id: itemId,
     });
-    await this.upsertSnapshot(userId, date, list);
-    return list;
+    if (error) throw new Error(`Failed to remove todo item: ${error.message}`);
+    const deleted = new Set(metadata.deletedDedupKeys ?? []);
+    for (const key of buildTodoItemDedupKeys(deletedItem)) deleted.add(key);
+    return this.refreshSnapshotAndReturnList(
+      userId,
+      date,
+      "user_edit",
+      metadata.listId,
+      [...deleted],
+    );
   }
 
-  /**
-   * Move item from one date's snapshot to another. Creates target snapshot if needed.
-   */
   async moveItemToDate(
     userId: string,
     fromDate: string,
     toDate: string,
     itemId: string,
   ): Promise<{ from: TodoListOutput; to: TodoListOutput }> {
-    const fromSnapshot = await this.getSnapshotForDate(userId, fromDate);
-    if (!fromSnapshot) throw new Error(`No snapshot for date ${fromDate}`);
-    const item = fromSnapshot.items.find((i) => i.id === itemId);
-    if (!item)
+    const fromMetadata = await this.getSnapshotMetadataForDate(
+      userId,
+      fromDate,
+    );
+    if (!fromMetadata) throw new Error(`No snapshot for date ${fromDate}`);
+    const existing = await this.getTodoItemByDateAndId(
+      userId,
+      fromDate,
+      itemId,
+    );
+    if (!existing)
       throw new Error(`Item ${itemId} not found in snapshot ${fromDate}`);
-    const fromItems = fromSnapshot.items.filter((i) => i.id !== itemId);
-    const fromList = TodoListOutputSchema.parse({
-      ...fromSnapshot,
-      items: fromItems,
-      stats: buildStats(fromItems),
-      generatedAt: new Date().toISOString(),
-      updatedBecause: "user_edit",
-    });
-    await this.upsertSnapshot(userId, fromDate, fromList);
-
-    const movedItem: TodoItem = {
-      ...item,
-      dueAt: `${toDate}T00:00:00.000Z`,
-    };
-    let toSnapshot = await this.getSnapshotForDate(userId, toDate);
-    if (!toSnapshot) {
-      toSnapshot = this.buildEmptyList(userId, toDate, "user_edit");
-    }
-    const toItems = [...toSnapshot.items, movedItem];
-    const toList = TodoListOutputSchema.parse({
-      ...toSnapshot,
-      items: toItems,
-      stats: buildStats(toItems),
-      generatedAt: new Date().toISOString(),
-      updatedBecause: "user_edit",
-    });
-    await this.upsertSnapshot(userId, toDate, toList);
-    return { from: fromList, to: toList };
+    const { error } = await db.update(
+      this.supabase,
+      "todo_items",
+      { user_id: userId, date: fromDate, id: itemId },
+      {
+        date: toDate,
+        due_at: `${toDate}T00:00:00.000Z`,
+        updated_at: new Date().toISOString(),
+      } as never,
+    );
+    if (error) throw new Error(`Failed to move todo item: ${error.message}`);
+    const from = await this.refreshSnapshotAndReturnList(
+      userId,
+      fromDate,
+      "user_edit",
+      fromMetadata.listId,
+      fromMetadata.deletedDedupKeys,
+    );
+    const toMeta = await this.getSnapshotMetadataForDate(userId, toDate);
+    const to = await this.refreshSnapshotAndReturnList(
+      userId,
+      toDate,
+      "user_edit",
+      toMeta?.listId,
+      toMeta?.deletedDedupKeys ?? [],
+    );
+    return { from, to };
   }
 
-  /**
-   * Lightweight check whether a snapshot exists for the given date (for UI labels).
-   */
   async hasSnapshotForDate(userId: string, date: string): Promise<boolean> {
     const { data, error } = await db.selectOne(
       this.supabase,
@@ -1560,21 +1671,128 @@ export class TodoGenerator {
     userId: string,
     date: string,
   ): Promise<TodoListOutput | null> {
+    const metadata = await this.getSnapshotMetadataForDate(userId, date);
+    if (!metadata) return null;
+    const items = await this.getTodoItemsForDate(userId, date, metadata);
+    return TodoListOutputSchema.parse({
+      listId: metadata.listId,
+      userId,
+      date,
+      generatedAt: metadata.generatedAt,
+      updatedBecause: metadata.updatedBecause,
+      items,
+      stats: buildStats(items),
+      version: metadata.version,
+      deletedDedupKeys: metadata.deletedDedupKeys,
+    });
+  }
+
+  private async getSnapshotMetadataForDate(
+    userId: string,
+    date: string,
+  ): Promise<TodoSnapshotMetadata | null> {
     const { data, error } = await db.selectOne(
       this.supabase,
       "todo_snapshots",
       { user_id: userId, date },
+      { columns: "id, user_id, date, payload" },
     );
-
     if (error || !data) return null;
+    const row = data as {
+      id: string;
+      user_id: string;
+      date: string;
+      payload: unknown;
+    };
+    const normalized = normalizeLegacyTodoPayload(row.payload) as
+      | Record<string, unknown>
+      | undefined;
+    const payload = normalized ?? {};
+    const legacyItems = Array.isArray(payload.items)
+      ? (() => {
+          try {
+            return TodoListOutputSchema.parse({
+              listId:
+                typeof payload.listId === "string"
+                  ? payload.listId
+                  : crypto.randomUUID(),
+              userId,
+              date,
+              generatedAt:
+                typeof payload.generatedAt === "string"
+                  ? payload.generatedAt
+                  : new Date().toISOString(),
+              updatedBecause: parseTodoUpdateReason(payload.updatedBecause),
+              items: payload.items,
+              stats: buildStats([]),
+              version: "1.0",
+              deletedDedupKeys: Array.isArray(payload.deletedDedupKeys)
+                ? payload.deletedDedupKeys
+                : [],
+            }).items;
+          } catch {
+            return [];
+          }
+        })()
+      : undefined;
+    return {
+      snapshotId: row.id,
+      userId: row.user_id,
+      date: row.date,
+      listId:
+        typeof payload.listId === "string"
+          ? payload.listId
+          : crypto.randomUUID(),
+      generatedAt:
+        typeof payload.generatedAt === "string"
+          ? payload.generatedAt
+          : new Date().toISOString(),
+      updatedBecause: parseTodoUpdateReason(payload.updatedBecause),
+      version: "1.0",
+      deletedDedupKeys: Array.isArray(payload.deletedDedupKeys)
+        ? payload.deletedDedupKeys.filter(
+            (value): value is string => typeof value === "string",
+          )
+        : [],
+      legacyItems,
+    };
+  }
 
-    try {
-      return TodoListOutputSchema.parse(
-        normalizeLegacyTodoPayload((data as { payload: unknown }).payload),
+  private async getTodoItemsForDate(
+    userId: string,
+    date: string,
+    metadata?: TodoSnapshotMetadata,
+  ): Promise<TodoItem[]> {
+    const { data, error } = await db.selectMany(this.supabase, "todo_items", {
+      user_id: userId,
+      date,
+    });
+    if (error) {
+      console.warn(
+        "[todo-generator] todo_items selectMany error:",
+        error.message,
       );
-    } catch {
-      return null;
+      return metadata?.legacyItems ?? [];
     }
+    const rows = (data ?? []) as unknown as TodoItemDbRow[];
+    if (rows.length === 0 && metadata?.legacyItems?.length) {
+      return metadata.legacyItems;
+    }
+    return rows.map(toTodoItem);
+  }
+
+  private async getTodoItemByDateAndId(
+    userId: string,
+    date: string,
+    itemId: string,
+  ): Promise<TodoItemDbRow | null> {
+    const { data, error } = await db.selectOne(this.supabase, "todo_items", {
+      user_id: userId,
+      date,
+      id: itemId,
+    });
+    if (error || !data) return null;
+    return data as unknown as TodoItemDbRow;
   }
 
   private async generateForDate(
@@ -1595,6 +1813,7 @@ export class TodoGenerator {
     );
     if (signals.length === 0) {
       const empty = this.buildEmptyList(userId, date, "initial_generation");
+      await this.replaceTodoItemsForDate(userId, date, []);
       await this.upsertSnapshot(
         userId,
         date,
@@ -1614,6 +1833,8 @@ export class TodoGenerator {
       return empty;
     }
 
+    const existingMeta = await this.getSnapshotMetadataForDate(userId, date);
+    const deletedDedupKeys = existingMeta?.deletedDedupKeys;
     const triageResult = await runTriageSignals(
       signals,
       date,
@@ -1621,6 +1842,11 @@ export class TodoGenerator {
       promptSettings,
     );
     const durationMs = Date.now() - startedAt;
+
+    const itemsFiltered = filterItemsByDeletedKeys(
+      triageResult.items,
+      deletedDedupKeys,
+    );
 
     await this.insertTodoGenerationLog(userId, date, {
       runType: options?.runType ?? "initial_generation",
@@ -1634,17 +1860,18 @@ export class TodoGenerator {
       promptSettingsUsed: promptSettingsToLogJson(promptSettings),
     });
 
-    const list: TodoListOutput = TodoListOutputSchema.parse({
-      listId: crypto.randomUUID(),
+    const list = TodoListOutputSchema.parse({
+      listId: existingMeta?.listId ?? crypto.randomUUID(),
       userId,
       date,
       generatedAt: new Date().toISOString(),
       updatedBecause: "initial_generation",
-      items: triageResult.items,
-      stats: buildStats(triageResult.items),
+      items: itemsFiltered,
+      stats: buildStats(itemsFiltered),
       version: "1.0",
+      deletedDedupKeys: deletedDedupKeys ?? [],
     });
-
+    await this.replaceTodoItemsForDate(userId, date, list.items);
     await this.upsertSnapshot(userId, date, list, options?.generatedFromEvent);
     return list;
   }
@@ -1670,6 +1897,64 @@ export class TodoGenerator {
     });
   }
 
+  private async replaceTodoItemsForDate(
+    userId: string,
+    date: string,
+    items: TodoItem[],
+  ): Promise<void> {
+    const { error: removeError } = await db.remove(
+      this.supabase,
+      "todo_items",
+      {
+        user_id: userId,
+        date,
+      },
+    );
+    if (removeError) {
+      throw new Error(`Failed to clear todo items: ${removeError.message}`);
+    }
+    await this.insertOrUpsertTodoItemsForDate(userId, date, items);
+  }
+
+  private async insertOrUpsertTodoItemsForDate(
+    userId: string,
+    date: string,
+    items: TodoItem[],
+  ): Promise<void> {
+    if (items.length === 0) return;
+    const rows = items.map((item) => toTodoItemDbInsert(userId, date, item));
+    const { error } = await db.upsert(
+      this.supabase,
+      "todo_items",
+      rows as never,
+      { onConflict: "user_id,id" },
+    );
+    if (error) throw new Error(`Failed to upsert todo items: ${error.message}`);
+  }
+
+  private async refreshSnapshotAndReturnList(
+    userId: string,
+    date: string,
+    reason: TodoListOutput["updatedBecause"],
+    listId?: string,
+    deletedDedupKeys: string[] = [],
+  ): Promise<TodoListOutput> {
+    const items = await this.getTodoItemsForDate(userId, date);
+    const list = TodoListOutputSchema.parse({
+      listId: listId ?? crypto.randomUUID(),
+      userId,
+      date,
+      generatedAt: new Date().toISOString(),
+      updatedBecause: reason,
+      items,
+      stats: buildStats(items),
+      version: "1.0",
+      deletedDedupKeys,
+    });
+    await this.upsertSnapshot(userId, date, list);
+    return list;
+  }
+
   private async upsertSnapshot(
     userId: string,
     date: string,
@@ -1683,11 +1968,10 @@ export class TodoGenerator {
         user_id: userId,
         date,
         generated_from_event: generatedFromEvent ?? null,
-        payload: payload as unknown as Json,
+        payload: toSnapshotPayload(payload) as Json,
       },
       { onConflict: "user_id,date" },
     );
-
     if (error)
       throw new Error(`Failed to persist todo snapshot: ${error.message}`);
   }
@@ -1699,7 +1983,6 @@ export class TodoGenerator {
       user_id: userId,
       status: "active",
     });
-
     if (error)
       throw new Error(`Failed to fetch integrations: ${error.message}`);
     return (data ?? []) as Integration[];
@@ -1717,9 +2000,7 @@ export class TodoGenerator {
       extractedCount: number;
       durationMs: number;
       errorMessage?: string;
-      /** Scope applied when fetching Gmail (for debugging). */
       emailScopeUsed?: Json | null;
-      /** Prompt settings used: toggles + custom instructions (for debugging). */
       promptSettingsUsed?: Json | null;
     },
   ): Promise<void> {
@@ -1746,24 +2027,17 @@ export class TodoGenerator {
       prompt_settings_used:
         payload.promptSettingsUsed ?? promptSettingsToLogJson(null),
     };
-    console.log("[todo-generator] log", {
-      user_id: userId,
-      date,
-      run_type: payload.runType,
-      signals_count: payload.signalsCount,
-      email_scope_used: logRow.email_scope_used,
-      prompt_settings_used: logRow.prompt_settings_used,
-    });
     const { error } = await db.insertOne(
       this.supabase,
       "todo_generation_logs",
       logRow as never,
     );
-    if (error)
+    if (error) {
       console.warn(
         "[todo-generator] Failed to insert todo_generation_log:",
         error.message,
       );
+    }
   }
 }
 

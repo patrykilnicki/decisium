@@ -22,6 +22,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
 import { useSupabaseRealtime } from "@/lib/realtime";
 import { createClient } from "@/lib/supabase/client";
 import * as db from "@/lib/supabase/db";
@@ -60,8 +63,12 @@ interface IntegrationTodoItem {
   dueAt: string | null;
   sourceProvider?: string;
   sourceType?: string;
-  /** Link to source (e.g. Gmail thread URL); externalId from triage. */
-  sourceRef?: { sourceUrl?: string; externalId?: string };
+  /** Link to source (e.g. Gmail thread URL); externalId from triage; sender for Gmail. */
+  sourceRef?: {
+    sourceUrl?: string;
+    externalId?: string;
+    sender?: string;
+  };
   actionabilityEvidence?: string | null;
   confidence?: number | null;
   suggestedNextAction?: string;
@@ -150,6 +157,16 @@ function getGreeting() {
   return "Good evening";
 }
 
+/** Normalize sender string to email for block list (e.g. "Name <a@b.com>" → "a@b.com"). */
+function normalizeSenderToEmail(sender: string): string {
+  const s = sender.trim();
+  if (s.includes("<") && s.includes(">")) {
+    const match = s.match(/<([^>]+)>/);
+    return match ? match[1].trim().toLowerCase() : s.toLowerCase();
+  }
+  return s.toLowerCase();
+}
+
 interface TaskRowProps {
   task: TodoItemWithMeta;
   date: string;
@@ -159,6 +176,7 @@ interface TaskRowProps {
   onMarkResolved: () => void;
   onMarkUnresolved: () => void;
   onDelete: () => void;
+  onBlockSender?: (sender: string) => void;
 }
 
 function TaskRow({
@@ -170,6 +188,7 @@ function TaskRow({
   onMarkResolved,
   onMarkUnresolved,
   onDelete,
+  onBlockSender,
 }: TaskRowProps) {
   return (
     <div
@@ -250,6 +269,16 @@ function TaskRow({
                 <CentralIcon name="IconEmail1" size={16} />
                 Show mail
               </a>
+            </DropdownMenuItem>
+          ) : null}
+          {task.sourceProvider === "gmail" &&
+          task.sourceRef?.sender &&
+          onBlockSender ? (
+            <DropdownMenuItem
+              onClick={() => onBlockSender(task.sourceRef!.sender!)}
+            >
+              <CentralIcon name="IconBlock" size={16} />
+              Block sender
             </DropdownMenuItem>
           ) : null}
           <DropdownMenuItem onClick={onMarkResolved}>
@@ -412,6 +441,7 @@ interface TaskDetailModalProps {
   onMarkUnresolved: () => void;
   onActionOpen: (type: "date" | "name") => void;
   onDelete: () => void;
+  onBlockSender?: (sender: string) => void;
 }
 
 function TaskDetailModal({
@@ -422,6 +452,7 @@ function TaskDetailModal({
   onMarkUnresolved,
   onActionOpen,
   onDelete,
+  onBlockSender,
 }: TaskDetailModalProps) {
   if (!task) return null;
   const providerTitle = getProviderTitle(task.sourceProvider);
@@ -435,80 +466,119 @@ function TaskDetailModal({
 
   return (
     <Dialog open={!!task} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
-        <DialogHeader className="gap-1">
+      <DialogContent className="flex max-h-[90vh] flex-col gap-0 p-0 sm:max-w-md">
+        <DialogHeader className="shrink-0 gap-3 border-b border-border px-6 py-5">
           <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <DialogTitle className="text-left text-lg leading-snug">
+            <div className="min-w-0 flex-1 space-y-1">
+              <DialogTitle className="text-left text-xl font-semibold leading-tight tracking-tight">
                 {task.title}
               </DialogTitle>
               <DialogDescription className="sr-only">
                 Task details: {task.summary}
               </DialogDescription>
-            </div>
-            <div className="flex shrink-0 items-center gap-2">
-              <SourceLogo provider={task.sourceProvider} />
-              {task.priority === "urgent" && (
-                <span className="rounded bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive">
-                  Urgent
-                </span>
-              )}
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <SourceLogo provider={task.sourceProvider} />
+                {task.priority === "urgent" && (
+                  <Badge variant="destructive" className="font-medium">
+                    Urgent
+                  </Badge>
+                )}
+                {task.status === "done" && (
+                  <Badge variant="secondary">Done</Badge>
+                )}
+              </div>
             </div>
           </div>
         </DialogHeader>
 
-        <div className="flex flex-col gap-4 py-2">
-          <p className="text-sm text-muted-foreground">{task.summary}</p>
+        <div className="flex min-h-0 flex-1 flex-col gap-0 overflow-y-auto">
+          <div className="space-y-4 px-6 py-5">
+            <Card size="sm" className="border-0 bg-muted/30 shadow-none">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                  Summary
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0">
+                <p className="text-sm leading-relaxed text-foreground">
+                  {task.summary}
+                </p>
+              </CardContent>
+            </Card>
 
-          {task.urgentReason?.trim() && (
-            <div className="rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2">
-              <p className="text-xs font-medium text-destructive">Why urgent</p>
-              <p className="text-sm text-foreground">{task.urgentReason}</p>
-            </div>
-          )}
+            {task.urgentReason?.trim() ? (
+              <Card
+                size="sm"
+                className="border-destructive/30 bg-destructive/5 shadow-none"
+              >
+                <CardHeader className="pb-2">
+                  <CardTitle className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-destructive">
+                    <CentralIcon
+                      name="IconExclamationTriangle"
+                      size={14}
+                      className="shrink-0"
+                    />
+                    Why urgent
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  <p className="text-sm leading-relaxed text-foreground">
+                    {task.urgentReason}
+                  </p>
+                </CardContent>
+              </Card>
+            ) : null}
 
-          <div className="grid gap-3 text-sm">
-            {task.suggestedNextAction?.trim() && (
-              <div>
-                <p className="mb-1 text-xs font-medium text-muted-foreground">
-                  Suggested next action
-                </p>
-                <p className="text-foreground">{task.suggestedNextAction}</p>
-              </div>
+            {(task.suggestedNextAction?.trim() ||
+              task.actionabilityEvidence?.trim()) && (
+              <>
+                <Separator className="my-1" />
+                <div className="space-y-4">
+                  {task.suggestedNextAction?.trim() && (
+                    <div className="space-y-1.5">
+                      <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                        Suggested next action
+                      </p>
+                      <p className="text-sm leading-relaxed text-foreground">
+                        {task.suggestedNextAction}
+                      </p>
+                    </div>
+                  )}
+                  {task.actionabilityEvidence?.trim() && (
+                    <div className="space-y-1.5">
+                      <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                        Evidence
+                      </p>
+                      <blockquote className="border-l-2 border-muted-foreground/30 pl-3 text-sm italic leading-relaxed text-muted-foreground">
+                        &ldquo;{task.actionabilityEvidence}&rdquo;
+                      </blockquote>
+                    </div>
+                  )}
+                </div>
+              </>
             )}
-            {task.actionabilityEvidence?.trim() && (
-              <div>
-                <p className="mb-1 text-xs font-medium text-muted-foreground">
-                  Evidence
-                </p>
-                <p className="italic text-foreground">
-                  &ldquo;{task.actionabilityEvidence}&rdquo;
-                </p>
-              </div>
-            )}
+
+            <Separator className="my-1" />
             <div className="flex flex-wrap items-center gap-2">
               {task.sourceProvider && (
-                <span className="rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">
+                <Badge variant="secondary" className="font-normal">
                   {providerTitle}
                   {task.sourceType
                     ? ` · ${task.sourceType.replace(/_/g, " ")}`
                     : ""}
-                </span>
+                </Badge>
               )}
               {confidencePercent != null && (
-                <span className="rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">
+                <Badge variant="outline" className="font-normal">
                   {confidencePercent}% confidence
-                </span>
+                </Badge>
               )}
               {task.tags && task.tags.length > 0 && (
                 <>
                   {task.tags.map((tag) => (
-                    <span
-                      key={tag}
-                      className="rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground"
-                    >
+                    <Badge key={tag} variant="outline" className="font-normal">
                       {tag}
-                    </span>
+                    </Badge>
                   ))}
                 </>
               )}
@@ -516,7 +586,7 @@ function TaskDetailModal({
           </div>
         </div>
 
-        <DialogFooter className="flex-col gap-2 sm:flex-row sm:flex-wrap">
+        <DialogFooter className="shrink-0 flex-col gap-2 border-t border-border bg-muted/20 px-6 py-4 sm:flex-row sm:flex-wrap">
           {openUrl && (
             <Button asChild className="w-full sm:w-auto">
               <a href={openUrl} target="_blank" rel="noopener noreferrer">
@@ -578,6 +648,19 @@ function TaskDetailModal({
                 <CentralIcon name="IconPencil" size={16} />
                 Change name
               </DropdownMenuItem>
+              {task.sourceProvider === "gmail" &&
+              task.sourceRef?.sender &&
+              onBlockSender ? (
+                <DropdownMenuItem
+                  onClick={() => {
+                    onBlockSender(task.sourceRef!.sender!);
+                    onClose();
+                  }}
+                >
+                  <CentralIcon name="IconBlock" size={16} />
+                  Block sender
+                </DropdownMenuItem>
+              ) : null}
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 variant="destructive"
@@ -691,6 +774,40 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
       setActionPending(false);
     }
   }
+
+  const blockSender = useCallback(async (sender: string) => {
+    const email = normalizeSenderToEmail(sender);
+    if (!email) return;
+    try {
+      const getRes = await fetch("/api/settings/todo-email-scope", {
+        credentials: "include",
+      });
+      if (!getRes.ok) return;
+      const scope = (await getRes.json()) as {
+        sendersBlocked?: string[];
+        labelIdsBlocked?: string[];
+        labelIdsAccepted?: string[];
+        sendersAccepted?: string[];
+      };
+      const current = scope.sendersBlocked ?? [];
+      if (current.map((e) => e.toLowerCase()).includes(email)) return;
+      const sendersBlocked = [...current, email];
+      const patchRes = await fetch("/api/settings/todo-email-scope", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          labelIdsAccepted: scope.labelIdsAccepted ?? [],
+          labelIdsBlocked: scope.labelIdsBlocked ?? [],
+          sendersAccepted: scope.sendersAccepted ?? [],
+          sendersBlocked,
+        }),
+      });
+      if (!patchRes.ok) return;
+    } catch {
+      // ignore
+    }
+  }, []);
 
   const displayName =
     typeof userName === "string" && userName !== "there"
@@ -1034,6 +1151,7 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
                           onDelete={() =>
                             patchItem(taskDate, task.id, "delete")
                           }
+                          onBlockSender={blockSender}
                         />
                       );
                     })}
@@ -1100,6 +1218,7 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
             setDetailModalTask(null);
             patchItem(d, detailModalTask.id, "delete");
           }}
+          onBlockSender={blockSender}
         />
 
         {/* Task action dialogs */}

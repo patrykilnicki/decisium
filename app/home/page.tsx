@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { ProtectedRoute } from "@/components/auth/protected-route";
 import { AppLayout } from "@/components/layout/app-layout";
 import { HomeContent } from "@/app/home/components/home-content";
+import { HomePageSkeleton } from "@/app/home/components/home-page-skeleton";
 import { createClient } from "@/lib/supabase/client";
 import { CentralIcon } from "@/components/ui/central-icon";
 
@@ -15,24 +16,29 @@ function HomePageContent() {
   const isPreparing = searchParams.get("preparing") === "1";
   const [userName, setUserName] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
+  const [userLoaded, setUserLoaded] = useState(false);
   const [syncReady, setSyncReady] = useState(!isPreparing);
 
   useEffect(() => {
     async function fetchUser() {
       const supabase = createClient();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (user) {
-        const name =
-          user.user_metadata?.full_name ??
-          user.user_metadata?.name ??
-          user.email?.split("@")[0];
-        setUserName(name ?? "there");
-        setUserId(user.id);
-      } else {
-        setUserName("there");
-        setUserId(null);
+      try {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        if (user) {
+          const name =
+            user.user_metadata?.full_name ??
+            user.user_metadata?.name ??
+            user.email?.split("@")[0];
+          setUserName(name ?? "there");
+          setUserId(user.id);
+        } else {
+          setUserName("there");
+          setUserId(null);
+        }
+      } finally {
+        setUserLoaded(true);
       }
     }
     fetchUser();
@@ -77,6 +83,10 @@ function HomePageContent() {
             <p className="text-xs text-muted-foreground">
               Syncing your calendar and data...
             </p>
+          </div>
+        ) : !userLoaded ? (
+          <div className="flex h-full min-h-0 flex-col overflow-y-auto overflow-x-hidden overscroll-y-auto scroll-smooth">
+            <HomePageSkeleton />
           </div>
         ) : (
           <div className="flex h-full min-h-0 flex-col overflow-y-auto overflow-x-hidden overscroll-y-auto scroll-smooth">

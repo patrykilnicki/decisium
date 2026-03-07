@@ -68,21 +68,9 @@ export function SupabaseRealtimeProvider({
       .on(
         "postgres_changes",
         {
-          event: "INSERT",
+          event: "*",
           schema: "public",
-          table: "todo_snapshots",
-          filter: `user_id=eq.${userId}`,
-        },
-        () => {
-          setTasksVersion((v) => v + 1);
-        },
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "todo_snapshots",
+          table: "todo_items",
           filter: `user_id=eq.${userId}`,
         },
         () => {

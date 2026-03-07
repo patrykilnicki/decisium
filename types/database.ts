@@ -37,6 +37,7 @@ export type Task = Database["public"]["Tables"]["tasks"]["Row"];
 export type TaskEvent = Database["public"]["Tables"]["task_events"]["Row"];
 export type TodoGenerationLog =
   Database["public"]["Tables"]["todo_generation_logs"]["Row"];
+export type TodoItem = Database["public"]["Tables"]["todo_items"]["Row"];
 export type TodoSnapshot =
   Database["public"]["Tables"]["todo_snapshots"]["Row"];
 export type UserSignal = Database["public"]["Tables"]["user_signals"]["Row"];
@@ -95,6 +96,8 @@ export type TaskEventInsert =
   Database["public"]["Tables"]["task_events"]["Insert"];
 export type TodoGenerationLogInsert =
   Database["public"]["Tables"]["todo_generation_logs"]["Insert"];
+export type TodoItemInsert =
+  Database["public"]["Tables"]["todo_items"]["Insert"];
 export type TodoSnapshotInsert =
   Database["public"]["Tables"]["todo_snapshots"]["Insert"];
 export type UserSignalInsert =
@@ -156,6 +159,8 @@ export type TaskEventUpdate =
   Database["public"]["Tables"]["task_events"]["Update"];
 export type TodoGenerationLogUpdate =
   Database["public"]["Tables"]["todo_generation_logs"]["Update"];
+export type TodoItemUpdate =
+  Database["public"]["Tables"]["todo_items"]["Update"];
 export type TodoSnapshotUpdate =
   Database["public"]["Tables"]["todo_snapshots"]["Update"];
 export type UserSignalUpdate =

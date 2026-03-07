@@ -1,6 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/supabase";
-import * as db from "@/lib/supabase/db";
 import { createLLM } from "@/packages/agents/lib/llm";
 import { createTodoGenerator } from "@/lib/integrations";
 import type { TodoItem } from "@/packages/agents/schemas/todo.schema";
@@ -218,25 +217,6 @@ function stripQuotedLines(text: string): string {
     .trim();
 }
 
-/** Extract thread ID from Gmail sourceRef (threadId or parse from sourceUrl). */
-function getThreadIdFromItem(item: TodoItem): string | null {
-  const ref = item.sourceRef;
-  if (!ref) return null;
-  if (
-    typeof ref === "object" &&
-    "threadId" in ref &&
-    typeof ref.threadId === "string"
-  ) {
-    return ref.threadId;
-  }
-  const url =
-    typeof ref === "object" && "sourceUrl" in ref ? ref.sourceUrl : undefined;
-  if (typeof url !== "string") return null;
-  const match =
-    url.match(/#inbox\/([a-f0-9]+)/i) ?? url.match(/\/#all\/([a-f0-9]+)/i);
-  return match?.[1] ?? null;
-}
-
 // OpenAI structured outputs require optional fields to use .nullable() – see
 // https://platform.openai.com/docs/guides/structured-outputs#all-fields-must-be-required
 const ReplyAnalysisSchema = z.object({
@@ -382,12 +362,14 @@ export async function resolveGmailReply(
     dateStrings.push(d.toISOString().split("T")[0]);
   }
 
-  const { data: rows, error } = await db.selectMany(
-    supabase,
-    "todo_snapshots",
-    { user_id: userId, date: dateStrings },
-    { columns: "date, payload" },
-  );
+  const { data: rows, error } = await supabase
+    .from("todo_items")
+    .select("*")
+    .eq("user_id", userId)
+    .in("date", dateStrings)
+    .eq("source_provider", "gmail")
+    .neq("status", "done")
+    .eq("source_ref->>threadId", threadId);
 
   if (error || !rows?.length) {
     return {
@@ -405,28 +387,44 @@ export async function resolveGmailReply(
   }
 
   const generator = createTodoGenerator(supabase);
-  const toProcess: {
-    snapshot: { date: string; items: TodoItem[] };
-    item: TodoItem;
-  }[] = [];
-
-  for (const row of rows) {
-    const dateStr = (row as { date: string }).date;
-    const rawPayload = (row as { payload: unknown }).payload;
-    if (!rawPayload || typeof rawPayload !== "object") continue;
-    const items = (rawPayload as { items?: unknown[] }).items ?? [];
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i] as TodoItem;
-      if (item.sourceProvider !== "gmail") continue;
-      if (item.status === "done") continue;
-      const itemThreadId = getThreadIdFromItem(item);
-      if (itemThreadId !== threadId) continue;
-      toProcess.push({
-        snapshot: { date: dateStr, items: items as TodoItem[] },
-        item,
-      });
-    }
-  }
+  const toProcess: { date: string; item: TodoItem }[] = (rows as unknown[]).map(
+    (row) => {
+      const r = row as {
+        date: string;
+        id: string;
+        title: string;
+        summary: string;
+        priority: "normal" | "urgent";
+        urgent_reason: string | null;
+        status: "open" | "in_progress" | "done";
+        due_at: string | null;
+        source_provider: string;
+        source_type: string;
+        source_ref: Record<string, unknown> | null;
+        confidence: number;
+        tags: string[] | null;
+        suggested_next_action: string;
+      };
+      return {
+        date: r.date,
+        item: {
+          id: r.id,
+          title: r.title,
+          summary: r.summary,
+          priority: r.priority,
+          urgentReason: r.urgent_reason ?? undefined,
+          status: r.status,
+          dueAt: r.due_at,
+          sourceProvider: r.source_provider,
+          sourceType: r.source_type,
+          sourceRef: (r.source_ref ?? {}) as NonNullable<TodoItem["sourceRef"]>,
+          confidence: typeof r.confidence === "number" ? r.confidence : 0.8,
+          tags: Array.isArray(r.tags) ? r.tags : [],
+          suggestedNextAction: r.suggested_next_action,
+        },
+      };
+    },
+  );
 
   console.log(
     `[gmail-reply-resolver] matched ${toProcess.length} task(s) for thread ${threadId}`,
@@ -546,7 +544,7 @@ export async function resolveGmailReply(
     ResolveGmailReplyResult["diagnostics"]
   >["analyses"] = [];
 
-  for (const { snapshot, item } of toProcess) {
+  for (const { date, item } of toProcess) {
     try {
       const analysis = await analyzeReplyWithLlm(
         item.title,
@@ -586,12 +584,7 @@ export async function resolveGmailReply(
             : `${analysis.updatedDueAt}T18:00:00.000Z`;
       }
 
-      await generator.updateItemInSnapshot(
-        userId,
-        snapshot.date,
-        item.id,
-        patch,
-      );
+      await generator.updateItemInSnapshot(userId, date, item.id, patch);
       updated++;
     } catch (err) {
       errors.push(
