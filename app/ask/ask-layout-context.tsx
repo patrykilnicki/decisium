@@ -11,6 +11,7 @@ import type { AskThread } from "@/packages/agents/schemas/ask.schema";
 
 interface AskLayoutContextValue {
   threads: AskThread[];
+  threadsLoading: boolean;
   loadThreads: () => Promise<void>;
 }
 
@@ -30,6 +31,7 @@ interface AskLayoutProviderProps {
 
 export function AskLayoutProvider({ children }: AskLayoutProviderProps) {
   const [threads, setThreads] = useState<AskThread[]>([]);
+  const [threadsLoading, setThreadsLoading] = useState(true);
 
   const loadThreads = useCallback(async () => {
     try {
@@ -40,6 +42,8 @@ export function AskLayoutProvider({ children }: AskLayoutProviderProps) {
       }
     } catch (err) {
       console.error("Failed to load threads:", err);
+    } finally {
+      setThreadsLoading(false);
     }
   }, []);
 
@@ -51,7 +55,7 @@ export function AskLayoutProvider({ children }: AskLayoutProviderProps) {
   }, [loadThreads]);
 
   return (
-    <AskLayoutContext.Provider value={{ threads, loadThreads }}>
+    <AskLayoutContext.Provider value={{ threads, threadsLoading, loadThreads }}>
       {children}
     </AskLayoutContext.Provider>
   );

@@ -7,10 +7,22 @@ import { Button } from "@/components/ui/button";
 import { CentralIcon } from "@/components/ui/central-icon";
 import { useAskLayout } from "@/app/ask/ask-layout-context";
 
+function ThreadListSkeleton() {
+  return (
+    <div className="flex flex-col gap-0 px-3" aria-hidden="true">
+      {[1, 2, 3, 4, 5].map((i) => (
+        <div key={i} className="rounded-lg px-3 py-2">
+          <div className="h-5 w-full max-w-[90%] animate-pulse rounded bg-muted" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function AskSidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const { threads } = useAskLayout();
+  const { threads, threadsLoading } = useAskLayout();
 
   function handleNewChat() {
     router.push("/ask");
@@ -34,27 +46,34 @@ export function AskSidebar() {
           New chat
         </Button>
       </div>
-      <nav className="flex flex-col gap-0 px-3" aria-label="Thread list">
-        {threads.map((thread) => {
-          const href = `/ask/${thread.id}`;
-          const isActive = pathname === href;
-          return (
-            <Link
-              key={thread.id}
-              href={href}
-              className={cn(
-                "rounded-lg px-3 py-2 text-sm font-normal leading-5 transition-colors",
-                isActive
-                  ? "bg-muted text-foreground font-semibold"
-                  : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground",
-              )}
-            >
-              <span className="block truncate">
-                {thread.title || "Untitled Conversation"}
-              </span>
-            </Link>
-          );
-        })}
+      <nav
+        className="flex min-h-[200px] flex-col gap-0 px-3"
+        aria-label="Thread list"
+      >
+        {threadsLoading ? (
+          <ThreadListSkeleton />
+        ) : (
+          threads.map((thread) => {
+            const href = `/ask/${thread.id}`;
+            const isActive = pathname === href;
+            return (
+              <Link
+                key={thread.id}
+                href={href}
+                className={cn(
+                  "rounded-lg px-3 py-2 text-sm font-normal leading-5 transition-colors",
+                  isActive
+                    ? "bg-muted text-foreground font-semibold"
+                    : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground",
+                )}
+              >
+                <span className="block truncate">
+                  {thread.title || "Untitled Conversation"}
+                </span>
+              </Link>
+            );
+          })
+        )}
       </nav>
     </aside>
   );

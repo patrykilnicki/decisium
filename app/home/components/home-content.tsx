@@ -601,15 +601,15 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [journalValue, setJournalValue] = useState("");
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
-  const [calendarLoading, setCalendarLoading] = useState(false);
+  const [calendarLoading, setCalendarLoading] = useState(true);
   const [integrationTasks, setIntegrationTasks] = useState<
     IntegrationTodoItem[]
   >([]);
-  const [tasksLoading, setTasksLoading] = useState(false);
+  const [tasksLoading, setTasksLoading] = useState(true);
   const [hasSnapshot, setHasSnapshot] = useState<boolean | null>(null);
   const [generatingTasks, setGeneratingTasks] = useState(false);
   const [overdueItems, setOverdueItems] = useState<TodoItemWithMeta[]>([]);
-  const [overdueLoading, setOverdueLoading] = useState(false);
+  const [overdueLoading, setOverdueLoading] = useState(true);
   const [detailModalTask, setDetailModalTask] =
     useState<TodoItemWithMeta | null>(null);
   const [actionDialog, setActionDialog] = useState<null | {
@@ -715,7 +715,10 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
 
   useEffect(() => {
     if (!userId) {
-      queueMicrotask(() => setCalendarEvents([]));
+      queueMicrotask(() => {
+        setCalendarEvents([]);
+        setCalendarLoading(false);
+      });
       return;
     }
 
@@ -770,6 +773,7 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
       queueMicrotask(() => {
         setIntegrationTasks([]);
         setHasSnapshot(null);
+        setTasksLoading(false);
       });
       return;
     }
