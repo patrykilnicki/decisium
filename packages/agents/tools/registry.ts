@@ -12,6 +12,7 @@ import {
   listCalendarEventsTool,
   fetchGmailEmailsTool,
   analyzeGmailEmailsTool,
+  taskSearchTool,
 } from "./index";
 import { getComposioToolsForUser } from "../lib/composio";
 
@@ -169,6 +170,12 @@ function initializeRegistry(): void {
   toolRegistry.set("generate_todo_list", {
     tool: generateTodoListTool,
     category: "utility",
+    isExternal: false,
+  });
+
+  toolRegistry.set("task_search", {
+    tool: taskSearchTool,
+    category: "memory",
     isExternal: false,
   });
 
@@ -331,6 +338,7 @@ export function getDefaultTools(
 
   tools.push(knowledgeSearchTool);
   tools.push(vaultSearchTool);
+  tools.push(taskSearchTool);
   tools.push(vaultCreateDocumentTool);
   tools.push(vaultUpdateDocumentTool);
 
@@ -456,6 +464,7 @@ const TOOLS_REQUIRING_USER_ID = [
   "memory_search",
   "knowledge_search",
   "vault_search",
+  "task_search",
   "vault_create_document",
   "vault_update_document",
   "fetch_gmail_emails",
@@ -560,6 +569,21 @@ function createToolsWithBoundUserId(userId: string): DynamicStructuredTool[] {
       }),
       func: async (args) =>
         vaultSearchTool.func({
+          userId,
+          query: args.query,
+          maxResults: args.maxResults,
+        }),
+    }),
+    new DynamicStructuredTool({
+      name: "task_search",
+      description:
+        "Search user todo tasks semantically/lexically. Use for task-specific questions, status checks, and planning.",
+      schema: z.object({
+        query: z.string().describe("Task query"),
+        maxResults: z.number().int().min(1).max(50).default(20),
+      }),
+      func: async (args) =>
+        taskSearchTool.func({
           userId,
           query: args.query,
           maxResults: args.maxResults,

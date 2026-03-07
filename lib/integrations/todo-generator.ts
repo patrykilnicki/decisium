@@ -14,6 +14,7 @@ import {
 } from "@/packages/agents/schemas/todo.schema";
 import { z } from "zod";
 import type { TriageResult } from "./todo-triage-agent";
+import { storeMemory } from "@/lib/memory/memory-service";
 
 export interface TodoSnapshotRow {
   id: string;
@@ -1930,6 +1931,42 @@ export class TodoGenerator {
       { onConflict: "user_id,id" },
     );
     if (error) throw new Error(`Failed to upsert todo items: ${error.message}`);
+
+    for (const item of items) {
+      const taskContent = [item.title, item.summary, item.suggestedNextAction]
+        .filter((value): value is string => Boolean(value?.trim()))
+        .join(". ");
+      if (!taskContent) continue;
+      try {
+        await storeMemory({
+          userId,
+          content: taskContent,
+          memoryType: "task",
+          source: "task",
+          sourceId: item.id,
+          importance:
+            item.status === "done"
+              ? 0.7
+              : item.priority === "urgent"
+                ? 1.4
+                : 1.0,
+          ttl: item.status === "done" ? "14 days" : null,
+          metadata: {
+            type: "task_item",
+            date,
+            status: item.status,
+            priority: item.priority,
+            source_provider: item.sourceProvider,
+            source_type: item.sourceType,
+          },
+        });
+      } catch (memoryError) {
+        console.error(
+          `[todo-generator] Failed to store task memory ${item.id}:`,
+          memoryError,
+        );
+      }
+    }
   }
 
   private async refreshSnapshotAndReturnList(
