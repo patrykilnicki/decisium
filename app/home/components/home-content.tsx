@@ -22,6 +22,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { useSupabaseRealtime } from "@/lib/realtime";
 import { createClient } from "@/lib/supabase/client";
 import * as db from "@/lib/supabase/db";
 import { cn } from "@/lib/utils";
@@ -620,6 +621,7 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
 
   const isToday =
     toLocalDateString(selectedDate) === toLocalDateString(new Date());
+  const { calendarVersion, tasksVersion } = useSupabaseRealtime();
 
   const refetchTasksForSelectedDay = useCallback(() => {
     if (!userId) return;
@@ -759,7 +761,7 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
     }
 
     fetchCalendarEvents();
-  }, [userId, selectedDate]);
+  }, [userId, selectedDate, calendarVersion]);
 
   useEffect(() => {
     if (!userId) {
@@ -812,7 +814,7 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
 
     fetchTasks();
     return () => controller.abort();
-  }, [userId, selectedDate, isToday]);
+  }, [userId, selectedDate, isToday, tasksVersion]);
 
   useEffect(() => {
     if (actionDialog) {
@@ -848,7 +850,7 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
       .catch(() => setOverdueItems([]))
       .finally(() => setOverdueLoading(false));
     return () => controller.abort();
-  }, [userId, isToday]);
+  }, [userId, isToday, tasksVersion]);
 
   async function generateTasksForSelectedDay() {
     if (!userId) return;
