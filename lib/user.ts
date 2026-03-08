@@ -1,3 +1,4 @@
+import type { User } from "@supabase/supabase-js";
 import { createClient as createServerClient } from "@/lib/supabase/server";
 
 export interface CurrentUser {
@@ -6,10 +7,28 @@ export interface CurrentUser {
   photo: string | null;
 }
 
+/** Metadata keys used by Supabase Auth (full_name, avatar_url) for profile updates */
+export interface CurrentUserUpdate {
+  name?: string | null;
+  photo?: string | null;
+}
+
 /**
- * Get the current authenticated user (server-side)
- * Use this in Server Components, Server Actions, API Routes, etc.
- * @returns CurrentUser object with name, email, and photo, or null if not authenticated
+ * Single source of truth: map Supabase Auth user to CurrentUser.
+ * Used by both server and client getters.
+ */
+export function authUserToCurrentUser(user: User): CurrentUser {
+  return {
+    name: user.user_metadata?.full_name ?? user.user_metadata?.name ?? null,
+    email: user.email ?? null,
+    photo:
+      user.user_metadata?.avatar_url ?? user.user_metadata?.picture ?? null,
+  };
+}
+
+/**
+ * Get the current authenticated user (server-side).
+ * Use in Server Components, Server Actions, API Routes.
  */
 export async function getCurrentUser(): Promise<CurrentUser | null> {
   const supabase = await createServerClient();
@@ -18,14 +37,6 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
     error,
   } = await supabase.auth.getUser();
 
-  if (error || !user) {
-    return null;
-  }
-
-  return {
-    name: user.user_metadata?.full_name ?? user.user_metadata?.name ?? null,
-    email: user.email ?? null,
-    photo:
-      user.user_metadata?.avatar_url ?? user.user_metadata?.picture ?? null,
-  };
+  if (error || !user) return null;
+  return authUserToCurrentUser(user);
 }

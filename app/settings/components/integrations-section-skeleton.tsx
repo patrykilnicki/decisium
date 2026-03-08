@@ -1,3 +1,5 @@
+import { Skeleton } from "@/components/ui/skeleton";
+
 export function IntegrationsSectionSkeleton() {
   return (
     <div className="space-y-3 min-h-[200px]">
@@ -7,13 +9,13 @@ export function IntegrationsSectionSkeleton() {
           className="flex items-center justify-between rounded-lg border border-border bg-card p-4"
         >
           <div className="flex items-center gap-3">
-            <div className="h-10 w-10 animate-pulse rounded-lg bg-muted" />
+            <Skeleton className="h-10 w-10 rounded-lg" />
             <div className="space-y-1">
-              <div className="h-4 w-28 animate-pulse rounded bg-muted" />
-              <div className="h-3 w-20 animate-pulse rounded bg-muted" />
+              <Skeleton className="h-4 w-28" />
+              <Skeleton className="h-3 w-20" />
             </div>
           </div>
-          <div className="h-9 w-20 animate-pulse rounded-md bg-muted" />
+          <Skeleton className="h-9 w-20" />
         </div>
       ))}
     </div>

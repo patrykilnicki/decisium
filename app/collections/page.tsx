@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ProtectedRoute } from "@/components/auth/protected-route";
 import { AppLayout } from "@/components/layout/app-layout";
+import { Skeleton } from "@/components/ui/skeleton";
 import { listDocuments, listCollections } from "@/app/actions/vault";
 import { Button } from "@/components/ui/button";
 import { CentralIcon } from "@/components/ui/central-icon";
@@ -56,7 +57,29 @@ export default function CollectionsPage() {
             </Link>
           </div>
 
-          {loading && <div className="text-muted-foreground">Loading...</div>}
+          {loading && (
+            <div className="grid gap-8 md:grid-cols-[200px_1fr]">
+              <aside className="flex flex-col gap-2">
+                <Skeleton className="h-4 w-24" />
+                <div className="space-y-1">
+                  {[1, 2, 3, 4].map((i) => (
+                    <Skeleton key={i} className="h-8 w-full" />
+                  ))}
+                </div>
+              </aside>
+              <section className="space-y-4">
+                <Skeleton className="h-4 w-20" />
+                <div className="space-y-2">
+                  {[1, 2, 3, 4, 5].map((i) => (
+                    <Skeleton
+                      key={i}
+                      className="h-14 w-full rounded-md border border-border"
+                    />
+                  ))}
+                </div>
+              </section>
+            </div>
+          )}
           {error && (
             <div className="text-destructive mb-4 rounded-md bg-destructive/10 p-3">
               {error}
