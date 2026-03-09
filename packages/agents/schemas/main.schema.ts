@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { getCurrentDate } from "../lib/date-utils";
 
 // ═══════════════════════════════════════════════════════════════
 // PAGE CONTEXT
@@ -85,7 +86,7 @@ export function createAskContext(params: {
     page: "ask",
     userId: params.userId,
     threadId: params.threadId,
-    currentDate: params.currentDate || new Date().toISOString().split("T")[0],
+    currentDate: params.currentDate || getCurrentDate(),
     userEmail: params.userEmail,
     conversationHistory: params.conversationHistory,
   };

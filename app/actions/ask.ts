@@ -18,6 +18,8 @@ import {
 } from "@/packages/agents/core/root.agent";
 import { createInitialOrchestratorState } from "@/packages/agents/schemas/orchestrator.schema";
 import type { Json } from "@/types/supabase";
+import { HumanMessage } from "@langchain/core/messages";
+import { getDefaultLLM } from "@/packages/agents/lib/llm";
 
 /** Map Supabase row (nullable columns) to AskThread (optional = undefined). */
 function toAskThread(row: {
@@ -54,6 +56,69 @@ export async function createThread(
   }
 
   return toAskThread(data as Parameters<typeof toAskThread>[0]);
+}
+
+export async function updateThread(
+  threadId: string,
+  userId: string,
+  payload: { title?: string },
+): Promise<AskThread | null> {
+  const supabase = await createClient();
+  const thread = await getThread(threadId, userId);
+  if (!thread) return null;
+  const { data, error } = await db.update(
+    supabase,
+    "ask_threads",
+    { id: threadId, user_id: userId },
+    payload,
+    { returning: "single" },
+  );
+  if (error || !data) return null;
+  return toAskThread(data as Parameters<typeof toAskThread>[0]);
+}
+
+const TITLE_FALLBACK_MAX_LEN = 50;
+
+/** Generate a short thread title from the first message. Uses a simple LLM prompt; fallback to truncation. */
+export async function generateThreadTitle(
+  firstMessage: string,
+): Promise<string> {
+  const trimmed = firstMessage.trim();
+  if (!trimmed) return "New Conversation";
+  try {
+    const llm = getDefaultLLM();
+    const prompt = `Based on this message, reply with a very short thread title (max 6 words). Reply only with the title, no quotes or punctuation.\n\nMessage: ${trimmed.slice(0, 500)}`;
+    const response = await llm.invoke([new HumanMessage(prompt)]);
+    const text =
+      typeof response.content === "string"
+        ? response.content
+        : Array.isArray(response.content)
+          ? (response.content as { type: string; text?: string }[])
+              .map((c) => ("text" in c ? c.text : ""))
+              .join("")
+          : "";
+    const title =
+      text.trim().slice(0, 80) ||
+      trimmed.slice(0, TITLE_FALLBACK_MAX_LEN).trim();
+    return title || "New Conversation";
+  } catch {
+    return trimmed.length <= TITLE_FALLBACK_MAX_LEN
+      ? trimmed
+      : `${trimmed.slice(0, TITLE_FALLBACK_MAX_LEN).trim()}…`;
+  }
+}
+
+/** Create a new thread with the first user message, enqueue agent response, and set title from first message. */
+export async function createThreadWithFirstMessage(
+  userId: string,
+  initialMessage: string,
+): Promise<AskThread> {
+  const thread = await createThread(userId, "New Conversation");
+  await sendMessage(thread.id, { content: initialMessage, role: "user" });
+  const title = await generateThreadTitle(initialMessage);
+  await updateThread(thread.id, userId, { title });
+  const updated = await getThread(thread.id, userId);
+  return updated ?? thread;
 }
 
 export async function getThreads(userId: string): Promise<AskThread[]> {

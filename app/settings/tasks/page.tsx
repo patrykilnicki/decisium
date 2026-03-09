@@ -1,7 +1,6 @@
 "use client";
 
 import { Suspense } from "react";
-import { Separator } from "@/components/ui/separator";
 import {
   TodoEmailScopeSection,
   TodoPromptSettingsSection,
@@ -9,24 +8,20 @@ import {
 import { TodoEmailScopeSectionSkeleton } from "@/app/settings/components/todo-email-scope-section-skeleton";
 import { TodoPromptSettingsSectionSkeleton } from "@/app/settings/components/todo-prompt-settings-section-skeleton";
 
-function TasksContent() {
-  return (
-    <div className="p-4">
-      <div className="max-w-2xl space-y-8">
-        <TodoEmailScopeSection />
-        <Separator />
-        <TodoPromptSettingsSection />
-      </div>
-    </div>
-  );
-}
-
 function TasksFallback() {
   return (
-    <div className="p-4 max-w-2xl space-y-8">
-      <TodoEmailScopeSectionSkeleton />
-      <Separator />
-      <TodoPromptSettingsSectionSkeleton />
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-2xl font-semibold tracking-tight">Tasks</h2>
+        <p className="text-muted-foreground text-sm mt-1 max-w-xl">
+          Control how to-do tasks are generated — which sources to include, what
+          types of tasks to create, and any custom instructions for the model.
+        </p>
+      </div>
+      <div className="flex flex-col gap-6 max-w-xl">
+        <TodoPromptSettingsSectionSkeleton />
+        <TodoEmailScopeSectionSkeleton />
+      </div>
     </div>
   );
 }
@@ -34,7 +29,20 @@ function TasksFallback() {
 export default function SettingsTasksPage() {
   return (
     <Suspense fallback={<TasksFallback />}>
-      <TasksContent />
+      <div className="space-y-6">
+        <div>
+          <h2 className="text-2xl font-semibold tracking-tight">Tasks</h2>
+          <p className="text-muted-foreground text-sm mt-1 max-w-xl">
+            Control how to-do tasks are generated — which sources to include,
+            what types of tasks to create, and any custom instructions for the
+            model.
+          </p>
+        </div>
+        <div className="flex flex-col gap-6 max-w-xl">
+          <TodoPromptSettingsSection />
+          <TodoEmailScopeSection />
+        </div>
+      </div>
     </Suspense>
   );
 }

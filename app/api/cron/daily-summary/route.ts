@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import * as db from "@/lib/supabase/db";
 import { generateDailySummary } from "@/app/actions/summaries";
-import { format, subDays } from "date-fns";
+import { getYesterdayInTimezone } from "@/lib/datetime/user-timezone";
 import type { User } from "@/types/database";
 
 // Verify cron secret (set in environment)
@@ -37,9 +37,11 @@ async function runDailySummary(): Promise<NextResponse> {
     // Type assertion needed because select with specific columns returns a narrowed type
     const typedUsers = users as Array<Pick<User, "id" | "timezone">>;
 
+    const now = new Date();
     for (const user of typedUsers) {
       try {
-        const yesterday = format(subDays(new Date(), 1), "yyyy-MM-dd");
+        const tz = user.timezone ?? "UTC";
+        const yesterday = getYesterdayInTimezone(tz, now);
         await generateDailySummary(user.id, yesterday);
         results.push({ userId: user.id, status: "success" });
       } catch (error: unknown) {

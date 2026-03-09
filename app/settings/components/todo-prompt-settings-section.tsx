@@ -2,9 +2,15 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import {
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldTitle,
+} from "@/components/ui/field";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import { TodoPromptSettingsSectionSkeleton } from "./todo-prompt-settings-section-skeleton";
 
@@ -42,13 +48,31 @@ const DEFAULT_TOGGLES: Record<ToggleKey, boolean> = {
   fromAutomatedBots: false,
 };
 
-const TOGGLE_LABELS: Record<ToggleKey, string> = {
-  fromCalendar: "Include calendar",
-  fromEmails: "Include emails",
-  replyTasks: "«Reply to email» tasks",
-  fromNewsletters: "Tasks from newsletters / marketing",
-  prepForMeetings: "«Meeting prep» tasks from calendar",
-  fromAutomatedBots: "Tasks from bot/automation messages",
+const TOGGLE_META: Record<ToggleKey, { label: string; description: string }> = {
+  fromCalendar: {
+    label: "Calendar events",
+    description: "Generate tasks from upcoming calendar events",
+  },
+  fromEmails: {
+    label: "Emails",
+    description: "Extract action items from your inbox",
+  },
+  replyTasks: {
+    label: "Reply-to-email tasks",
+    description: "Create tasks to reply to emails that need a response",
+  },
+  fromNewsletters: {
+    label: "Newsletters & marketing",
+    description: "Include tasks from newsletters and promotional emails",
+  },
+  prepForMeetings: {
+    label: "Meeting prep tasks",
+    description: "Create preparation tasks before meetings",
+  },
+  fromAutomatedBots: {
+    label: "Bot & automation messages",
+    description: "Include tasks from automated or bot-generated messages",
+  },
 };
 
 const CUSTOM_INSTRUCTIONS_MAX = 1000;
@@ -113,7 +137,7 @@ export function TodoPromptSettingsSection() {
         const err = await res.json();
         throw new Error(err.error ?? "Failed to save");
       }
-      setNotification({ type: "success", message: "Saved" });
+      setNotification({ type: "success", message: "Task settings saved" });
     } catch (e) {
       setNotification({
         type: "error",
@@ -126,63 +150,65 @@ export function TodoPromptSettingsSection() {
 
   const effectiveToggles = { ...DEFAULT_TOGGLES, ...toggles };
 
+  if (loading) return <TodoPromptSettingsSectionSkeleton />;
+
   return (
-    <div className={cn("space-y-4", loading && "min-h-[280px]")}>
+    <div className="space-y-5">
       <div>
-        <h2 className="text-lg font-semibold">To-do task generation</h2>
-        <p className="text-sm text-muted-foreground">
-          Choose which sources and types should create tasks. You can also add
-          custom instructions for the model.
+        <h3 className="text-base font-semibold">Sources & task types</h3>
+        <p className="text-sm text-muted-foreground mt-0.5">
+          Choose which sources and types should create tasks.
         </p>
       </div>
 
       {notification && (
         <div
           className={cn(
-            "rounded-lg p-3 text-sm",
+            "rounded-lg border px-4 py-3 text-sm",
             notification.type === "success"
-              ? "bg-green-50 text-green-800 border border-green-200 dark:bg-green-950/50 dark:text-green-200 dark:border-green-800"
-              : "bg-red-50 text-red-800 border border-red-200 dark:bg-red-950/50 dark:text-red-200 dark:border-red-800",
+              ? "border-green-200 bg-green-50 text-green-800 dark:border-green-800 dark:bg-green-950/40 dark:text-green-200"
+              : "border-red-200 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200",
           )}
         >
           {notification.message}
         </div>
       )}
 
-      {loading ? (
-        <TodoPromptSettingsSectionSkeleton />
-      ) : (
-        <>
-          <div className="space-y-3">
-            <Label className="text-base font-medium">
-              Sources and task types
-            </Label>
-            <ul className="space-y-2 rounded-md border p-3">
-              {TOGGLE_KEYS.map((key) => (
-                <li key={key} className="flex items-center gap-2">
-                  <Checkbox
-                    id={`prompt-${key}`}
-                    checked={effectiveToggles[key]}
-                    onCheckedChange={(c) => toggle(key, c === true)}
-                  />
-                  <label
-                    htmlFor={`prompt-${key}`}
-                    className="text-sm cursor-pointer flex-1"
-                  >
-                    {TOGGLE_LABELS[key]}
-                  </label>
-                </li>
-              ))}
-            </ul>
+      <div className="space-y-3">
+        {TOGGLE_KEYS.map((key) => (
+          <div
+            key={key}
+            className="flex items-center justify-between gap-4 rounded-lg border border-border/60 bg-card/50 px-4 py-3"
+          >
+            <div className="min-w-0">
+              <Label
+                htmlFor={`prompt-${key}`}
+                className="text-sm font-medium cursor-pointer"
+              >
+                {TOGGLE_META[key].label}
+              </Label>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {TOGGLE_META[key].description}
+              </p>
+            </div>
+            <Switch
+              id={`prompt-${key}`}
+              checked={effectiveToggles[key]}
+              onCheckedChange={(c) => toggle(key, c === true)}
+            />
           </div>
+        ))}
+      </div>
 
-          <div className="space-y-2">
-            <Label
-              htmlFor="custom-instructions"
-              className="text-base font-medium"
-            >
-              Custom instructions
-            </Label>
+      <div className="rounded-lg border border-border/60 bg-card/50 p-4 space-y-3">
+        <Field className="gap-1.5">
+          <FieldTitle className="text-[13px] font-medium tracking-[-0.13px] text-foreground">
+            Custom instructions
+          </FieldTitle>
+          <FieldDescription className="text-muted-foreground text-sm">
+            Additional guidance for the model when generating tasks.
+          </FieldDescription>
+          <FieldContent>
             <Textarea
               id="custom-instructions"
               placeholder="E.g. Only create tasks from client meetings. Skip small internal meetings."
@@ -196,16 +222,20 @@ export function TodoPromptSettingsSection() {
               rows={4}
               className="resize-none"
             />
-            <p className="text-xs text-muted-foreground">
-              {customInstructions.length}/{CUSTOM_INSTRUCTIONS_MAX} characters
+            <p className="text-xs text-muted-foreground text-right">
+              {customInstructions.length}/{CUSTOM_INSTRUCTIONS_MAX}
             </p>
-          </div>
+          </FieldContent>
+        </Field>
+      </div>
 
-          <Button onClick={handleSave} disabled={saving}>
-            {saving ? "Saving…" : "Save"}
-          </Button>
-        </>
-      )}
+      <Button
+        onClick={handleSave}
+        disabled={saving}
+        className="rounded-lg w-fit"
+      >
+        {saving ? "Saving…" : "Save task settings"}
+      </Button>
     </div>
   );
 }

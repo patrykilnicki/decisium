@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import Image from "next/image";
 import { useSearchParams, useRouter } from "next/navigation";
-import { CentralIcon } from "@/components/ui/central-icon";
-import { IntegrationCard } from "./integration-card";
+import { IntegrationList, type IntegrationListItem } from "./integration-list";
 import { IntegrationsSectionSkeleton } from "./integrations-section-skeleton";
 import { SyncModal } from "./sync-modal";
+
+const APP_LOGO_SIZE = 24;
 
 export interface Integration {
   id: string;
@@ -30,26 +32,73 @@ export const INTEGRATIONS_CONFIG: IntegrationConfigItem[] = [
     provider: "google_calendar",
     displayName: "Google Calendar",
     description: "Sync calendar events and meeting schedules",
-    icon: <CentralIcon name="IconCalendar1" size={24} />,
+    icon: (
+      <Image
+        src="/app-logos/google_calendar.svg"
+        alt=""
+        width={APP_LOGO_SIZE}
+        height={APP_LOGO_SIZE}
+        className="size-6 shrink-0"
+      />
+    ),
   },
   {
     provider: "gmail",
     displayName: "Gmail",
     description: "Sync emails and communication history",
-    icon: <CentralIcon name="IconEmail1" size={24} />,
+    icon: (
+      <Image
+        src="/app-logos/gmail.svg"
+        alt=""
+        width={APP_LOGO_SIZE}
+        height={APP_LOGO_SIZE}
+        className="size-6 shrink-0"
+      />
+    ),
+  },
+  {
+    provider: "slack",
+    displayName: "Slack",
+    description: "Sync messages and channels",
+    icon: (
+      <Image
+        src="/app-logos/slack.svg"
+        alt=""
+        width={APP_LOGO_SIZE}
+        height={APP_LOGO_SIZE}
+        className="size-6 shrink-0"
+      />
+    ),
+    disabled: true,
   },
   {
     provider: "notion",
     displayName: "Notion",
     description: "Sync pages, databases, and notes",
-    icon: <CentralIcon name="IconFileText" size={24} />,
+    icon: (
+      <Image
+        src="/app-logos/notion.svg"
+        alt=""
+        width={APP_LOGO_SIZE}
+        height={APP_LOGO_SIZE}
+        className="size-6 shrink-0"
+      />
+    ),
     disabled: true,
   },
   {
-    provider: "linear",
-    displayName: "Linear",
-    description: "Sync issues, projects, and tasks",
-    icon: <CentralIcon name="IconChecklist" size={24} />,
+    provider: "asana",
+    displayName: "Asana",
+    description: "Sync tasks and projects",
+    icon: (
+      <Image
+        src="/app-logos/asana.svg"
+        alt=""
+        width={APP_LOGO_SIZE}
+        height={APP_LOGO_SIZE}
+        className="size-6 shrink-0"
+      />
+    ),
     disabled: true,
   },
 ];
@@ -273,6 +322,16 @@ export function ConnectApps({
     );
   }
 
+  const listItems: IntegrationListItem[] = configs.map((config) => ({
+    id: config.provider,
+    displayName: config.displayName,
+    icon: config.icon,
+    status: config.disabled ? "disconnected" : getStatus(config.provider),
+    disabled: config.disabled,
+    onConnect: () => handleConnect(config.provider),
+    onDisconnect: () => handleDisconnect(config.provider),
+  }));
+
   return (
     <>
       {showNotification && notification && (
@@ -286,42 +345,7 @@ export function ConnectApps({
           {notification.message}
         </div>
       )}
-      <div className="space-y-3">
-        {configs.map((config) => {
-          const status = integrations[config.provider];
-          const isDisabled = config.disabled ?? false;
-          if (isDisabled) {
-            return (
-              <div key={config.provider} className="opacity-50">
-                <IntegrationCard
-                  provider={config.provider}
-                  displayName={config.displayName}
-                  description={config.description + " (Coming soon)"}
-                  icon={config.icon}
-                  status="disconnected"
-                  onConnect={() => {}}
-                  onDisconnect={() => {}}
-                />
-              </div>
-            );
-          }
-          return (
-            <IntegrationCard
-              key={config.provider}
-              provider={config.provider}
-              displayName={config.displayName}
-              description={config.description}
-              icon={config.icon}
-              status={getStatus(config.provider)}
-              externalEmail={status?.integration?.externalEmail}
-              lastSyncAt={status?.integration?.lastSyncAt}
-              lastSyncStatus={status?.integration?.lastSyncStatus}
-              onConnect={() => handleConnect(config.provider)}
-              onDisconnect={() => handleDisconnect(config.provider)}
-            />
-          );
-        })}
-      </div>
+      <IntegrationList items={listItems} />
       <SyncModal
         open={syncModalOpen}
         onClose={handleSyncModalClose}

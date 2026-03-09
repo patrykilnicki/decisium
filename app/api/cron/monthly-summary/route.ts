@@ -2,17 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import * as db from "@/lib/supabase/db";
 import { generateMonthlySummary } from "@/app/actions/summaries";
-import { format, startOfMonth, subMonths } from "date-fns";
+import { getLastMonthStartInTimezone } from "@/lib/datetime/user-timezone";
 import type { User } from "@/types/database";
 
 const CRON_SECRET = process.env.CRON_SECRET;
 
 export async function POST(request: NextRequest) {
-  // Verify cron secret - support both Vercel Cron (automatic) and manual calls
   const authHeader = request.headers.get("authorization");
   const vercelCronHeader = request.headers.get("x-vercel-cron");
-
-  // Allow if it's a Vercel Cron job OR if Authorization header matches
   const isVercelCron = vercelCronHeader === "1";
   const isValidAuth = authHeader === `Bearer ${CRON_SECRET}`;
 
@@ -27,7 +24,7 @@ export async function POST(request: NextRequest) {
       admin,
       "users",
       {},
-      { columns: "id" },
+      { columns: "id, timezone" },
     );
 
     if (usersError || !users) {
@@ -36,16 +33,13 @@ export async function POST(request: NextRequest) {
 
     const results: Array<{ userId: string; status: string; error?: string }> =
       [];
-    const lastMonthStart = format(
-      startOfMonth(subMonths(new Date(), 1)),
-      "yyyy-MM-dd",
-    );
-
-    // Type assertion needed because select with specific columns returns a narrowed type
-    const typedUsers = users as Array<Pick<User, "id">>;
+    const now = new Date();
+    const typedUsers = users as Array<Pick<User, "id" | "timezone">>;
 
     for (const user of typedUsers) {
       try {
+        const tz = user.timezone ?? "UTC";
+        const lastMonthStart = getLastMonthStartInTimezone(tz, now);
         await generateMonthlySummary(user.id, lastMonthStart);
         results.push({ userId: user.id, status: "success" });
       } catch (error: unknown) {

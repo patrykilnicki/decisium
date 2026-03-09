@@ -2,15 +2,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 export function HomePageSkeleton() {
   return (
-    <div
-      className="relative flex min-h-screen flex-col items-center bg-background p-4"
-      style={{
-        backgroundImage: "url(/bg.svg)",
-        backgroundRepeat: "no-repeat",
-        backgroundPosition: "top left",
-        backgroundSize: "auto 50vh",
-      }}
-    >
+    <div className="relative flex min-h-screen flex-col items-center bg-background bg-[url('/bg.svg')] bg-no-repeat bg-left-top bg-[length:auto_50vh] dark:bg-[url('/bg-dark.svg')] p-4">
       <div className="flex w-full max-w-5xl flex-1 flex-col items-stretch gap-14 px-4 py-8 md:px-8 md:py-10 lg:px-32">
         {/* Header skeleton */}
         <header className="flex w-full flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">

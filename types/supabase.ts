@@ -1178,6 +1178,8 @@ export type Database = {
           onboarding_completed: boolean | null
           onboarding_completed_at: string | null
           preferred_llm_model: string | null
+          reflection_settings: Json | null
+          theme: string | null
           timezone: string | null
           todo_email_scope: Json | null
           todo_prompt_settings: Json | null
@@ -1191,6 +1193,8 @@ export type Database = {
           onboarding_completed?: boolean | null
           onboarding_completed_at?: string | null
           preferred_llm_model?: string | null
+          reflection_settings?: Json | null
+          theme?: string | null
           timezone?: string | null
           todo_email_scope?: Json | null
           todo_prompt_settings?: Json | null
@@ -1204,6 +1208,8 @@ export type Database = {
           onboarding_completed?: boolean | null
           onboarding_completed_at?: string | null
           preferred_llm_model?: string | null
+          reflection_settings?: Json | null
+          theme?: string | null
           timezone?: string | null
           todo_email_scope?: Json | null
           todo_prompt_settings?: Json | null

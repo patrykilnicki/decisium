@@ -33,7 +33,7 @@ export default function AskPage() {
     const response = await fetch("/api/ask/threads", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: message.slice(0, 80) }),
+      body: JSON.stringify({ initialMessage: message }),
     });
     if (response.ok) {
       await loadThreads();

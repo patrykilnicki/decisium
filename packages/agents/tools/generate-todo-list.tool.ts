@@ -2,7 +2,9 @@ import { DynamicStructuredTool } from "@langchain/core/tools";
 import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createTodoGenerator } from "@/lib/integrations";
+import { getCurrentDate } from "../lib/date-utils";
 import { getTaskContext } from "../lib/task-context";
+import * as db from "@/lib/supabase/db";
 
 export const generateTodoListTool = new DynamicStructuredTool({
   name: "generate_todo_list",
@@ -24,12 +26,25 @@ export const generateTodoListTool = new DynamicStructuredTool({
       ),
   }),
   func: async (args) => {
-    const contextUserId = getTaskContext()?.userId;
+    const taskContext = getTaskContext();
+    const contextUserId = taskContext?.userId;
     const userId = args.userId ?? contextUserId;
     if (!userId) {
       throw new Error("userId is required to generate todos");
     }
-    const date = args.date ?? new Date().toISOString().split("T")[0];
+    let date = args.date;
+    if (!date) {
+      const admin = createAdminClient();
+      const { data: userRow } = await db.selectOne(
+        admin,
+        "users",
+        { id: userId },
+        { columns: "timezone" },
+      );
+      const timezone =
+        (userRow as { timezone?: string | null } | null)?.timezone ?? undefined;
+      date = taskContext?.currentDate ?? getCurrentDate(timezone);
+    }
 
     const generator = createTodoGenerator(createAdminClient());
     const payload = args.force

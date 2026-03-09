@@ -105,15 +105,7 @@ export function SummariesContent() {
   }
 
   return (
-    <div
-      className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-background p-4"
-      style={{
-        backgroundImage: "url(/bg.svg)",
-        backgroundRepeat: "no-repeat",
-        backgroundPosition: "top left",
-        backgroundSize: "auto 50vh",
-      }}
-    >
+    <div className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-background bg-[url('/bg.svg')] bg-no-repeat bg-left-top bg-[length:auto_50vh] dark:bg-[url('/bg-dark.svg')] p-4">
       <div className="flex flex-col h-full max-w-2xl mx-auto">
         <div className="flex-1 overflow-auto p-4">
           <Tabs defaultValue="daily" className="w-full">

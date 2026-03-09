@@ -1,5 +1,6 @@
 import { StateGraph, END, START } from "@langchain/langgraph";
 import { createBaseAgent } from "../lib/agent-base";
+import { getCurrentDate } from "../lib/date-utils";
 import { supabaseStoreTool } from "../tools";
 import { buildAgentContext } from "../lib/context";
 import { handleAgentError } from "../lib/error-handler";
@@ -437,7 +438,7 @@ export async function processRootMessage(
       userId: input.userId,
       threadId: input.threadId,
       userMessage: input.userMessage,
-      currentDate: input.currentDate || new Date().toISOString().split("T")[0],
+      currentDate: input.currentDate || getCurrentDate(),
       userEmail: input.userEmail,
       conversationHistory: input.conversationHistory,
       preferredModel: input.preferredModel,

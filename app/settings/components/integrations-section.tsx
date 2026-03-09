@@ -4,12 +4,9 @@ import { ConnectApps } from "./connect-apps";
 
 export function IntegrationsSection() {
   return (
-    <div className="space-y-4">
+    <div className="space-y-8">
       <div>
-        <h2 className="text-lg font-semibold">Connected Apps</h2>
-        <p className="text-sm text-muted-foreground">
-          Connect your apps to sync data and enable AI-powered insights
-        </p>
+        <h2 className="text-2xl font-semibold">Integrations</h2>
       </div>
       <ConnectApps returnTo="/settings" showNotification />
     </div>

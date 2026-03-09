@@ -48,10 +48,11 @@ export function createBaseAgent(config: BaseAgentConfig): unknown {
       ? getToolsForAgent(agentType, { excludeTools })
       : getToolsForAgent("root", { excludeTools }));
 
-  // Create LLM and system prompt config
+  // Create LLM and system prompt config (pass date so layer uses user timezone when set)
   const { llm, systemPrompt: finalSystemPrompt } = createDeepAgentConfig({
     ...llmConfig,
     systemPrompt: processedSystemPrompt,
+    currentDate: date,
   });
 
   // Create and return the agent

@@ -7,6 +7,8 @@ import { ProtectedRoute } from "@/components/auth/protected-route";
 import { AppLayout } from "@/components/layout/app-layout";
 import { Skeleton } from "@/components/ui/skeleton";
 import { listDocuments } from "@/app/actions/vault";
+import { formatDate } from "@/lib/datetime/format";
+import { useUserTimezone } from "@/contexts/user-preferences-context";
 
 interface VaultDocument {
   id: string;
@@ -15,6 +17,7 @@ interface VaultDocument {
 }
 
 export default function CollectionPage() {
+  const timezone = useUserTimezone();
   const params = useParams();
   const collectionId = params.collectionId as string;
   const [documents, setDocuments] = useState<VaultDocument[]>([]);
@@ -83,7 +86,7 @@ export default function CollectionPage() {
                         <span className="font-medium">{doc.title}</span>
                         {doc.updated_at && (
                           <span className="ml-2 text-xs text-muted-foreground">
-                            {new Date(doc.updated_at).toLocaleDateString()}
+                            {formatDate(new Date(doc.updated_at), timezone)}
                           </span>
                         )}
                       </Link>

@@ -2,7 +2,8 @@
 
 import { createClient } from "@/lib/supabase/server";
 import * as db from "@/lib/supabase/db";
-import { rootAgent } from "@/packages/agents/core/root.agent";
+import { createRootAgent } from "@/packages/agents/core/root.agent";
+import { getTodayInTimezone } from "@/lib/datetime/user-timezone";
 import {
   DailySummaryContent,
   WeeklySummaryContent,
@@ -131,7 +132,16 @@ Generate the summary for the given date and data. Return only the JSON object.
 ══════════════════════════════════════
 `;
 
-  const result = await rootAgent.invoke({
+  const { data: userRow } = await db.selectOne(
+    supabase,
+    "users",
+    { id: userId },
+    { columns: "timezone" },
+  );
+  const timezone = (userRow as { timezone?: string | null })?.timezone ?? "UTC";
+  const currentDate = getTodayInTimezone(timezone, new Date());
+  const agent = createRootAgent({ currentDate });
+  const result = await agent.invoke({
     messages: [{ role: "user", content: prompt }],
   });
 
@@ -437,7 +447,16 @@ Not:
 - overly analytical
 `;
 
-  const result = await rootAgent.invoke({
+  const { data: userRow } = await db.selectOne(
+    supabase,
+    "users",
+    { id: userId },
+    { columns: "timezone" },
+  );
+  const timezone = (userRow as { timezone?: string | null })?.timezone ?? "UTC";
+  const currentDate = getTodayInTimezone(timezone, new Date());
+  const agent = createRootAgent({ currentDate });
+  const result = await agent.invoke({
     messages: [{ role: "user", content: prompt }],
   });
 
@@ -653,7 +672,16 @@ Not:
 - managerial
 `;
 
-  const result = await rootAgent.invoke({
+  const { data: userRow } = await db.selectOne(
+    supabase,
+    "users",
+    { id: userId },
+    { columns: "timezone" },
+  );
+  const timezone = (userRow as { timezone?: string | null })?.timezone ?? "UTC";
+  const currentDate = getTodayInTimezone(timezone, new Date());
+  const agent = createRootAgent({ currentDate });
+  const result = await agent.invoke({
     messages: [{ role: "user", content: prompt }],
   });
 
