@@ -8,15 +8,7 @@ interface OnboardingLayoutProps {
 
 export function OnboardingLayout({ children }: OnboardingLayoutProps) {
   return (
-    <div
-      className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-background p-4"
-      style={{
-        backgroundImage: "url(/bg.svg)",
-        backgroundRepeat: "no-repeat",
-        backgroundPosition: "top left",
-        backgroundSize: "auto 50vh",
-      }}
-    >
+    <div className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-background bg-[url('/bg.svg')] bg-no-repeat bg-left-top bg-[length:auto_50vh] dark:bg-[url('/bg-dark.svg')] p-4">
       <div className="relative z-10 flex w-full max-w-md flex-col items-center">
         {children}
       </div>

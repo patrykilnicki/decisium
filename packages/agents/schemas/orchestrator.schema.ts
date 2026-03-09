@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { HumanMessage } from "@langchain/core/messages";
+import { getCurrentDate } from "../lib/date-utils";
 import type { BaseMessage } from "@langchain/core/messages";
 
 // ═══════════════════════════════════════════════════════════════
@@ -121,7 +122,7 @@ export function createInitialOrchestratorState(input: {
 
   return {
     userId: input.userId,
-    currentDate: input.currentDate || new Date().toISOString().split("T")[0],
+    currentDate: input.currentDate || getCurrentDate(),
     threadId: input.threadId,
     userEmail: input.userEmail,
     preferredModel: input.preferredModel,

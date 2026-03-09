@@ -2,6 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
+import {
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldTitle,
+} from "@/components/ui/field";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
@@ -26,7 +32,6 @@ interface TodoEmailScope {
   sendersBlocked?: string[];
 }
 
-/** Gmail system label IDs → user-friendly display names (for UI only). */
 const SYSTEM_LABEL_DISPLAY_NAMES: Record<string, string> = {
   SPAM: "Spam",
   CATEGORY_FORUMS: "Forums",
@@ -36,7 +41,6 @@ const SYSTEM_LABEL_DISPLAY_NAMES: Record<string, string> = {
   CATEGORY_SOCIAL: "Social",
 };
 
-/** System label IDs that user can add to block list (even if not in API response). */
 const SYSTEM_LABEL_IDS = [
   "SPAM",
   "CATEGORY_FORUMS",
@@ -50,7 +54,6 @@ function getLabelDisplayName(id: string, apiName: string): string {
   return SYSTEM_LABEL_DISPLAY_NAMES[id] ?? apiName;
 }
 
-/** Stable color index for a label id (for tag background). */
 const LABEL_COLORS = [
   "bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-950/60 dark:text-blue-200 dark:border-blue-800",
   "bg-pink-100 text-pink-800 border-pink-200 dark:bg-pink-950/60 dark:text-pink-200 dark:border-pink-800",
@@ -153,7 +156,6 @@ export function TodoEmailScopeSection() {
     fetchIntegrations();
   }, [fetchIntegrations]);
 
-  /** When Gmail connected, fetch scope and labels in parallel. */
   useEffect(() => {
     if (!gmailConnected) {
       setScopeLoading(false);
@@ -172,7 +174,6 @@ export function TodoEmailScopeSection() {
     }
   }, [notification]);
 
-  /** All labels user can add: system (with friendly names) + custom from Gmail. */
   const allSelectableLabels = useMemo((): GmailLabel[] => {
     const byId = new Map<string, GmailLabel>();
     for (const id of SYSTEM_LABEL_IDS) {
@@ -210,9 +211,9 @@ export function TodoEmailScopeSection() {
     setSaving(true);
     try {
       const body = {
-        labelIdsAccepted: [], // always empty: all labels included, user only blocks
+        labelIdsAccepted: [],
         labelIdsBlocked: scope.labelIdsBlocked ?? [],
-        sendersAccepted: [], // always empty: all senders included by default, user only blocks
+        sendersAccepted: [],
         sendersBlocked: scope.sendersBlocked ?? [],
       };
       const res = await fetch("/api/settings/todo-email-scope", {
@@ -224,7 +225,7 @@ export function TodoEmailScopeSection() {
         const err = await res.json();
         throw new Error(err.error ?? "Save failed");
       }
-      setNotification({ type: "success", message: "Settings saved" });
+      setNotification({ type: "success", message: "Email scope saved" });
     } catch (e) {
       setNotification({
         type: "error",
@@ -256,95 +257,20 @@ export function TodoEmailScopeSection() {
     return (
       <span
         className={cn(
-          "inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-sm font-medium",
+          "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors",
           labelColorClass(labelId),
         )}
       >
-        <CentralIcon name="IconBarsThree" size={14} className="opacity-60" />
         <span>{displayName}</span>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              className="rounded p-0.5 hover:bg-black/10 dark:hover:bg-white/10"
-              aria-label="Options"
-            >
-              <CentralIcon name="IconDotGrid1x3Vertical" size={16} />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem variant="destructive" onSelect={onRemove}>
-              Remove
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <button
+          type="button"
+          onClick={onRemove}
+          className="rounded-full size-4 inline-flex items-center justify-center hover:bg-black/10 dark:hover:bg-white/10 -mr-0.5 text-[10px] leading-none"
+          aria-label={`Remove ${displayName}`}
+        >
+          &times;
+        </button>
       </span>
-    );
-  }
-
-  function SectionBlock({
-    title,
-    description,
-    labelIds,
-    onAdd,
-    onRemove,
-    addButtonLabel,
-  }: {
-    title: string;
-    description: string;
-    labelIds: string[];
-    onAdd: (id: string) => void;
-    onRemove: (id: string) => void;
-    addButtonLabel: string;
-  }) {
-    const availableToAdd = allSelectableLabels.filter(
-      (l) => !labelIds.includes(l.id),
-    );
-    return (
-      <div className="space-y-2 rounded-lg border bg-muted/30 p-4">
-        <div className="flex items-center justify-between gap-2">
-          <div>
-            <h3 className="font-medium">{title}</h3>
-            <p className="text-xs text-muted-foreground">{description}</p>
-          </div>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                className="shrink-0 rounded-full"
-                disabled={labelsLoading || availableToAdd.length === 0}
-                aria-label={addButtonLabel}
-              >
-                <CentralIcon name="IconPlusSmall" size={16} />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="end"
-              className="max-h-64 overflow-y-auto"
-            >
-              {availableToAdd.map((l) => (
-                <DropdownMenuItem key={l.id} onSelect={() => onAdd(l.id)}>
-                  {getLabelDisplayName(l.id, l.name)}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-        <ul className="flex flex-wrap gap-2">
-          {labelIds.map((id) => (
-            <li key={id}>
-              <LabelTag labelId={id} onRemove={() => onRemove(id)} />
-            </li>
-          ))}
-          {labelIds.length === 0 && (
-            <li className="text-sm text-muted-foreground">
-              No labels — all emails are included
-            </li>
-          )}
-        </ul>
-      </div>
     );
   }
 
@@ -354,23 +280,22 @@ export function TodoEmailScopeSection() {
   if (!gmailConnected && !integrationsLoading) return null;
 
   return (
-    <div className="space-y-4 min-h-[200px]">
+    <div className="space-y-5">
       <div>
-        <h2 className="text-lg font-semibold">Email scope for to-do tasks</h2>
-        <p className="text-sm text-muted-foreground">
-          By default all emails and labels are included. You can add labels or
-          senders to exclude — they will not be considered when creating to-do
-          tasks.
+        <h3 className="text-base font-semibold">Email scope</h3>
+        <p className="text-sm text-muted-foreground mt-0.5">
+          By default all emails are included. Exclude labels or senders that
+          should not generate to-do tasks.
         </p>
       </div>
 
       {notification && (
         <div
           className={cn(
-            "rounded-lg p-3 text-sm",
+            "rounded-lg border px-4 py-3 text-sm",
             notification.type === "success"
-              ? "bg-green-50 text-green-800 border border-green-200 dark:bg-green-950/50 dark:text-green-200 dark:border-green-800"
-              : "bg-red-50 text-red-800 border border-red-200 dark:bg-red-950/50 dark:text-red-200 dark:border-red-800",
+              ? "border-green-200 bg-green-50 text-green-800 dark:border-green-800 dark:bg-green-950/40 dark:text-green-200"
+              : "border-red-200 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200",
           )}
         >
           {notification.message}
@@ -381,56 +306,112 @@ export function TodoEmailScopeSection() {
         <TodoEmailScopeSectionSkeleton />
       ) : (
         <>
-          <div className="flex items-center gap-2">
-            <Label className="text-base font-medium">Gmail labels</Label>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={fetchLabels}
-              disabled={labelsLoading}
-            >
-              <CentralIcon name="IconRotate" size={16} />
-              {labelsLoading ? "Loading…" : "Refresh list"}
-            </Button>
-          </div>
-
-          <div className="space-y-4">
-            <SectionBlock
-              title="Exclude from scope"
-              description="Emails with these labels will not be considered when creating to-do tasks. By default all labels are included."
-              labelIds={blockedIds}
-              onAdd={addLabelBlocked}
-              onRemove={removeLabelBlocked}
-              addButtonLabel="Add label to exclude"
-            />
-          </div>
-
-          {/* Senders: only blocked (all senders included by default) */}
-          <div className="space-y-2 rounded-lg border bg-muted/30 p-4">
-            <div>
-              <Label className="text-base font-medium">Blocked senders</Label>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Emails from these addresses will not generate to-do tasks. One
-                address per line.
-              </p>
+          <div className="rounded-lg border border-border/60 bg-card/50 p-4 space-y-4">
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <Label className="text-sm font-medium">Excluded labels</Label>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Emails with these labels will be ignored.
+                </p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={fetchLabels}
+                  disabled={labelsLoading}
+                  className="h-8 text-xs gap-1.5"
+                >
+                  <CentralIcon name="IconRotate" size={14} />
+                  {labelsLoading ? "Loading…" : "Refresh"}
+                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 text-xs gap-1.5"
+                      disabled={
+                        labelsLoading ||
+                        allSelectableLabels.filter(
+                          (l) => !blockedIds.includes(l.id),
+                        ).length === 0
+                      }
+                    >
+                      <CentralIcon name="IconPlusSmall" size={14} />
+                      Add label
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    align="end"
+                    className="max-h-64 overflow-y-auto"
+                  >
+                    {allSelectableLabels
+                      .filter((l) => !blockedIds.includes(l.id))
+                      .map((l) => (
+                        <DropdownMenuItem
+                          key={l.id}
+                          onSelect={() => addLabelBlocked(l.id)}
+                        >
+                          {getLabelDisplayName(l.id, l.name)}
+                        </DropdownMenuItem>
+                      ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
             </div>
-            <Textarea
-              placeholder="e.g. newsletter@example.com"
-              value={sendersToText(scope.sendersBlocked)}
-              onChange={(e) =>
-                setScope((prev) => ({
-                  ...prev,
-                  sendersBlocked: parseSendersText(e.target.value),
-                }))
-              }
-              rows={3}
-              className="resize-none font-mono text-sm"
-            />
+
+            {blockedIds.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {blockedIds.map((id) => (
+                  <LabelTag
+                    key={id}
+                    labelId={id}
+                    onRemove={() => removeLabelBlocked(id)}
+                  />
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground py-2 text-center rounded-md border border-dashed border-border/60">
+                No labels excluded — all emails are in scope
+              </p>
+            )}
           </div>
 
-          <Button onClick={handleSave} disabled={saving}>
-            {saving ? "Saving…" : "Save"}
+          <div className="rounded-lg border border-border/60 bg-card/50 p-4 space-y-3">
+            <Field className="gap-1.5">
+              <FieldTitle className="text-[13px] font-medium tracking-[-0.13px] text-foreground">
+                Blocked senders
+              </FieldTitle>
+              <FieldDescription className="text-muted-foreground text-sm">
+                Emails from these addresses will not generate tasks. One address
+                per line.
+              </FieldDescription>
+              <FieldContent>
+                <Textarea
+                  placeholder="e.g. newsletter@example.com"
+                  value={sendersToText(scope.sendersBlocked)}
+                  onChange={(e) =>
+                    setScope((prev) => ({
+                      ...prev,
+                      sendersBlocked: parseSendersText(e.target.value),
+                    }))
+                  }
+                  rows={3}
+                  className="resize-none font-mono text-sm"
+                />
+              </FieldContent>
+            </Field>
+          </div>
+
+          <Button
+            onClick={handleSave}
+            disabled={saving}
+            className="rounded-lg w-fit"
+          >
+            {saving ? "Saving…" : "Save email scope"}
           </Button>
         </>
       )}

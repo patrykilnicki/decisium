@@ -4,9 +4,10 @@ import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { MonthlySummaryContent } from "@/packages/agents/schemas/summary.schema";
-import { format } from "date-fns";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ChevronDown, ChevronUp } from "@hugeicons/core-free-icons";
+import { formatDate } from "@/lib/datetime/format";
+import { useUserTimezone } from "@/contexts/user-preferences-context";
 
 interface MonthlySummaryCardProps {
   monthStart: string;
@@ -19,6 +20,7 @@ export function MonthlySummaryCard({
   summary,
   onExpand,
 }: MonthlySummaryCardProps) {
+  const timezone = useUserTimezone();
   const [expanded, setExpanded] = useState(false);
 
   return (
@@ -26,7 +28,10 @@ export function MonthlySummaryCard({
       <CardHeader>
         <div className="flex items-center justify-between">
           <CardTitle className="text-sm">
-            {format(new Date(monthStart), "MMMM yyyy")}
+            {formatDate(new Date(monthStart + "T12:00:00Z"), timezone, {
+              month: "long",
+              year: "numeric",
+            })}
           </CardTitle>
           <Button
             variant="ghost"

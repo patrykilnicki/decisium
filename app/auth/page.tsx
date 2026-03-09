@@ -26,15 +26,7 @@ function AuthPageContent() {
   }
 
   return (
-    <div
-      className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-background p-4"
-      style={{
-        backgroundImage: "url(/bg.svg)",
-        backgroundRepeat: "no-repeat",
-        backgroundPosition: "top left",
-        backgroundSize: "auto 50vh",
-      }}
-    >
+    <div className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-background bg-[url('/bg.svg')] bg-no-repeat bg-left-top bg-[length:auto_50vh] dark:bg-[url('/bg-dark.svg')] p-4">
       <div className="relative z-10 flex w-full max-w-sm flex-col items-center text-center">
         <h1 className="text-4xl font-bold text-foreground">Decisium</h1>
         <p className="mt-2 text-base font-normal text-muted-foreground">
@@ -85,15 +77,7 @@ export default function AuthPage() {
   return (
     <Suspense
       fallback={
-        <div
-          className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-background p-4"
-          style={{
-            backgroundImage: "url(/bg.svg)",
-            backgroundRepeat: "no-repeat",
-            backgroundPosition: "top left",
-            backgroundSize: "auto 50vh",
-          }}
-        >
+        <div className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-background bg-[url('/bg.svg')] bg-no-repeat bg-left-top bg-[length:auto_50vh] dark:bg-[url('/bg-dark.svg')] p-4">
           <div className="relative z-10 flex w-full max-w-sm flex-col items-center text-center">
             <h1 className="text-4xl font-bold text-foreground">Decisium</h1>
             <p className="mt-2 text-base font-normal text-muted-foreground">

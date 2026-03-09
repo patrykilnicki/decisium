@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import * as db from "@/lib/supabase/db";
 import { createTodoGenerator } from "@/lib/integrations";
+import { getTodayInTimezone } from "@/lib/datetime/user-timezone";
+import type { User } from "@/types/database";
 
 function isAuthorized(request: NextRequest): boolean {
   const authHeader = request.headers.get("authorization");
@@ -16,17 +18,16 @@ function isAuthorized(request: NextRequest): boolean {
 /**
  * POST /api/cron/generate-today-todos
  * Runs at 06:00 UTC daily. Ensures today's task snapshot exists for all users
- * with active integrations. Uses getOrGenerateForDate so existing snapshots
- * are never overwritten.
+ * with active integrations. "Today" is computed per user's timezone.
  */
 export async function POST(request: NextRequest) {
   if (!isAuthorized(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const today = new Date().toISOString().split("T")[0];
   const admin = createAdminClient();
   const generator = createTodoGenerator(admin);
+  const now = new Date();
 
   try {
     const { data: integrations, error } = await db.selectMany(
@@ -50,24 +51,40 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         success: true,
         message: "No users with active integrations",
-        date: today,
         results: [],
       });
     }
 
+    const { data: users, error: usersError } = await db.selectMany(
+      admin,
+      "users",
+      { id: userIds as unknown as string[] },
+      { columns: "id, timezone" },
+    );
+
+    if (usersError || !users) {
+      throw new Error("Failed to fetch users");
+    }
+
     const results: Array<{ userId: string; status: string; error?: string }> =
       [];
+    const typedUsers = users as Array<Pick<User, "id" | "timezone">>;
 
-    for (const userId of userIds) {
+    for (const user of typedUsers) {
       try {
-        await generator.getOrGenerateForDate(userId, today, {
+        const tz = user.timezone ?? "UTC";
+        const today = getTodayInTimezone(tz, now);
+        await generator.getOrGenerateForDate(user.id, today, {
           generatedFromEvent: "system.cron.generate_today_todos",
         });
-        results.push({ userId, status: "success" });
+        results.push({ userId: user.id, status: "success" });
       } catch (err) {
-        console.error(`[generate-today-todos] Failed for user ${userId}:`, err);
+        console.error(
+          `[generate-today-todos] Failed for user ${user.id}:`,
+          err,
+        );
         results.push({
-          userId,
+          userId: user.id,
           status: "error",
           error: err instanceof Error ? err.message : "Unknown error",
         });
@@ -76,7 +93,6 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      date: today,
       results,
     });
   } catch (error) {

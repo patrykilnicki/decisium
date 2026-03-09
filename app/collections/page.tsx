@@ -8,6 +8,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { listDocuments, listCollections } from "@/app/actions/vault";
 import { Button } from "@/components/ui/button";
 import { CentralIcon } from "@/components/ui/central-icon";
+import { formatDate } from "@/lib/datetime/format";
+import { useUserTimezone } from "@/contexts/user-preferences-context";
 
 interface VaultDocument {
   id: string;
@@ -22,6 +24,7 @@ interface VaultCollection {
 }
 
 export default function CollectionsPage() {
+  const timezone = useUserTimezone();
   const [documents, setDocuments] = useState<VaultDocument[]>([]);
   const [collections, setCollections] = useState<VaultCollection[]>([]);
   const [loading, setLoading] = useState(true);
@@ -136,7 +139,7 @@ export default function CollectionsPage() {
                           <span className="font-medium">{doc.title}</span>
                           {doc.updated_at && (
                             <span className="ml-2 text-xs text-muted-foreground">
-                              {new Date(doc.updated_at).toLocaleDateString()}
+                              {formatDate(new Date(doc.updated_at), timezone)}
                             </span>
                           )}
                         </Link>

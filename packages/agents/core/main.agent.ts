@@ -1,6 +1,10 @@
 import { createDeepAgent, type SubAgent } from "deepagents";
 import { createLLM } from "../lib/llm";
-import { getCurrentDate, getCurrentDateWithDay } from "../lib/date-utils";
+import {
+  getCurrentDate,
+  getCurrentDateWithDay,
+  getFormattedDateWithDay,
+} from "../lib/date-utils";
 import { handleAgentError } from "../lib/error-handler";
 import { createSafeAgentInvoker } from "../lib/agent-invocation";
 import { memorySearchTool } from "../tools";
@@ -21,6 +25,8 @@ import {
 interface MainAgentConfig {
   model?: string;
   temperature?: number;
+  /** When provided (e.g. from user context), used for "today" in prompts instead of UTC */
+  currentDate?: string;
   /**
    * Recursion limit for agent invocations
    * Default: 100 (accommodates subagent routing and tool calls)
@@ -63,8 +69,10 @@ function createAskSubagent(currentDate: string): SubAgent {
  * @returns A deepagent instance (typed as unknown to avoid deep type inference issues with LangChain)
  */
 export function createMainAgent(config?: MainAgentConfig): unknown {
-  const currentDate = getCurrentDate();
-  const currentDateWithDay = getCurrentDateWithDay();
+  const currentDate = config?.currentDate ?? getCurrentDate();
+  const currentDateWithDay = config?.currentDate
+    ? getFormattedDateWithDay(config.currentDate)
+    : getCurrentDateWithDay();
 
   // Create the LLM (OpenRouter only)
   const llm = createLLM({
@@ -106,7 +114,10 @@ export async function processMainAgentMessage(
   config?: MainAgentConfig,
 ): Promise<MainAgentResult> {
   try {
-    const agent = createMainAgent(config);
+    const agent = createMainAgent({
+      ...config,
+      currentDate: config?.currentDate ?? input.context?.currentDate,
+    });
 
     // Format the context for the agent
     const contextInfo = formatContextForPrompt(input.context);
@@ -200,8 +211,7 @@ export async function processAskPageMessage(params: {
   userEmail?: string;
   conversationHistory?: string;
 }): Promise<MainAgentResult> {
-  const currentDate =
-    params.currentDate || new Date().toISOString().split("T")[0];
+  const currentDate = params.currentDate || getCurrentDate();
 
   return processMainAgentMessage({
     userMessage: params.userMessage,

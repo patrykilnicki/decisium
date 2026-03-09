@@ -7,6 +7,7 @@ export interface TaskRunContext {
   taskType: string;
   nodeKey: string;
   jobId: string;
+  currentDate?: string;
 }
 
 const taskContextStore = new AsyncLocalStorage<TaskRunContext>();

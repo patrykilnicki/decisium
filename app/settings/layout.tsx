@@ -12,15 +12,7 @@ export default function SettingsLayout({
   return (
     <ProtectedRoute>
       <AppLayout>
-        <div
-          className="relative flex min-h-full flex-1 flex-col items-center bg-background"
-          style={{
-            backgroundImage: "url(/bg.svg)",
-            backgroundRepeat: "no-repeat",
-            backgroundPosition: "top left",
-            backgroundSize: "auto 50vh",
-          }}
-        >
+        <div className="relative flex min-h-full flex-1 flex-col items-center bg-background bg-[url('/bg.svg')] bg-no-repeat bg-left-top bg-[length:auto_50vh] dark:bg-[url('/bg-dark.svg')]">
           <div className="flex h-full w-full min-h-0">
             <SettingsNav />
             <div className="flex min-h-0 flex-1 flex-col w-full">

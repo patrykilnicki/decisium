@@ -1,6 +1,10 @@
 {
   "crons": [
     {
+      "path": "/api/cron/user-scheduled",
+      "schedule": "0 * * * *"
+    },
+    {
       "path": "/api/cron/daily-summary",
       "schedule": "0 2 * * *"
     },

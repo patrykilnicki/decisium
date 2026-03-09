@@ -4,9 +4,11 @@ import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { WeeklySummaryContent } from "@/packages/agents/schemas/summary.schema";
-import { format, endOfWeek } from "date-fns";
+import { endOfWeek } from "date-fns";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ChevronDown, ChevronUp } from "@hugeicons/core-free-icons";
+import { formatDate } from "@/lib/datetime/format";
+import { useUserTimezone } from "@/contexts/user-preferences-context";
 
 interface WeeklySummaryCardProps {
   weekStart: string;
@@ -19,6 +21,7 @@ export function WeeklySummaryCard({
   summary,
   onExpand,
 }: WeeklySummaryCardProps) {
+  const timezone = useUserTimezone();
   const [expanded, setExpanded] = useState(false);
   const weekEnd = endOfWeek(new Date(weekStart), { weekStartsOn: 1 });
 
@@ -27,8 +30,16 @@ export function WeeklySummaryCard({
       <CardHeader>
         <div className="flex items-center justify-between">
           <CardTitle className="text-sm">
-            {format(new Date(weekStart), "MMM d")} –{" "}
-            {format(weekEnd, "MMM d, yyyy")}
+            {formatDate(new Date(weekStart), timezone, {
+              month: "short",
+              day: "numeric",
+            })}{" "}
+            –{" "}
+            {formatDate(weekEnd, timezone, {
+              month: "short",
+              day: "numeric",
+              year: "numeric",
+            })}
           </CardTitle>
           <Button
             variant="ghost"

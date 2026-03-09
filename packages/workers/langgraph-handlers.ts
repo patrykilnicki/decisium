@@ -206,6 +206,7 @@ async function handleOrchestratorInvoke(
     task,
     jobId: options.jobId,
     nodeKey: "orchestrator.invoke",
+    currentDate: state.currentDate,
     handler: () =>
       processOrchestratorMessage({
         userId: state.userId,
@@ -374,6 +375,7 @@ async function runNodeWithEvents<T>(params: {
   task: TaskRow;
   jobId: string;
   nodeKey: string;
+  currentDate?: string;
   handler: () => Promise<T> | T;
 }): Promise<T> {
   return runWithTaskContext(
@@ -384,6 +386,7 @@ async function runNodeWithEvents<T>(params: {
       taskType: params.task.task_type,
       nodeKey: params.nodeKey,
       jobId: params.jobId,
+      currentDate: params.currentDate,
     },
     async () => {
       const payloadBase = {

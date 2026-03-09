@@ -2,8 +2,9 @@
 import { getCurrentUserClient } from "@/lib/user-client";
 import type { CurrentUser } from "@/lib/user";
 import { memo, useEffect, useState } from "react";
-import { format } from "date-fns";
 import { cn } from "@/lib/utils";
+import { formatTime } from "@/lib/datetime/format";
+import { useUserTimezone } from "@/contexts/user-preferences-context";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { MarkdownContent } from "./markdown-content";
 import { AnimatedSystemAvatar } from "./animated-system-avatar";
@@ -14,6 +15,7 @@ function ChatMessageComponent({
   showAvatar = true,
   isStreaming = false,
 }: ChatMessageProps) {
+  const timezone = useUserTimezone();
   const isUser = message.role === "user";
   const isAssistant = message.role === "assistant";
   const isSystem = message.role === "system";
@@ -162,7 +164,7 @@ function ChatMessageComponent({
               isUser && "text-right",
             )}
           >
-            {format(new Date(message.createdAt), "h:mm a")}
+            {formatTime(new Date(message.createdAt), timezone)}
           </span>
         )}
       </div>

@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { createThread, getThreads } from "@/app/actions/ask";
+import {
+  createThread,
+  createThreadWithFirstMessage,
+  getThreads,
+} from "@/app/actions/ask";
 
 export async function GET(_request: NextRequest) {
   // Route handler signature requires request; not used for list threads
@@ -35,9 +39,13 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { title } = body;
+    const { title, initialMessage } = body;
 
-    const thread = await createThread(user.id, title);
+    const thread =
+      typeof initialMessage === "string" && initialMessage.trim()
+        ? await createThreadWithFirstMessage(user.id, initialMessage.trim())
+        : await createThread(user.id, title);
+
     return NextResponse.json(thread, { status: 201 });
   } catch (error: unknown) {
     const message =

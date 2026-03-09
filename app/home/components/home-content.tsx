@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { CentralIcon } from "@/components/ui/central-icon";
 import { Textarea } from "@/components/ui/textarea";
@@ -29,6 +29,17 @@ import { useSupabaseRealtime } from "@/lib/realtime";
 import { createClient } from "@/lib/supabase/client";
 import * as db from "@/lib/supabase/db";
 import { cn } from "@/lib/utils";
+import {
+  formatDate,
+  formatTime,
+  formatDateString,
+} from "@/lib/datetime/format";
+import {
+  getDateInTimezone,
+  getTodayInTimezone,
+  getYesterdayInTimezone,
+} from "@/lib/datetime/user-timezone";
+import { useUserTimezone } from "@/contexts/user-preferences-context";
 import { TasksSectionSkeleton } from "@/app/home/components/tasks-section-skeleton";
 import { CalendarSectionSkeleton } from "@/app/home/components/calendar-section-skeleton";
 
@@ -171,6 +182,7 @@ interface TaskRowProps {
   task: TodoItemWithMeta;
   date: string;
   isOverdue: boolean;
+  timezone?: string | null;
   onOpenDetail: () => void;
   onActionOpen: (type: "date" | "name") => void;
   onMarkResolved: () => void;
@@ -183,6 +195,7 @@ function TaskRow({
   task,
   date: _date,
   isOverdue,
+  timezone,
   onOpenDetail,
   onActionOpen,
   onMarkResolved,
@@ -222,7 +235,7 @@ function TaskRow({
           </span>
           {isOverdue && task.snapshotDate && (
             <span className="ml-2 text-xs text-muted-foreground">
-              ({formatOverdueLabel(task.snapshotDate)})
+              ({formatOverdueLabel(task.snapshotDate, timezone)})
             </span>
           )}
         </div>
@@ -303,16 +316,13 @@ function TaskRow({
   );
 }
 
-function formatDisplayDate(date: Date) {
-  return date.toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
+function formatDisplayDate(date: Date, timezone?: string | null) {
+  return formatDate(date, timezone);
 }
 
-/** Local date as YYYY-MM-DD (matches calendar day user sees, avoids UTC shift). */
-function toLocalDateString(date: Date): string {
+/** Calendar date YYYY-MM-DD in user timezone (or browser local if no tz). */
+function toLocalDateString(date: Date, timezone?: string | null): string {
+  if (timezone) return getDateInTimezone(date, timezone);
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, "0");
   const d = String(date.getDate()).padStart(2, "0");
@@ -320,23 +330,30 @@ function toLocalDateString(date: Date): string {
 }
 
 /** Format past date as "Yesterday", "Mon 02 Feb", or "Last month". */
-function formatOverdueLabel(snapshotDate: string): string {
-  const today = toLocalDateString(new Date());
-  const yesterday = new Date();
-  yesterday.setDate(yesterday.getDate() - 1);
-  const yesterdayStr = toLocalDateString(yesterday);
+function formatOverdueLabel(
+  snapshotDate: string,
+  timezone?: string | null,
+): string {
+  const now = new Date();
+  const today = timezone
+    ? getTodayInTimezone(timezone, now)
+    : toLocalDateString(now);
+  const yesterdayStr = timezone
+    ? getYesterdayInTimezone(timezone, now)
+    : toLocalDateString(
+        new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1),
+      );
 
   if (snapshotDate === yesterdayStr) return "Yesterday";
   if (snapshotDate === today) return "Today";
 
   const d = new Date(snapshotDate + "T12:00:00");
-  const now = new Date();
   const isLastMonth =
     d.getFullYear() < now.getFullYear() || d.getMonth() < now.getMonth();
 
   if (isLastMonth) return "Last month";
 
-  return d.toLocaleDateString("en-GB", {
+  return formatDateString(snapshotDate, timezone, {
     weekday: "short",
     day: "2-digit",
     month: "short",
@@ -346,22 +363,15 @@ function formatOverdueLabel(snapshotDate: string): string {
 function formatTimeRange(
   occurredAt: string,
   durationMinutes: number | null,
+  timezone?: string | null,
 ): string {
   const start = new Date(occurredAt);
-  const startStr = start.toLocaleTimeString("en-GB", {
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  });
+  const startStr = formatTime(start, timezone);
   if (durationMinutes == null || durationMinutes <= 0) {
     return startStr;
   }
   const end = new Date(start.getTime() + durationMinutes * 60 * 1000);
-  const endStr = end.toLocaleTimeString("en-GB", {
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  });
+  const endStr = formatTime(end, timezone);
   return `${startStr} - ${endStr}`;
 }
 
@@ -681,6 +691,7 @@ function TaskDetailModal({
 }
 
 export function HomeContent({ userName, userId }: HomeContentProps) {
+  const timezone = useUserTimezone();
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [journalValue, setJournalValue] = useState("");
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
@@ -705,12 +716,15 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
   const [changeNameTo, setChangeNameTo] = useState("");
 
   const isToday =
-    toLocalDateString(selectedDate) === toLocalDateString(new Date());
+    toLocalDateString(selectedDate, timezone) ===
+    toLocalDateString(new Date(), timezone);
   const { calendarVersion, tasksVersion } = useSupabaseRealtime();
+  /** Skip real-time–driven refetch while user-triggered generation is in progress */
+  const generatingRef = useRef(false);
 
   const refetchTasksForSelectedDay = useCallback(() => {
     if (!userId) return;
-    const dateStr = toLocalDateString(selectedDate);
+    const dateStr = toLocalDateString(selectedDate, timezone);
     fetch(`/api/integrations/todos?date=${dateStr}`, {
       cache: "no-store",
       credentials: "include",
@@ -722,11 +736,11 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
           setHasSnapshot(true);
         }
       });
-  }, [userId, selectedDate]);
+  }, [userId, selectedDate, timezone]);
 
   const refetchOverdue = useCallback(() => {
     if (!userId) return;
-    const today = toLocalDateString(new Date());
+    const today = toLocalDateString(new Date(), timezone);
     fetch(`/api/integrations/todos/overdue?days=31&today=${today}`, {
       cache: "no-store",
       credentials: "include",
@@ -740,7 +754,7 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
         }
       })
       .catch(() => setOverdueItems([]));
-  }, [userId]);
+  }, [userId, timezone]);
 
   async function patchItem(
     date: string,
@@ -874,7 +888,11 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
         ).map((row) => ({
           id: row.id,
           title: row.title ?? "Untitled event",
-          time: formatTimeRange(row.occurred_at, row.duration_minutes),
+          time: formatTimeRange(
+            row.occurred_at,
+            row.duration_minutes,
+            timezone,
+          ),
           color: getEventColor(row.title, row.categories),
         }));
         setCalendarEvents(events);
@@ -883,7 +901,7 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
     }
 
     fetchCalendarEvents();
-  }, [userId, selectedDate, calendarVersion]);
+  }, [userId, selectedDate, calendarVersion, timezone]);
 
   useEffect(() => {
     if (!userId) {
@@ -896,10 +914,11 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
     }
 
     const controller = new AbortController();
-    const dateStr = toLocalDateString(selectedDate);
+    const dateStr = toLocalDateString(selectedDate, timezone);
     const onlyFromCache = !isToday;
 
     async function fetchTasks() {
+      if (generatingRef.current) return;
       setTasksLoading(true);
       try {
         const url = onlyFromCache
@@ -936,14 +955,14 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
 
     fetchTasks();
     return () => controller.abort();
-  }, [userId, selectedDate, isToday, tasksVersion]);
+  }, [userId, selectedDate, isToday, tasksVersion, timezone]);
 
   useEffect(() => {
     if (actionDialog) {
-      setChangeDateTo(toLocalDateString(new Date()));
+      setChangeDateTo(toLocalDateString(new Date(), timezone));
       setChangeNameTo(actionDialog.task.title);
     }
-  }, [actionDialog]);
+  }, [actionDialog, timezone]);
 
   useEffect(() => {
     if (!userId || !isToday) {
@@ -951,9 +970,10 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
       setOverdueLoading(false);
       return;
     }
+    if (generatingRef.current) return;
     const controller = new AbortController();
     setOverdueLoading(true);
-    const today = toLocalDateString(new Date());
+    const today = toLocalDateString(new Date(), timezone);
     fetch(`/api/integrations/todos/overdue?days=31&today=${today}`, {
       cache: "no-store",
       credentials: "include",
@@ -972,12 +992,13 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
       .catch(() => setOverdueItems([]))
       .finally(() => setOverdueLoading(false));
     return () => controller.abort();
-  }, [userId, isToday, tasksVersion]);
+  }, [userId, isToday, tasksVersion, timezone]);
 
   async function generateTasksForSelectedDay() {
     if (!userId) return;
-    const dateStr = toLocalDateString(selectedDate);
+    const dateStr = toLocalDateString(selectedDate, timezone);
     setGeneratingTasks(true);
+    generatingRef.current = true;
     try {
       const response = await fetch(`/api/integrations/todos?date=${dateStr}`, {
         method: "GET",
@@ -995,6 +1016,7 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
       setHasSnapshot(true);
     } finally {
       setGeneratingTasks(false);
+      generatingRef.current = false;
     }
   }
 
@@ -1006,15 +1028,7 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
   const showTasksSkeleton = isLoadingTasks && !hasTasksData;
 
   return (
-    <div
-      className="relative flex min-h-screen flex-col items-center bg-background p-4"
-      style={{
-        backgroundImage: "url(/bg.svg)",
-        backgroundRepeat: "no-repeat",
-        backgroundPosition: "top left",
-        backgroundSize: "auto 50vh",
-      }}
-    >
+    <div className="relative flex min-h-screen flex-col items-center bg-background bg-[url('/bg.svg')] bg-no-repeat bg-left-top bg-[length:auto_50vh] dark:bg-[url('/bg-dark.svg')] p-4">
       <div className="flex w-full max-w-5xl flex-1 flex-col items-stretch gap-14 px-4 py-8 md:px-8 md:py-10 lg:px-32">
         {/* Header: greeting + date navigation */}
         <header className="flex w-full flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -1024,7 +1038,7 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
 
           <div className="flex items-center gap-2">
             <div className="text-sm font-medium text-foreground">
-              {formatDisplayDate(selectedDate)}
+              {formatDisplayDate(selectedDate, timezone)}
             </div>
             <Button
               variant="outline"
@@ -1098,7 +1112,7 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
               </div>
             ) : (
               (() => {
-                const selectedStr = toLocalDateString(selectedDate);
+                const selectedStr = toLocalDateString(selectedDate, timezone);
                 const mergedTasks: TodoItemWithMeta[] = isToday
                   ? [
                       ...overdueItems,
@@ -1136,6 +1150,7 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
                           task={task}
                           date={taskDate}
                           isOverdue={isOverdue}
+                          timezone={timezone}
                           onOpenDetail={() => setDetailModalTask(task)}
                           onActionOpen={(type) =>
                             setActionDialog({
@@ -1188,28 +1203,31 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
           date={
             detailModalTask
               ? (detailModalTask.snapshotDate ??
-                toLocalDateString(selectedDate))
+                toLocalDateString(selectedDate, timezone))
               : ""
           }
           onClose={() => setDetailModalTask(null)}
           onMarkResolved={() => {
             if (!detailModalTask) return;
             const d =
-              detailModalTask.snapshotDate ?? toLocalDateString(selectedDate);
+              detailModalTask.snapshotDate ??
+              toLocalDateString(selectedDate, timezone);
             setDetailModalTask(null);
             patchItem(d, detailModalTask.id, "update", { status: "done" });
           }}
           onMarkUnresolved={() => {
             if (!detailModalTask) return;
             const d =
-              detailModalTask.snapshotDate ?? toLocalDateString(selectedDate);
+              detailModalTask.snapshotDate ??
+              toLocalDateString(selectedDate, timezone);
             setDetailModalTask(null);
             patchItem(d, detailModalTask.id, "update", { status: "open" });
           }}
           onActionOpen={(type) => {
             if (!detailModalTask) return;
             const d =
-              detailModalTask.snapshotDate ?? toLocalDateString(selectedDate);
+              detailModalTask.snapshotDate ??
+              toLocalDateString(selectedDate, timezone);
             setDetailModalTask(null);
             setActionDialog({
               type,
@@ -1220,7 +1238,8 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
           onDelete={() => {
             if (!detailModalTask) return;
             const d =
-              detailModalTask.snapshotDate ?? toLocalDateString(selectedDate);
+              detailModalTask.snapshotDate ??
+              toLocalDateString(selectedDate, timezone);
             setDetailModalTask(null);
             patchItem(d, detailModalTask.id, "delete");
           }}
@@ -1250,7 +1269,7 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
                     variant="outline"
                     size="sm"
                     onClick={() =>
-                      setChangeDateTo(toLocalDateString(new Date()))
+                      setChangeDateTo(toLocalDateString(new Date(), timezone))
                     }
                   >
                     Today
@@ -1261,7 +1280,7 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
                     onClick={() => {
                       const t = new Date();
                       t.setDate(t.getDate() + 1);
-                      setChangeDateTo(toLocalDateString(t));
+                      setChangeDateTo(toLocalDateString(t, timezone));
                     }}
                   >
                     Tomorrow

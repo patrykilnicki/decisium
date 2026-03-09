@@ -4,6 +4,7 @@ import type { BaseMessage } from "@langchain/core/messages";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
 import type { DynamicStructuredTool } from "@langchain/core/tools";
 
+import { getCurrentDate } from "../lib/date-utils";
 import { hasToolCalls } from "../lib/router";
 import { getOrchestratorTools } from "../tools/registry";
 import { supabaseStoreTool } from "../tools";
@@ -454,7 +455,7 @@ function createToolNode(
   const toolNode = new ToolNode(tools);
   return async (state: OrchestratorState) => {
     const pendingTools = getPendingToolCalls(state.messages);
-    const today = state.currentDate ?? new Date().toISOString().split("T")[0];
+    const today = state.currentDate ?? getCurrentDate();
     await Promise.all(
       pendingTools.map(async (tool) => {
         let displayLabelOverride: string | undefined;
