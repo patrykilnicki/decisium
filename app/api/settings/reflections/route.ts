@@ -62,7 +62,7 @@ function isValidBody(body: unknown): body is ReflectionSettings {
   return true;
 }
 
-const DEFAULT_SETTINGS: ReflectionSettings = {
+const DEFAULT_SETTINGS: Record<Frequency, ReflectionSchedule> = {
   daily: { enabled: false, time: "09:00" },
   weekly: { enabled: false, time: "09:00", dayOfWeek: 1 },
   monthly: { enabled: false, time: "09:00", dayOfMonth: 1 },
