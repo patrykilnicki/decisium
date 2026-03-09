@@ -595,6 +595,7 @@ export async function processOrchestratorMessage(input: {
   threadId: string;
   userMessage: string;
   currentDate?: string;
+  timezone?: string;
   userEmail?: string;
   conversationHistory?: string;
   callbackUrl?: string;
@@ -608,6 +609,8 @@ export async function processOrchestratorMessage(input: {
       callbackUrl: input.callbackUrl,
       threadId: input.threadId,
       userMessage: input.userMessage,
+      currentDate: input.currentDate,
+      timezone: input.timezone,
       preferredModel: input.preferredModel,
     }),
     buildConnectedServicesText(input.userId),

@@ -194,7 +194,7 @@ export async function sendMessage(
 ) {
   try {
     // Get authenticated user context
-    const { userId, currentDate, userEmail, preferredModel } =
+    const { userId, currentDate, timezone, userEmail, preferredModel } =
       await getUserContext();
 
     // Verify thread belongs to user
@@ -246,6 +246,7 @@ export async function sendMessage(
           threadId,
           userMessage: messageInput.content,
           currentDate,
+          timezone,
           userEmail,
           conversationHistory,
           preferredModel,
