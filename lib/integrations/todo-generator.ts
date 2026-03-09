@@ -1363,6 +1363,11 @@ export class TodoGenerator {
     date: string,
     options?: TodoGenerateOptions,
   ): Promise<TodoListOutput> {
+    if (!userId || typeof userId !== "string" || userId.trim() === "") {
+      throw new Error(
+        "[todo-generator] getOrGenerateForDate: userId is required and must be a non-empty string",
+      );
+    }
     const existing = await this.getSnapshotForDate(userId, date);
     if (existing) {
       await this.insertTodoGenerationLog(userId, date, {
@@ -1801,6 +1806,11 @@ export class TodoGenerator {
     date: string,
     options?: TodoGenerateOptions,
   ): Promise<TodoListOutput> {
+    if (!userId || typeof userId !== "string" || userId.trim() === "") {
+      throw new Error(
+        "[todo-generator] generateForDate: userId is required and must be a non-empty string",
+      );
+    }
     const startedAt = Date.now();
     const integrations = await this.fetchActiveIntegrations(userId);
     if (integrations.length === 0) {
@@ -1860,6 +1870,16 @@ export class TodoGenerator {
       emailScopeUsed: scopeToLogJson(emailScopeUsed),
       promptSettingsUsed: promptSettingsToLogJson(promptSettings),
     });
+
+    // Avoid duplicate runs: another request may have already written a snapshot
+    // (e.g. multiple GET /api/integrations/todos for same date, or tasksVersion refetch).
+    const snapshotNow = await this.getSnapshotForDate(userId, date);
+    if (snapshotNow) {
+      return TodoListOutputSchema.parse({
+        ...snapshotNow,
+        updatedBecause: "cached",
+      });
+    }
 
     const list = TodoListOutputSchema.parse({
       listId: existingMeta?.listId ?? crypto.randomUUID(),
