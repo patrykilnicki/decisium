@@ -85,6 +85,13 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  if (!userId) {
+    return NextResponse.json(
+      { error: "Could not resolve userId" },
+      { status: 400 },
+    );
+  }
+
   const date = new Date().toISOString().split("T")[0];
 
   const todoResult = await dispatchTodoGenerationTask(userId, {
