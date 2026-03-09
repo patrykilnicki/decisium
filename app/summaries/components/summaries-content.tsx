@@ -11,7 +11,7 @@ import { DaySummaryCard } from "@/app/summaries/components/day-summary-card";
 import { WeeklySummaryCard } from "@/app/summaries/components/weekly-summary-card";
 import { MonthlySummaryCard } from "@/app/summaries/components/monthly-summary-card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { CentralIcon } from "@/components/ui/central-icon";
+import { Skeleton } from "@/components/ui/skeleton";
 import type {
   DailySummaryContent,
   WeeklySummaryContent,
@@ -80,15 +80,24 @@ export function SummariesContent() {
     return (
       <div className="flex flex-col h-full">
         <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 p-4">
-          <h1 className="text-xl font-semibold">Summaries</h1>
-          <p className="text-sm text-muted-foreground">
-            Daily, weekly, and monthly insights from your entries
-          </p>
+          <Skeleton className="h-7 w-32 mb-2" />
+          <Skeleton className="h-4 w-72" />
         </header>
-        <div className="flex-1 flex items-center justify-center">
-          <div className="flex flex-col items-center gap-3 text-muted-foreground">
-            <CentralIcon name="IconLoader" size={24} className="animate-spin" />
-            <span className="text-sm">Loading summaries...</span>
+        <div className="flex-1 overflow-y-auto p-4">
+          <div className="space-y-6">
+            <div className="flex gap-2">
+              <Skeleton className="h-9 w-24" />
+              <Skeleton className="h-9 w-24" />
+              <Skeleton className="h-9 w-24" />
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {[1, 2, 3, 4, 5, 6].map((i) => (
+                <Skeleton
+                  key={i}
+                  className="h-48 w-full rounded-xl border border-border"
+                />
+              ))}
+            </div>
           </div>
         </div>
       </div>

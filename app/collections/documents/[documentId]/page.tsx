@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { ProtectedRoute } from "@/components/auth/protected-route";
 import { AppLayout } from "@/components/layout/app-layout";
+import { Skeleton } from "@/components/ui/skeleton";
 import { VaultEditor } from "@/app/collections/components/vault-editor";
 import { getDocument, updateDocument } from "@/app/actions/vault";
 import { Button } from "@/components/ui/button";
@@ -60,8 +61,19 @@ export default function CollectionDocumentPage() {
     return (
       <ProtectedRoute>
         <AppLayout>
-          <div className="flex h-full items-center justify-center p-8">
-            <p className="text-muted-foreground">Loading document...</p>
+          <div className="flex h-full flex-col overflow-hidden">
+            <header className="flex items-center gap-4 border-b px-4 py-3">
+              <Skeleton className="h-4 w-24" />
+              <Skeleton className="h-8 max-w-md flex-1" />
+            </header>
+            <div className="flex-1 overflow-y-auto p-4">
+              <div className="space-y-3">
+                {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
+                  <Skeleton key={i} className="h-4 w-full" />
+                ))}
+                <Skeleton className="h-4 w-3/4" />
+              </div>
+            </div>
           </div>
         </AppLayout>
       </ProtectedRoute>

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { CentralIcon } from "@/components/ui/central-icon";
 import { useAskLayout } from "@/app/ask/ask-layout-context";
 
@@ -12,7 +13,7 @@ function ThreadListSkeleton() {
     <div className="flex flex-col gap-0 px-3" aria-hidden="true">
       {[1, 2, 3, 4, 5].map((i) => (
         <div key={i} className="rounded-lg px-3 py-2">
-          <div className="h-5 w-full max-w-[90%] animate-pulse rounded bg-muted" />
+          <Skeleton className="h-5 w-full max-w-[90%]" />
         </div>
       ))}
     </div>

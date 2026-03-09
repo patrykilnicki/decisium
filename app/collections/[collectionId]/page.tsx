@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { ProtectedRoute } from "@/components/auth/protected-route";
 import { AppLayout } from "@/components/layout/app-layout";
+import { Skeleton } from "@/components/ui/skeleton";
 import { listDocuments } from "@/app/actions/vault";
 
 interface VaultDocument {
@@ -43,7 +44,19 @@ export default function CollectionPage() {
             </Link>
           </div>
 
-          {loading && <div className="text-muted-foreground">Loading...</div>}
+          {loading && (
+            <section className="space-y-4">
+              <Skeleton className="h-8 w-48" />
+              <div className="space-y-2">
+                {[1, 2, 3, 4, 5].map((i) => (
+                  <Skeleton
+                    key={i}
+                    className="h-14 w-full rounded-md border border-border"
+                  />
+                ))}
+              </div>
+            </section>
+          )}
           {error && (
             <div className="text-destructive mb-4 rounded-md bg-destructive/10 p-3">
               {error}

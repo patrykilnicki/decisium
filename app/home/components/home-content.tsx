@@ -901,7 +901,6 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
 
     async function fetchTasks() {
       setTasksLoading(true);
-      setHasSnapshot(null);
       try {
         const url = onlyFromCache
           ? `/api/integrations/todos?date=${dateStr}&onlyFromCache=true`
@@ -999,6 +998,13 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
     }
   }
 
+  const isLoadingTasks = tasksLoading || (isToday && overdueLoading);
+  const hasTasksData =
+    integrationTasks.length > 0 ||
+    (isToday && overdueItems.length > 0) ||
+    hasSnapshot !== null;
+  const showTasksSkeleton = isLoadingTasks && !hasTasksData;
+
   return (
     <div
       className="relative flex min-h-screen flex-col items-center bg-background p-4"
@@ -1068,10 +1074,10 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
           <div
             className={cn(
               "overflow-hidden rounded-2xl border border-border bg-card w-full",
-              (tasksLoading || (isToday && overdueLoading)) && "min-h-[280px]",
+              showTasksSkeleton && "min-h-[280px]",
             )}
           >
-            {tasksLoading || (isToday && overdueLoading) ? (
+            {showTasksSkeleton ? (
               <TasksSectionSkeleton />
             ) : !isToday && hasSnapshot === false ? (
               <div className="flex flex-col gap-4 px-5 py-6">
