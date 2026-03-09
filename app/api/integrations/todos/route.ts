@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { getCurrentAuthUser } from "@/lib/user-server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createTodoGenerator } from "@/lib/integrations";
 
 function todayDateString(): string {
   return new Date().toISOString().split("T")[0];
+}
+
+function isValidUserId(id: unknown): id is string {
+  return typeof id === "string" && id.trim().length > 0;
 }
 
 /**
@@ -26,13 +30,8 @@ function todayDateString(): string {
  */
 export async function GET(request: NextRequest) {
   try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-
-    if (authError || !user) {
+    const user = await getCurrentAuthUser();
+    if (!user || !isValidUserId(user.id)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -81,13 +80,8 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-
-    if (authError || !user) {
+    const user = await getCurrentAuthUser();
+    if (!user || !isValidUserId(user.id)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
