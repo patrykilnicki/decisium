@@ -48,20 +48,22 @@ export interface WebhookLogRow {
 
 /**
  * Resolve our app's user_id from a webhook log row.
- * Uses resolved_user_id when set; otherwise resolves from payload_metadata.connected_account_id.
+ * Prefers payload_metadata.connected_account_id → integration.user_id (always from our DB).
+ * Falls back to resolved_user_id only when connected_account_id is missing (old logs may
+ * have stored Composio user_id in resolved_user_id, which would violate tasks_user_id_fkey).
  */
 export async function resolveUserIdFromWebhookLog(
   client: SupabaseClient<Database>,
   log: WebhookLogRow,
 ): Promise<string | null> {
-  if (log.resolved_user_id) return log.resolved_user_id;
-
   const connectedAccountId = log.payload_metadata?.connected_account_id;
-  if (typeof connectedAccountId !== "string") return null;
+  if (typeof connectedAccountId === "string") {
+    const integration = await findIntegrationByConnectedAccountId(
+      client,
+      connectedAccountId,
+    );
+    if (integration) return integration.user_id;
+  }
 
-  const integration = await findIntegrationByConnectedAccountId(
-    client,
-    connectedAccountId,
-  );
-  return integration?.user_id ?? null;
+  return log.resolved_user_id ?? null;
 }

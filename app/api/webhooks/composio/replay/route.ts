@@ -92,6 +92,20 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const { data: userRow } = await db.selectOne(client, "users", {
+    id: userId,
+  });
+  if (!userRow) {
+    return NextResponse.json(
+      {
+        error:
+          "User not found in users table (invalid id or deleted). Refusing to enqueue tasks to avoid FK violation.",
+        userId,
+      },
+      { status: 400 },
+    );
+  }
+
   const date = new Date().toISOString().split("T")[0];
 
   const todoResult = await dispatchTodoGenerationTask(userId, {
