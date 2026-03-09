@@ -2,6 +2,7 @@ import { DynamicStructuredTool } from "@langchain/core/tools";
 import { z } from "zod";
 import { createHash } from "crypto";
 import { createLLM } from "../lib/llm";
+import { getTodayInTimezone } from "@/lib/datetime/user-timezone";
 import {
   memorySearchTool,
   vaultSearchTool,
@@ -473,12 +474,293 @@ const TOOLS_REQUIRING_USER_ID = [
   "analyze_gmail_emails",
 ] as const;
 
+interface BoundUserToolContext {
+  userId: string;
+  threadId?: string;
+  preferredModel?: string;
+  userMessage?: string;
+  currentDate?: string;
+  timezone?: string;
+}
+
+function toGmailDateFormat(yyyyMmDd: string): string {
+  return yyyyMmDd.replace(/-/g, "/");
+}
+
+function addDays(yyyyMmDd: string, days: number): string {
+  const [year, month, day] = yyyyMmDd.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  date.setUTCDate(date.getUTCDate() + days);
+  const y = date.getUTCFullYear();
+  const m = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(date.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function getStartOfMonth(yyyyMmDd: string): string {
+  const [year, month] = yyyyMmDd.split("-").map(Number);
+  return `${year}-${String(month).padStart(2, "0")}-01`;
+}
+
+function addMonths(yyyyMmDd: string, months: number): string {
+  const [year, month, day] = yyyyMmDd.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1 + months, day));
+  const y = date.getUTCFullYear();
+  const m = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(date.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function getStartOfWeekMonday(yyyyMmDd: string): string {
+  const [year, month, day] = yyyyMmDd.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  const weekday = date.getUTCDay(); // 0 Sunday ... 6 Saturday
+  const diffToMonday = weekday === 0 ? -6 : 1 - weekday;
+  date.setUTCDate(date.getUTCDate() + diffToMonday);
+  const y = date.getUTCFullYear();
+  const m = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(date.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function getZonedDateParts(
+  timestampMs: number,
+  timezone: string,
+): {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  second: number;
+} {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date(timestampMs));
+
+  return {
+    year: Number(parts.find((p) => p.type === "year")?.value ?? 0),
+    month: Number(parts.find((p) => p.type === "month")?.value ?? 1),
+    day: Number(parts.find((p) => p.type === "day")?.value ?? 1),
+    hour: Number(parts.find((p) => p.type === "hour")?.value ?? 0),
+    minute: Number(parts.find((p) => p.type === "minute")?.value ?? 0),
+    second: Number(parts.find((p) => p.type === "second")?.value ?? 0),
+  };
+}
+
+function getUtcEpochForLocalMidnight(
+  yyyyMmDd: string,
+  timezone: string,
+): number {
+  const [year, month, day] = yyyyMmDd.split("-").map(Number);
+  const targetAsUtc = Date.UTC(year, month - 1, day, 0, 0, 0);
+  let candidate = targetAsUtc;
+
+  // Converges quickly for timezone offset and DST transitions.
+  for (let i = 0; i < 4; i += 1) {
+    const zoned = getZonedDateParts(candidate, timezone);
+    const zonedAsUtc = Date.UTC(
+      zoned.year,
+      zoned.month - 1,
+      zoned.day,
+      zoned.hour,
+      zoned.minute,
+      zoned.second,
+    );
+    candidate += targetAsUtc - zonedAsUtc;
+  }
+
+  return Math.floor(candidate / 1000);
+}
+
+function stripRelativeDateFilters(query: string): string {
+  return query
+    .replace(/\b(after|before|older_than|newer_than):\S+/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+const relativeEmailWindowSchema = z.object({
+  window: z.enum([
+    "none",
+    "today",
+    "yesterday",
+    "this_week",
+    "last_week",
+    "this_month",
+    "last_month",
+  ]),
+});
+
+type RelativeEmailWindow = z.infer<typeof relativeEmailWindowSchema>["window"];
+interface RelativeWindowCacheEntry {
+  value: RelativeEmailWindow;
+  expiresAt: number;
+}
+
+const RELATIVE_WINDOW_CACHE_TTL_MS = 10 * 60 * 1000;
+const RELATIVE_WINDOW_CACHE_MAX_ENTRIES = 500;
+const relativeEmailWindowCache = new Map<string, RelativeWindowCacheEntry>();
+
+function createRelativeWindowCacheKey(params: {
+  threadId?: string;
+  userMessage: string;
+  preferredModel?: string;
+}): string | null {
+  if (!params.threadId?.trim()) return null;
+  const normalizedMessage = params.userMessage.trim().replace(/\s+/g, " ");
+  if (!normalizedMessage) return null;
+  const hash = createHash("sha256")
+    .update(normalizedMessage)
+    .digest("hex")
+    .slice(0, 16);
+  return `email-window:${params.threadId}:${params.preferredModel ?? "default"}:${hash}`;
+}
+
+function getCachedRelativeWindow(cacheKey: string): RelativeEmailWindow | null {
+  const cached = relativeEmailWindowCache.get(cacheKey);
+  if (!cached) return null;
+  if (cached.expiresAt <= Date.now()) {
+    relativeEmailWindowCache.delete(cacheKey);
+    return null;
+  }
+  return cached.value;
+}
+
+function setCachedRelativeWindow(
+  cacheKey: string,
+  value: RelativeEmailWindow,
+): void {
+  if (relativeEmailWindowCache.size >= RELATIVE_WINDOW_CACHE_MAX_ENTRIES) {
+    const oldestKey = relativeEmailWindowCache.keys().next().value as
+      | string
+      | undefined;
+    if (oldestKey) relativeEmailWindowCache.delete(oldestKey);
+  }
+  relativeEmailWindowCache.set(cacheKey, {
+    value,
+    expiresAt: Date.now() + RELATIVE_WINDOW_CACHE_TTL_MS,
+  });
+}
+
+async function inferRelativeEmailWindow(params: {
+  userMessage?: string;
+  preferredModel?: string;
+  threadId?: string;
+}): Promise<RelativeEmailWindow> {
+  if (!params.userMessage?.trim()) return "none";
+
+  const cacheKey = createRelativeWindowCacheKey({
+    threadId: params.threadId,
+    userMessage: params.userMessage,
+    preferredModel: params.preferredModel,
+  });
+  if (cacheKey) {
+    const cached = getCachedRelativeWindow(cacheKey);
+    if (cached) return cached;
+  }
+
+  try {
+    const llm = createLLM({
+      model: params.preferredModel || process.env.LLM_MODEL,
+      temperature: 0,
+      maxTokens: 40,
+    }).withStructuredOutput(relativeEmailWindowSchema);
+
+    const result = await llm.invoke([
+      {
+        role: "system" as const,
+        content:
+          "Classify the requested email time window from the user message. Detect intent across any language. Return one enum value. If no explicit relative period is requested, return 'none'.",
+      },
+      {
+        role: "user" as const,
+        content: params.userMessage,
+      },
+    ]);
+
+    const resolved = result.window;
+    if (cacheKey) setCachedRelativeWindow(cacheKey, resolved);
+    return resolved;
+  } catch {
+    return "none";
+  }
+}
+
+async function resolveStrictRelativeEmailQuery(params: {
+  query: string;
+  threadId?: string;
+  preferredModel?: string;
+  userMessage?: string;
+  currentDate?: string;
+  timezone?: string;
+}): Promise<string> {
+  const window = await inferRelativeEmailWindow({
+    userMessage: params.userMessage,
+    preferredModel: params.preferredModel,
+    threadId: params.threadId,
+  });
+  if (window === "none") return params.query;
+
+  const timezone = params.timezone ?? "UTC";
+  const baseDate =
+    params.currentDate ?? getTodayInTimezone(timezone, new Date());
+  let startDate = baseDate;
+  let endDate = addDays(baseDate, 1);
+
+  if (window === "yesterday") {
+    startDate = addDays(baseDate, -1);
+    endDate = addDays(startDate, 1);
+  } else if (window === "today") {
+    startDate = baseDate;
+    endDate = addDays(startDate, 1);
+  } else if (window === "last_week") {
+    endDate = getStartOfWeekMonday(baseDate);
+    startDate = addDays(endDate, -7);
+  } else if (window === "this_week") {
+    startDate = getStartOfWeekMonday(baseDate);
+    endDate = addDays(startDate, 7);
+  } else if (window === "last_month") {
+    endDate = getStartOfMonth(baseDate);
+    startDate = getStartOfMonth(addMonths(baseDate, -1));
+  } else if (window === "this_month") {
+    startDate = getStartOfMonth(baseDate);
+    endDate = getStartOfMonth(addMonths(baseDate, 1));
+  }
+
+  const startEpoch = getUtcEpochForLocalMidnight(startDate, timezone);
+  const endEpoch = getUtcEpochForLocalMidnight(endDate, timezone);
+  const strictWindow = `after:${startEpoch} before:${endEpoch}`;
+  const cleanedQuery = stripRelativeDateFilters(params.query);
+
+  if (!cleanedQuery) return strictWindow;
+  const legacyDateWindow = `after:${toGmailDateFormat(startDate)} before:${toGmailDateFormat(endDate)}`;
+  return `${strictWindow} ${legacyDateWindow} ${cleanedQuery}`.trim();
+}
+
 /**
  * Create userId-bound versions of tools that require it.
  * The LLM does not have access to the authenticated userId, so we inject it
  * to avoid FK violations (e.g. vault_documents.tenant_id) and security issues.
  */
-function createToolsWithBoundUserId(userId: string): DynamicStructuredTool[] {
+function createToolsWithBoundUserId(
+  context: BoundUserToolContext,
+): DynamicStructuredTool[] {
+  const {
+    userId,
+    threadId,
+    preferredModel,
+    userMessage,
+    currentDate,
+    timezone,
+  } = context;
   return [
     new DynamicStructuredTool({
       name: "memory_search",
@@ -708,7 +990,14 @@ function createToolsWithBoundUserId(userId: string): DynamicStructuredTool[] {
       func: async (args) =>
         analyzeGmailEmailsTool.func({
           userId,
-          query: args.query,
+          query: await resolveStrictRelativeEmailQuery({
+            query: args.query,
+            threadId,
+            preferredModel,
+            userMessage,
+            currentDate,
+            timezone,
+          }),
           analysisFocus: args.analysisFocus,
           maxResults: args.maxResults,
         }),
@@ -721,12 +1010,12 @@ function createToolsWithBoundUserId(userId: string): DynamicStructuredTool[] {
  */
 function applyUserIdBinding(
   tools: DynamicStructuredTool[],
-  userId: string | undefined,
+  context: BoundUserToolContext | undefined,
 ): DynamicStructuredTool[] {
-  if (!userId) return tools;
+  if (!context?.userId) return tools;
 
   const boundByName = new Map(
-    createToolsWithBoundUserId(userId).map((t) => [t.name, t]),
+    createToolsWithBoundUserId(context).map((t) => [t.name, t]),
   );
 
   return tools.map((tool) => {
@@ -937,6 +1226,8 @@ export async function getOrchestratorTools(options?: {
   callbackUrl?: string;
   threadId?: string;
   userMessage?: string;
+  currentDate?: string;
+  timezone?: string;
   preferredModel?: string;
   excludeTools?: string[];
   enabledCategories?: ToolCategory[];
@@ -961,7 +1252,14 @@ export async function getOrchestratorTools(options?: {
     enabledCategories,
   });
 
-  const toolsWithUserId = applyUserIdBinding(baseTools, options?.userId);
+  const toolsWithUserId = applyUserIdBinding(baseTools, {
+    userId: options?.userId ?? "",
+    threadId: options?.threadId,
+    preferredModel: options?.preferredModel,
+    userMessage: options?.userMessage,
+    currentDate: options?.currentDate,
+    timezone: options?.timezone,
+  });
 
   if (options?.userId) {
     const toolkits = options?.composioToolkits ?? intentConfig.composioToolkits;

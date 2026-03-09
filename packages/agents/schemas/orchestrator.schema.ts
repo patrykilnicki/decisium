@@ -48,6 +48,7 @@ export interface OrchestratorState {
   // User context
   userId: string;
   currentDate: string;
+  timezone?: string;
   threadId: string;
   userEmail?: string;
   preferredModel?: string;
@@ -106,6 +107,7 @@ export function createInitialOrchestratorState(input: {
   threadId: string;
   userMessage: string;
   currentDate?: string;
+  timezone?: string;
   userEmail?: string;
   conversationHistory?: string;
   connectedServices?: string;
@@ -123,6 +125,7 @@ export function createInitialOrchestratorState(input: {
   return {
     userId: input.userId,
     currentDate: input.currentDate || getCurrentDate(),
+    timezone: input.timezone,
     threadId: input.threadId,
     userEmail: input.userEmail,
     preferredModel: input.preferredModel,
@@ -167,6 +170,7 @@ export const ToolCallResultSchema = z.object({
 export const OrchestratorStateSchema = z.object({
   userId: z.string(),
   currentDate: z.string(),
+  timezone: z.string().optional(),
   threadId: z.string(),
   userEmail: z.string().optional(),
   preferredModel: z.string().optional(),
@@ -211,6 +215,9 @@ export const OrchestratorStateSchema = z.object({
 export const orchestratorChannels = {
   userId: { reducer: (x: string, y: string) => y ?? x },
   currentDate: { reducer: (x: string, y: string) => y ?? x },
+  timezone: {
+    reducer: (x: string | undefined, y: string | undefined) => y ?? x,
+  },
   threadId: { reducer: (x: string, y: string) => y ?? x },
   userEmail: {
     reducer: (x: string | undefined, y: string | undefined) => y ?? x,

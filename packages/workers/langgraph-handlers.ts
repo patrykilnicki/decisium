@@ -171,6 +171,7 @@ async function handleOrchestratorInvoke(
     threadId: string;
     userMessage: string;
     currentDate?: string;
+    timezone?: string;
     userEmail?: string;
     conversationHistory?: string;
     userMessageId?: string;
@@ -213,6 +214,7 @@ async function handleOrchestratorInvoke(
         threadId: state.threadId,
         userMessage: state.userMessage,
         currentDate: state.currentDate,
+        timezone: state.timezone,
         userEmail: state.userEmail,
         conversationHistory: state.conversationHistory,
         preferredModel: state.preferredModel,
