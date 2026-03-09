@@ -15,6 +15,12 @@ import { findIntegrationByConnectedAccountId } from "@/lib/integrations/composio
 
 const supabase = createAdminClient();
 
+/** Ensure user exists in users table before enqueueing tasks (avoids tasks_user_id_fkey). */
+async function userExistsInDb(userId: string): Promise<boolean> {
+  const { data } = await db.selectOne(supabase, "users", { id: userId });
+  return Boolean(data);
+}
+
 /** Log one webhook request to composio_webhook_event_logs (full event → todo flow). */
 async function insertWebhookEventLog(entry: {
   eventType?: string | null;
@@ -441,6 +447,25 @@ export async function POST(request: NextRequest) {
       const result = await handleCalendarSyncEvent(payload);
       userId = result.userId;
       if (result.userId != null) {
+        if (!(await userExistsInDb(result.userId))) {
+          console.warn(
+            `[composio/webhook] Skipping task dispatch: user ${result.userId} not found in users table (FK guard)`,
+          );
+          await insertWebhookEventLog({
+            eventType: payload.type,
+            triggerSlug,
+            payloadMetadata: payload.metadata ?? undefined,
+            resolvedUserId: result.userId,
+            handlerBranch: "calendar_sync",
+            errorMessage: "User not in users table, skipped dispatch",
+            httpStatus: 200,
+          });
+          return NextResponse.json({
+            status: "ok",
+            trigger: triggerSlug,
+            skipped: "user_not_found",
+          });
+        }
         const event = payload.data as unknown as TriggerEventData;
         const signalHints = event.event_id
           ? [{ eventId: event.event_id }]
@@ -562,6 +587,26 @@ export async function POST(request: NextRequest) {
     }
 
     if (userId) {
+      if (!(await userExistsInDb(userId))) {
+        console.warn(
+          `[composio/webhook] Skipping task dispatch: user ${userId} not found in users table (FK guard)`,
+        );
+        await insertWebhookEventLog({
+          eventType: payload.type,
+          triggerSlug,
+          payloadMetadata: payload.metadata ?? undefined,
+          resolvedUserId: userId,
+          handlerBranch: "gmail_new_or_calendar_todo",
+          errorMessage: "User not in users table, skipped dispatch",
+          httpStatus: 200,
+        });
+        return NextResponse.json({
+          status: "ok",
+          trigger: triggerSlug,
+          userId,
+          skipped: "user_not_found",
+        });
+      }
       const gmailData = payload.data as Record<string, unknown> | undefined;
       const signalHints = gmailData
         ? [
