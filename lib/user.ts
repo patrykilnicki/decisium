@@ -1,5 +1,4 @@
 import type { User } from "@supabase/supabase-js";
-import { createClient as createServerClient } from "@/lib/supabase/server";
 
 export interface CurrentUser {
   name: string | null;
@@ -24,19 +23,4 @@ export function authUserToCurrentUser(user: User): CurrentUser {
     photo:
       user.user_metadata?.avatar_url ?? user.user_metadata?.picture ?? null,
   };
-}
-
-/**
- * Get the current authenticated user (server-side).
- * Use in Server Components, Server Actions, API Routes.
- */
-export async function getCurrentUser(): Promise<CurrentUser | null> {
-  const supabase = await createServerClient();
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser();
-
-  if (error || !user) return null;
-  return authUserToCurrentUser(user);
 }

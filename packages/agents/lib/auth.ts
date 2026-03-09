@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { getCurrentAuthUser } from "@/lib/user-server";
 import * as db from "@/lib/supabase/db";
 
 export interface UserContext {
@@ -9,20 +10,14 @@ export interface UserContext {
 }
 
 /**
- * Get the authenticated user from Supabase
+ * Get the authenticated user (uses central getCurrentAuthUser).
  * @throws {Error} If user is not authenticated
  */
 export async function getAuthenticatedUser() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser();
-
-  if (error || !user) {
+  const user = await getCurrentAuthUser();
+  if (!user) {
     throw new Error("Unauthorized: User not authenticated");
   }
-
   return user;
 }
 
@@ -36,7 +31,7 @@ export async function requireAuth() {
 }
 
 /**
- * Get user context with userId and current date
+ * Get user context with userId and current date (uses central getCurrentAuthUser).
  * This is the primary function for getting auth context in agents
  */
 export async function getUserContext(): Promise<UserContext> {
@@ -63,7 +58,8 @@ export async function getUserContext(): Promise<UserContext> {
 }
 
 /**
- * Get user context with a specific date (for historical queries)
+ * Get user context with a specific date (for historical queries).
+ * Uses central getCurrentAuthUser.
  */
 export async function getUserContextWithDate(
   date: string,

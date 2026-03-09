@@ -243,33 +243,6 @@ function triggerEventToAtom(
   };
 }
 
-async function findIntegrationByComposioAccount(
-  connectedAccountId: string,
-  userId: string,
-): Promise<{ id: string; user_id: string; provider: string } | null> {
-  const { data } = await db.selectMany(
-    supabase,
-    "integrations",
-    { user_id: userId, provider: "google_calendar", status: "active" },
-    { limit: 5 },
-  );
-
-  if (!data) return null;
-
-  for (const row of data) {
-    const meta = row.metadata as Record<string, unknown> | null;
-    if (meta?.composio_connected_account_id === connectedAccountId) {
-      return {
-        id: row.id,
-        user_id: row.user_id,
-        provider: row.provider,
-      };
-    }
-  }
-
-  return null;
-}
-
 /** Find integration by Composio connected account ID (any provider: calendar, gmail, etc.) */
 async function findIntegrationByConnectedAccountId(
   connectedAccountId: string,
@@ -316,24 +289,21 @@ async function handleCalendarSyncEvent(
   payload: ComposioWebhookPayload,
 ): Promise<{ processed: number; stored: number; userId?: string }> {
   const event = payload.data as unknown as TriggerEventData;
-  const userId = payload.metadata?.user_id;
   const connectedAccountId = payload.metadata?.connected_account_id;
 
-  if (!userId || !connectedAccountId) {
-    console.warn("[composio/webhook] Missing user_id or connected_account_id");
+  if (!connectedAccountId) {
+    console.warn("[composio/webhook] Missing connected_account_id");
     return { processed: 0, stored: 0, userId: undefined };
   }
 
-  const integration = await findIntegrationByComposioAccount(
-    connectedAccountId,
-    userId,
-  );
+  const integration =
+    await findIntegrationByConnectedAccountId(connectedAccountId);
 
   if (!integration) {
     console.warn(
-      `[composio/webhook] No integration found for user ${userId.slice(0, 8)}... / account ${connectedAccountId}`,
+      `[composio/webhook] No integration found for account ${connectedAccountId}`,
     );
-    return { processed: 0, stored: 0, userId };
+    return { processed: 0, stored: 0, userId: undefined };
   }
 
   if (event.event_type === "deleted" || event.status === "cancelled") {
@@ -554,15 +524,15 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    userId =
-      payload.metadata?.user_id ||
-      (payload.metadata?.connected_account_id
-        ? (
-            await findIntegrationByConnectedAccountId(
-              String(payload.metadata.connected_account_id),
-            )
-          )?.user_id
-        : undefined);
+    // Resolve our app's user_id only from DB (by connected_account_id).
+    // payload.metadata?.user_id is Composio's internal user id — must not be used for tasks (FK to users).
+    userId = payload.metadata?.connected_account_id
+      ? (
+          await findIntegrationByConnectedAccountId(
+            String(payload.metadata.connected_account_id),
+          )
+        )?.user_id
+      : undefined;
 
     // Only SENT (user sent email) triggers resolve — check if related tasks are done.
     // All other Gmail triggers (e.g. GMAIL_NEW_GMAIL_MESSAGE) trigger todo merge only.
