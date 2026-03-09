@@ -114,10 +114,12 @@ export async function createThreadWithFirstMessage(
   initialMessage: string,
 ): Promise<AskThread> {
   const thread = await createThread(userId, "New Conversation");
-  await sendMessage(thread.id, { content: initialMessage, role: "user" });
+  const threadId = thread.id;
+  if (!threadId) throw new Error("Created thread missing id");
+  await sendMessage(threadId, { content: initialMessage, role: "user" });
   const title = await generateThreadTitle(initialMessage);
-  await updateThread(thread.id, userId, { title });
-  const updated = await getThread(thread.id, userId);
+  await updateThread(threadId, userId, { title });
+  const updated = await getThread(threadId, userId);
   return updated ?? thread;
 }
 
