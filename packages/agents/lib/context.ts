@@ -6,6 +6,12 @@ export interface Message {
   created_at?: string;
 }
 
+export interface ConversationHistoryOptions {
+  maxMessages?: number;
+  maxCharsPerMessage?: number;
+  maxTotalChars?: number;
+}
+
 export interface ActivityAtomContext {
   id: string;
   provider: string;
@@ -22,12 +28,24 @@ export interface ActivityAtomContext {
  */
 export function buildConversationHistory(
   messages: Array<{ role: string; content: string }>,
+  options: ConversationHistoryOptions = {},
 ): string {
   if (messages.length === 0) {
     return "No previous conversation history.";
   }
 
-  return messages
+  const maxMessages = Math.max(1, options.maxMessages ?? messages.length);
+  const maxCharsPerMessage = Math.max(
+    100,
+    options.maxCharsPerMessage ?? Number.MAX_SAFE_INTEGER,
+  );
+  const maxTotalChars = Math.max(
+    500,
+    options.maxTotalChars ?? Number.MAX_SAFE_INTEGER,
+  );
+
+  const selectedMessages = messages.slice(-maxMessages);
+  const formatted = selectedMessages
     .map((msg) => {
       const roleLabel =
         msg.role === "user"
@@ -35,9 +53,18 @@ export function buildConversationHistory(
           : msg.role === "assistant"
             ? "Assistant"
             : "System";
-      return `${roleLabel}: ${msg.content}`;
+      const normalized = msg.content.trim().replace(/\s+/g, " ");
+      const clipped =
+        normalized.length > maxCharsPerMessage
+          ? `${normalized.slice(0, maxCharsPerMessage).trim()}…`
+          : normalized;
+      return `${roleLabel}: ${clipped}`;
     })
     .join("\n\n");
+
+  if (formatted.length <= maxTotalChars) return formatted;
+
+  return `${formatted.slice(0, maxTotalChars).trim()}…`;
 }
 
 /**

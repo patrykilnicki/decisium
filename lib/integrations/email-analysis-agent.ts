@@ -9,6 +9,7 @@
 import { createLLM } from "@/packages/agents/lib/llm";
 
 const BATCH_SIZE = 10;
+const MAX_CONCURRENT_BATCHES = 3;
 
 /** Same content limits as todo-generator for consistent analysis quality. */
 const EMAIL_SNIPPET_MAX = 300;
@@ -106,12 +107,14 @@ export async function analyzeEmails(
   }
 
   const llm = createLLM({ temperature: 0.2, maxTokens: 4096 });
-  const batchedSummaries: string[] = [];
+  const totalBatches = Math.ceil(emails.length / BATCH_SIZE);
+  const batchedSummaries = new Array<string>(totalBatches);
 
-  for (let i = 0; i < emails.length; i += BATCH_SIZE) {
-    const batch = emails.slice(i, i + BATCH_SIZE);
-    const batchIndex = Math.floor(i / BATCH_SIZE);
-
+  // Keep a bounded level of concurrency to reduce latency while avoiding
+  // aggressive fan-out that could trigger provider rate limits.
+  async function processBatch(batchIndex: number): Promise<void> {
+    const start = batchIndex * BATCH_SIZE;
+    const batch = emails.slice(start, start + BATCH_SIZE);
     const context = emailsToPromptContext(batch);
     const userContent = `User's question: ${focus}
 
@@ -139,18 +142,29 @@ ${context}`;
                 .join("")
             : "";
 
-      batchedSummaries.push(
-        text.trim() || `[Batch ${batchIndex + 1}: No summary produced]`,
-      );
+      batchedSummaries[batchIndex] =
+        text.trim() || `[Batch ${batchIndex + 1}: No summary produced]`;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error(`[email-analysis] Batch ${batchIndex} failed:`, msg);
-      errors.push(`Batch ${batchIndex}: ${msg}`);
-      batchedSummaries.push(
-        `[Batch ${batchIndex + 1}: Analysis failed - ${msg.slice(0, 100)}]`,
-      );
+      console.error(`[email-analysis] Batch ${batchIndex + 1} failed:`, msg);
+      errors.push(`Batch ${batchIndex + 1}: ${msg}`);
+      batchedSummaries[batchIndex] =
+        `[Batch ${batchIndex + 1}: Analysis failed - ${msg.slice(0, 100)}]`;
     }
   }
+
+  let nextBatchIndex = 0;
+  const workerCount = Math.min(MAX_CONCURRENT_BATCHES, totalBatches);
+
+  async function worker(): Promise<void> {
+    while (nextBatchIndex < totalBatches) {
+      const currentBatchIndex = nextBatchIndex;
+      nextBatchIndex += 1;
+      await processBatch(currentBatchIndex);
+    }
+  }
+
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
 
   if (batchedSummaries.length === 0) {
     return {
