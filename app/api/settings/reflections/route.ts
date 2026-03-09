@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import type { Json } from "@/types/supabase";
 
 const FREQUENCIES = [
   "daily",
@@ -202,7 +203,7 @@ export async function PATCH(request: NextRequest) {
 
     const { error } = await supabase
       .from("users")
-      .update({ reflection_settings: merged })
+      .update({ reflection_settings: merged as Json })
       .eq("id", user.id);
 
     if (error) {
