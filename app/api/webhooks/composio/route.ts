@@ -11,6 +11,7 @@ import {
 } from "@/lib/integrations/gmail-reply-resolver";
 import { createAdminClient } from "@/lib/supabase/admin";
 import * as db from "@/lib/supabase/db";
+import { findIntegrationByConnectedAccountId } from "@/lib/integrations/composio-webhook";
 
 const supabase = createAdminClient();
 
@@ -243,33 +244,6 @@ function triggerEventToAtom(
   };
 }
 
-/** Find integration by Composio connected account ID (any provider: calendar, gmail, etc.) */
-async function findIntegrationByConnectedAccountId(
-  connectedAccountId: string,
-): Promise<{ id: string; user_id: string; provider: string } | null> {
-  const { data } = await db.selectMany(
-    supabase,
-    "integrations",
-    { status: "active" },
-    { limit: 200 },
-  );
-
-  if (!data) return null;
-
-  for (const row of data) {
-    const meta = row.metadata as Record<string, unknown> | null;
-    if (meta?.composio_connected_account_id === connectedAccountId) {
-      return {
-        id: row.id,
-        user_id: row.user_id,
-        provider: row.provider,
-      };
-    }
-  }
-
-  return null;
-}
-
 /** Triggers that should trigger todo merge (all integrations we support for todos). */
 const CALENDAR_TRIGGER_SLUGS = new Set([
   "GOOGLECALENDAR_GOOGLE_CALENDAR_EVENT_SYNC_TRIGGER",
@@ -296,8 +270,10 @@ async function handleCalendarSyncEvent(
     return { processed: 0, stored: 0, userId: undefined };
   }
 
-  const integration =
-    await findIntegrationByConnectedAccountId(connectedAccountId);
+  const integration = await findIntegrationByConnectedAccountId(
+    supabase,
+    connectedAccountId,
+  );
 
   if (!integration) {
     console.warn(
@@ -398,7 +374,10 @@ export async function POST(request: NextRequest) {
     const expiredData = payload.data as unknown as ComposioExpiredEventData;
     const accountId = expiredData?.id;
     if (accountId) {
-      const integration = await findIntegrationByConnectedAccountId(accountId);
+      const integration = await findIntegrationByConnectedAccountId(
+        supabase,
+        accountId,
+      );
       if (integration) {
         const reason = expiredData?.status_reason ?? "Token expired";
         await db.update(
@@ -529,6 +508,7 @@ export async function POST(request: NextRequest) {
     userId = payload.metadata?.connected_account_id
       ? (
           await findIntegrationByConnectedAccountId(
+            supabase,
             String(payload.metadata.connected_account_id),
           )
         )?.user_id
