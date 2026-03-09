@@ -1,5 +1,7 @@
 import { DynamicStructuredTool } from "@langchain/core/tools";
 import { z } from "zod";
+import { createHash } from "crypto";
+import { createLLM } from "../lib/llm";
 import {
   memorySearchTool,
   vaultSearchTool,
@@ -739,6 +741,186 @@ function applyUserIdBinding(
   });
 }
 
+interface OrchestratorIntentToolConfig {
+  enabledCategories?: ToolCategory[];
+  excludeTools?: string[];
+  composioToolkits?: string[];
+}
+
+const toolIntentSchema = z.object({
+  needsEmail: z.boolean(),
+  needsCalendar: z.boolean(),
+  needsTodo: z.boolean(),
+  needsKnowledge: z.boolean(),
+});
+
+type ToolIntent = z.infer<typeof toolIntentSchema>;
+interface IntentCacheEntry {
+  value: OrchestratorIntentToolConfig;
+  expiresAt: number;
+}
+
+const INTENT_CACHE_TTL_MS = 5 * 60 * 1000;
+const INTENT_CACHE_MAX_ENTRIES = 400;
+const orchestratorIntentCache = new Map<string, IntentCacheEntry>();
+
+function createIntentCacheKey(params: {
+  threadId?: string;
+  userMessage: string;
+  preferredModel?: string;
+}): string | null {
+  if (!params.threadId?.trim()) return null;
+  const normalizedMessage = params.userMessage.trim().replace(/\s+/g, " ");
+  if (!normalizedMessage) return null;
+  const hash = createHash("sha256")
+    .update(normalizedMessage)
+    .digest("hex")
+    .slice(0, 16);
+  return `${params.threadId}:${params.preferredModel ?? "default"}:${hash}`;
+}
+
+function getCachedIntentConfig(
+  cacheKey: string,
+): OrchestratorIntentToolConfig | null {
+  const cached = orchestratorIntentCache.get(cacheKey);
+  if (!cached) return null;
+  if (cached.expiresAt <= Date.now()) {
+    orchestratorIntentCache.delete(cacheKey);
+    return null;
+  }
+  return cached.value;
+}
+
+function setCachedIntentConfig(
+  cacheKey: string,
+  value: OrchestratorIntentToolConfig,
+): void {
+  if (orchestratorIntentCache.size >= INTENT_CACHE_MAX_ENTRIES) {
+    const oldestKey = orchestratorIntentCache.keys().next().value as
+      | string
+      | undefined;
+    if (oldestKey) orchestratorIntentCache.delete(oldestKey);
+  }
+  orchestratorIntentCache.set(cacheKey, {
+    value,
+    expiresAt: Date.now() + INTENT_CACHE_TTL_MS,
+  });
+}
+
+function inferToolIntentConfigFromFlags(
+  intent: ToolIntent,
+): OrchestratorIntentToolConfig {
+  if (intent.needsTodo) {
+    return {
+      enabledCategories: ["utility", "email", "calendar", "memory"],
+      composioToolkits: ["GOOGLECALENDAR", "GMAIL"],
+    };
+  }
+
+  if (intent.needsEmail && !intent.needsCalendar) {
+    return {
+      enabledCategories: ["email", "memory", "utility"],
+      composioToolkits: ["GMAIL"],
+      excludeTools: ["list_calendar_events"],
+    };
+  }
+
+  if (intent.needsCalendar && !intent.needsEmail) {
+    return {
+      enabledCategories: ["calendar", "memory", "utility"],
+      composioToolkits: ["GOOGLECALENDAR"],
+      excludeTools: ["fetch_gmail_emails", "analyze_gmail_emails"],
+    };
+  }
+
+  if (intent.needsKnowledge && !intent.needsEmail && !intent.needsCalendar) {
+    return {
+      enabledCategories: ["memory", "utility"],
+      composioToolkits: [],
+      excludeTools: [
+        "fetch_gmail_emails",
+        "analyze_gmail_emails",
+        "list_calendar_events",
+      ],
+    };
+  }
+
+  return {};
+}
+
+function inferIntentHeuristicsFallback(
+  userMessage?: string,
+): OrchestratorIntentToolConfig {
+  if (!userMessage?.trim()) return {};
+
+  const text = userMessage.toLowerCase();
+
+  const hasEmailIntent =
+    /\b(mail|email|gmail|inbox|message|messages|reply|replies)\b/.test(text);
+  const hasCalendarIntent =
+    /\b(calendar|meeting|meetings|agenda|event|events|schedule|scheduled|appointment|appointments)\b/.test(
+      text,
+    );
+  const hasTaskIntent = /\b(todo|to-?do|task|tasks|plan|planning)\b/.test(text);
+  const hasKnowledgeIntent =
+    /\b(remember|history|memory|note|notes|vault|collections|knowledge)\b/.test(
+      text,
+    );
+
+  return inferToolIntentConfigFromFlags({
+    needsEmail: hasEmailIntent,
+    needsCalendar: hasCalendarIntent,
+    needsTodo: hasTaskIntent,
+    needsKnowledge: hasKnowledgeIntent,
+  });
+}
+
+async function inferOrchestratorIntentToolConfig(
+  userMessage?: string,
+  preferredModel?: string,
+  threadId?: string,
+): Promise<OrchestratorIntentToolConfig> {
+  if (!userMessage?.trim()) return {};
+
+  const cacheKey = createIntentCacheKey({
+    threadId,
+    userMessage,
+    preferredModel,
+  });
+  if (cacheKey) {
+    const cached = getCachedIntentConfig(cacheKey);
+    if (cached) return cached;
+  }
+
+  try {
+    const llm = createLLM({
+      model: preferredModel || process.env.LLM_MODEL,
+      temperature: 0,
+      maxTokens: 120,
+    }).withStructuredOutput(toolIntentSchema);
+
+    const intent = await llm.invoke([
+      {
+        role: "system" as const,
+        content:
+          "Classify which data/tool domains are needed for the user request. Set booleans only. Use conservative true values only when clearly needed.",
+      },
+      {
+        role: "user" as const,
+        content: `Request: ${userMessage}`,
+      },
+    ]);
+
+    const resolved = inferToolIntentConfigFromFlags(intent);
+    if (cacheKey) setCachedIntentConfig(cacheKey, resolved);
+    return resolved;
+  } catch {
+    const fallback = inferIntentHeuristicsFallback(userMessage);
+    if (cacheKey) setCachedIntentConfig(cacheKey, fallback);
+    return fallback;
+  }
+}
+
 /**
  * Get all tools for the orchestrator (includes Composio + internal tools).
  * When userId is provided and Composio is configured, merges Composio session
@@ -753,21 +935,39 @@ function applyUserIdBinding(
 export async function getOrchestratorTools(options?: {
   userId?: string;
   callbackUrl?: string;
+  threadId?: string;
+  userMessage?: string;
+  preferredModel?: string;
   excludeTools?: string[];
   enabledCategories?: ToolCategory[];
+  composioToolkits?: string[];
 }): Promise<DynamicStructuredTool[]> {
+  const intentConfig = await inferOrchestratorIntentToolConfig(
+    options?.userMessage,
+    options?.preferredModel,
+    options?.threadId,
+  );
+  const enabledCategories =
+    options?.enabledCategories ?? intentConfig.enabledCategories;
+  const excludeTools = Array.from(
+    new Set([
+      ...(options?.excludeTools ?? []),
+      ...(intentConfig.excludeTools ?? []),
+    ]),
+  );
   const baseTools = getToolsForAgent("orchestrator", {
     includeExternalTools: true,
-    excludeTools: options?.excludeTools,
-    enabledCategories: options?.enabledCategories,
+    excludeTools,
+    enabledCategories,
   });
 
   const toolsWithUserId = applyUserIdBinding(baseTools, options?.userId);
 
   if (options?.userId) {
+    const toolkits = options?.composioToolkits ?? intentConfig.composioToolkits;
     const composioTools = await getComposioToolsForUser(options.userId, {
       callbackUrl: options.callbackUrl,
-      toolkits: ["GOOGLECALENDAR", "GMAIL"],
+      toolkits: toolkits ?? ["GOOGLECALENDAR", "GMAIL"],
     });
     return [...toolsWithUserId, ...composioTools];
   }

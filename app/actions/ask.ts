@@ -78,6 +78,9 @@ export async function updateThread(
 }
 
 const TITLE_FALLBACK_MAX_LEN = 50;
+const ASK_HISTORY_MAX_MESSAGES = 12;
+const ASK_HISTORY_MAX_CHARS_PER_MESSAGE = 500;
+const ASK_HISTORY_MAX_TOTAL_CHARS = 6000;
 
 /** Generate a short thread title from the first message. Uses a simple LLM prompt; fallback to truncation. */
 export async function generateThreadTitle(
@@ -204,7 +207,11 @@ export async function sendMessage(
     const existingMessages = await getThreadMessages(threadId, userId);
 
     // Build conversation history from existing messages
-    const conversationHistory = buildConversationHistory(existingMessages);
+    const conversationHistory = buildConversationHistory(existingMessages, {
+      maxMessages: ASK_HISTORY_MAX_MESSAGES,
+      maxCharsPerMessage: ASK_HISTORY_MAX_CHARS_PER_MESSAGE,
+      maxTotalChars: ASK_HISTORY_MAX_TOTAL_CHARS,
+    });
 
     const supabase = await createClient();
 

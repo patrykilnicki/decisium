@@ -606,6 +606,9 @@ export async function processOrchestratorMessage(input: {
     getOrchestratorTools({
       userId: input.userId,
       callbackUrl: input.callbackUrl,
+      threadId: input.threadId,
+      userMessage: input.userMessage,
+      preferredModel: input.preferredModel,
     }),
     buildConnectedServicesText(input.userId),
   ]);
