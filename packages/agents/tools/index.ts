@@ -5,6 +5,10 @@ export { knowledgeSearchTool } from "./knowledge-search.tool";
 export { supabaseStoreTool } from "./supabase-store.tool";
 export { embeddingGeneratorTool } from "./embedding-generator.tool";
 export { generateTodoListTool } from "./generate-todo-list.tool";
+export {
+  proposeTodoItemsTool,
+  applyApprovedTodoItemsTool,
+} from "./generate-and-store-todo-items.tool";
 export { listCalendarEventsTool } from "./list-calendar-events.tool";
 export { fetchGmailEmailsTool } from "./fetch-gmail-emails.tool";
 export { analyzeGmailEmailsTool } from "./analyze-gmail-emails.tool";

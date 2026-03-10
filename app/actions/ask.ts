@@ -11,11 +11,6 @@ import { buildConversationHistory } from "@/packages/agents/lib/context";
 import { handleAgentError } from "@/packages/agents/lib/error-handler";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { enqueueTask } from "@/lib/tasks/task-repository";
-import type { TaskType } from "@/lib/tasks/task-definitions";
-import {
-  getAgentMode,
-  type RootGraphState,
-} from "@/packages/agents/core/root.agent";
 import { createInitialOrchestratorState } from "@/packages/agents/schemas/orchestrator.schema";
 import type { Json } from "@/types/supabase";
 import { HumanMessage } from "@langchain/core/messages";
@@ -242,49 +237,32 @@ export async function sendMessage(
       );
     }
 
-    const mode = getAgentMode();
     const adminClient = createAdminClient();
-
-    let taskType: TaskType;
-    let initialState: object;
-
-    if (mode === "agentic") {
-      taskType = "orchestrator.invoke";
-      initialState = {
-        ...createInitialOrchestratorState({
-          userId,
-          threadId,
-          userMessage: messageInput.content,
-          currentDate,
-          timezone,
-          userEmail,
-          conversationHistory,
-          preferredModel,
-          userMessageId: savedUserMessage.id,
-        }),
-      };
-    } else {
-      taskType = "root.save_user_message";
-      const rootState: RootGraphState = {
+    const taskType = "orchestrator.invoke" as const;
+    const initialState = {
+      ...createInitialOrchestratorState({
         userId,
         threadId,
         userMessage: messageInput.content,
         currentDate,
+        timezone,
         userEmail,
         conversationHistory,
         preferredModel,
         userMessageId: savedUserMessage.id,
-      };
-      initialState = rootState;
-    }
+      }),
+    };
 
     const task = await enqueueTask(adminClient, {
       user_id: userId,
       session_id: threadId,
       task_type: taskType,
       status: "pending",
-      input: { state: initialState } as Json,
+      input: { state: initialState } as unknown as Json,
     });
+    console.info(
+      `[ask] Enqueued task ${task.id} with type=${taskType} for thread=${threadId}`,
+    );
 
     // Trigger execution: HTTP on production (new invocation), in-process locally (no CRON needed)
     const { triggerTask } = await import("@/lib/tasks/task-processor");
@@ -293,7 +271,7 @@ export async function sendMessage(
     return {
       userMessage: savedUserMessage,
       taskId: task.id,
-      mode,
+      mode: "agentic",
     };
   } catch (error) {
     handleAgentError(error, {

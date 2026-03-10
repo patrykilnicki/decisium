@@ -20,6 +20,7 @@ export type {
   ChatContainerProps,
   StreamEvent,
   StreamEventType,
+  PendingApprovalCard,
   UseChatConfig,
   UseChatReturn,
 } from "./types";

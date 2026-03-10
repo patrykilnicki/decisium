@@ -1,21 +1,13 @@
-import type { RootGraphState } from "@/packages/agents/core/root.agent";
-import {
-  memoryRetrieverNode,
-  rootResponseAgentNode,
-  saveAssistantMessageNode,
-  saveUserMessageNode,
-} from "@/packages/agents/core/root.agent";
 import {
   processOrchestratorMessage,
   type OrchestratorToolEvent,
 } from "@/packages/agents/core/orchestrator.agent";
-import type {
-  TaskExecutionResult,
-  TaskInsert,
-  TaskRow,
-} from "@/lib/tasks/task-types";
+import type { TaskExecutionResult, TaskRow } from "@/lib/tasks/task-types";
 import type { TaskType } from "@/lib/tasks/task-definitions";
-import type { Json } from "@/types/supabase";
+import type {
+  ApprovalDecision,
+  TaskApprovalCardProps,
+} from "@/packages/agents/schemas/agent-ui.schema";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/supabase";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -47,41 +39,9 @@ async function getPreferredModelForUser(
   );
 }
 
-function buildNextTask(params: {
-  parentTaskId: string;
-  userId: string;
-  sessionId: string;
-  taskType: TaskType;
-  state: object;
-}): TaskInsert {
-  return {
-    parent_task_id: params.parentTaskId,
-    user_id: params.userId,
-    session_id: params.sessionId,
-    task_type: params.taskType,
-    status: "pending",
-    input: { state: params.state } as Json,
-  };
-}
-
 function getTaskState<T extends object>(task: TaskRow): T {
   const input = task.input as { state?: T } | null | undefined;
   return (input?.state ?? {}) as T;
-}
-
-function getRootNextTaskType(taskType: TaskType): TaskType | null {
-  switch (taskType) {
-    case "root.save_user_message":
-      return "root.memory_retriever";
-    case "root.memory_retriever":
-      return "root.response_agent";
-    case "root.response_agent":
-      return "root.save_assistant_message";
-    case "root.save_assistant_message":
-      return null;
-    default:
-      return null;
-  }
 }
 
 export async function handleTask(
@@ -91,9 +51,6 @@ export async function handleTask(
   const client = createAdminClient();
   const jobId = options?.jobId ?? task.id;
   const taskType = task.task_type as TaskType;
-  if (taskType.startsWith("root.")) {
-    return handleRootTask(task, taskType, { client, jobId });
-  }
   if (taskType === "orchestrator.invoke") {
     return handleOrchestratorInvoke(task, { client, jobId });
   }
@@ -107,74 +64,6 @@ export async function handleTask(
     return handleIntegrationSync(task, { client, jobId });
   }
   throw new Error(`Unknown task type: ${taskType}`);
-}
-
-async function handleRootTask(
-  task: TaskRow,
-  taskType: TaskType,
-  options: { client: SupabaseClient<Database>; jobId: string },
-): Promise<TaskExecutionResult> {
-  const state = getTaskState<RootGraphState>(task);
-  let partialState: Partial<RootGraphState> = {};
-
-  switch (taskType) {
-    case "root.save_user_message":
-      partialState = await runNodeWithEvents({
-        client: options.client,
-        task,
-        jobId: options.jobId,
-        nodeKey: taskType,
-        handler: () => saveUserMessageNode(state),
-      });
-      break;
-    case "root.memory_retriever":
-      partialState = await runNodeWithEvents({
-        client: options.client,
-        task,
-        jobId: options.jobId,
-        nodeKey: taskType,
-        handler: () => memoryRetrieverNode(state),
-      });
-      break;
-    case "root.response_agent":
-      partialState = await runNodeWithEvents({
-        client: options.client,
-        task,
-        jobId: options.jobId,
-        nodeKey: taskType,
-        handler: () => rootResponseAgentNode(state),
-      });
-      break;
-    case "root.save_assistant_message":
-      partialState = await runNodeWithEvents({
-        client: options.client,
-        task,
-        jobId: options.jobId,
-        nodeKey: taskType,
-        handler: () => saveAssistantMessageNode(state),
-      });
-      break;
-  }
-
-  const nextState: RootGraphState = { ...state, ...partialState };
-  const nextTaskType = getRootNextTaskType(taskType);
-
-  if (!nextTaskType) {
-    return { output: { state: nextState } };
-  }
-
-  return {
-    output: { state: nextState },
-    nextTasks: [
-      buildNextTask({
-        parentTaskId: task.id,
-        userId: task.user_id,
-        sessionId: task.session_id,
-        taskType: nextTaskType,
-        state: nextState,
-      }),
-    ],
-  };
 }
 
 /**
@@ -195,6 +84,14 @@ async function handleOrchestratorInvoke(
     conversationHistory?: string;
     userMessageId?: string;
     preferredModel?: string;
+    pendingApproval?: {
+      proposalId: string;
+      component: "task_approval_card";
+      props: TaskApprovalCardProps;
+    };
+    approvalDecision?: ApprovalDecision;
+    approvalEditedProps?: TaskApprovalCardProps;
+    approvalStatus?: "pending" | "approved" | "edited" | "rejected" | "applied";
   }>(task);
 
   async function onToolEvent(event: OrchestratorToolEvent): Promise<void> {
@@ -216,6 +113,7 @@ async function handleOrchestratorInvoke(
         callIndex: event.callIndex,
         action: event.action,
         displayLabel: event.displayLabel,
+        ...(event.payload ? { approval: event.payload } : {}),
         ...(event.error ? { error: event.error } : {}),
       },
     });
@@ -238,9 +136,78 @@ async function handleOrchestratorInvoke(
         conversationHistory: state.conversationHistory,
         preferredModel: state.preferredModel,
         userMessageId: state.userMessageId,
+        pendingApproval: state.pendingApproval,
+        approvalDecision: state.approvalDecision,
+        approvalEditedProps: state.approvalEditedProps,
+        approvalStatus: state.approvalStatus,
         onToolEvent,
       }),
   });
+
+  if (
+    result.pendingApproval?.proposalId &&
+    result.approvalStatus === "pending"
+  ) {
+    await createTaskEvent(options.client, {
+      taskId: task.id,
+      sessionId: task.session_id,
+      userId: task.user_id,
+      eventType: "approval_required",
+      nodeKey: "orchestrator.invoke",
+      eventKeySuffix: result.pendingApproval.proposalId,
+      payload: {
+        jobId: options.jobId,
+        taskId: task.id,
+        sessionId: task.session_id,
+        taskType: task.task_type,
+        proposalId: result.pendingApproval.proposalId,
+        component: result.pendingApproval.component,
+        props: result.pendingApproval.props,
+      },
+    });
+  }
+
+  if (
+    state.pendingApproval?.proposalId &&
+    result.approvalStatus === "applied"
+  ) {
+    await createTaskEvent(options.client, {
+      taskId: task.id,
+      sessionId: task.session_id,
+      userId: task.user_id,
+      eventType: "approval_applied",
+      nodeKey: "orchestrator.invoke",
+      eventKeySuffix: state.pendingApproval.proposalId,
+      payload: {
+        jobId: options.jobId,
+        taskId: task.id,
+        sessionId: task.session_id,
+        taskType: task.task_type,
+        proposalId: state.pendingApproval.proposalId,
+      },
+    });
+  }
+
+  if (
+    state.pendingApproval?.proposalId &&
+    result.approvalStatus === "rejected"
+  ) {
+    await createTaskEvent(options.client, {
+      taskId: task.id,
+      sessionId: task.session_id,
+      userId: task.user_id,
+      eventType: "approval_rejected",
+      nodeKey: "orchestrator.invoke",
+      eventKeySuffix: state.pendingApproval.proposalId,
+      payload: {
+        jobId: options.jobId,
+        taskId: task.id,
+        sessionId: task.session_id,
+        taskType: task.task_type,
+        proposalId: state.pendingApproval.proposalId,
+      },
+    });
+  }
 
   return {
     output: {
@@ -250,11 +217,17 @@ async function handleOrchestratorInvoke(
         userMessageId: result.userMessageId ?? state.userMessageId,
         assistantMessageId: result.assistantMessageId,
         toolsUsed: result.toolsUsed,
+        pendingApproval: result.pendingApproval,
+        approvalStatus: result.approvalStatus,
+        approvalDecision: undefined,
+        approvalEditedProps: undefined,
       },
       agentResponse: result.agentResponse,
       userMessageId: result.userMessageId,
       assistantMessageId: result.assistantMessageId,
       toolsUsed: result.toolsUsed,
+      pendingApproval: result.pendingApproval,
+      approvalStatus: result.approvalStatus,
     },
   };
 }

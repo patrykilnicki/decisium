@@ -1,3 +1,5 @@
+import type { TaskApprovalCardProps } from "@/packages/agents/schemas/agent-ui.schema";
+
 // Chat message roles
 export type ChatRole = "user" | "assistant" | "system";
 
@@ -36,6 +38,13 @@ export interface TaskEventSummary {
   nodeKey: string | null;
   payload: Record<string, unknown>;
   createdAt: string;
+}
+
+export interface PendingApprovalCard {
+  taskId: string;
+  proposalId: string;
+  component: "task_approval_card";
+  props: TaskApprovalCardProps;
 }
 
 // Chat input props
@@ -124,4 +133,11 @@ export interface UseChatReturn {
   retryTask?: (taskId: string) => Promise<void>;
   cancelTask?: (taskId: string) => Promise<void>;
   resumeTask?: (taskId: string) => Promise<void>;
+  pendingApprovalCards: PendingApprovalCard[];
+  submitApprovalDecision: (params: {
+    taskId: string;
+    proposalId: string;
+    decision: "approve" | "edit" | "reject";
+    editedProps?: PendingApprovalCard["props"];
+  }) => Promise<void>;
 }

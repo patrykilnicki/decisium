@@ -2,6 +2,10 @@ import { z } from "zod";
 import { HumanMessage } from "@langchain/core/messages";
 import { getCurrentDate } from "../lib/date-utils";
 import type { BaseMessage } from "@langchain/core/messages";
+import type {
+  ApprovalDecision,
+  TaskApprovalCardProps,
+} from "./agent-ui.schema";
 
 // ═══════════════════════════════════════════════════════════════
 // ORCHESTRATOR STATE SCHEMA
@@ -14,6 +18,12 @@ export type RouteDecision =
   | "tools" // Route to tool execution
   | "saveMessages" // Save conversation to database
   | "end"; // End the workflow
+
+export interface PendingApproval {
+  proposalId: string;
+  component: "task_approval_card";
+  props: TaskApprovalCardProps;
+}
 
 /**
  * Retrieved document with metadata
@@ -96,6 +106,12 @@ export interface OrchestratorState {
 
   // Connected external services (e.g. "Google Calendar: CONNECTED, Gmail: NOT CONNECTED")
   connectedServices?: string;
+
+  // Human approval state
+  pendingApproval?: PendingApproval;
+  approvalDecision?: ApprovalDecision;
+  approvalEditedProps?: TaskApprovalCardProps;
+  approvalStatus?: "pending" | "approved" | "edited" | "rejected" | "applied";
 }
 
 /**
@@ -113,6 +129,10 @@ export function createInitialOrchestratorState(input: {
   connectedServices?: string;
   preferredModel?: string;
   userMessageId?: string;
+  pendingApproval?: PendingApproval;
+  approvalDecision?: ApprovalDecision;
+  approvalEditedProps?: TaskApprovalCardProps;
+  approvalStatus?: "pending" | "approved" | "edited" | "rejected" | "applied";
 }): OrchestratorState {
   const contextParts: string[] = [];
   if (input.conversationHistory) {
@@ -139,6 +159,10 @@ export function createInitialOrchestratorState(input: {
     maxIterations: 10,
     connectedServices: input.connectedServices,
     userMessageId: input.userMessageId,
+    pendingApproval: input.pendingApproval,
+    approvalDecision: input.approvalDecision,
+    approvalEditedProps: input.approvalEditedProps,
+    approvalStatus: input.approvalStatus,
   };
 }
 
@@ -202,6 +226,18 @@ export const OrchestratorStateSchema = z.object({
   iterationCount: z.number(),
   maxIterations: z.number(),
   connectedServices: z.string().optional(),
+  pendingApproval: z
+    .object({
+      proposalId: z.string().uuid(),
+      component: z.literal("task_approval_card"),
+      props: z.record(z.unknown()),
+    })
+    .optional(),
+  approvalDecision: z.enum(["approve", "edit", "reject"]).optional(),
+  approvalEditedProps: z.record(z.unknown()).optional(),
+  approvalStatus: z
+    .enum(["pending", "approved", "edited", "rejected", "applied"])
+    .optional(),
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -301,6 +337,30 @@ export const orchestratorChannels = {
   maxIterations: { reducer: (x: number, y: number) => y ?? x ?? 10 },
   connectedServices: {
     reducer: (x: string | undefined, y: string | undefined) => y ?? x,
+  },
+  pendingApproval: {
+    reducer: (
+      x: OrchestratorState["pendingApproval"],
+      y: OrchestratorState["pendingApproval"],
+    ) => y ?? x,
+  },
+  approvalDecision: {
+    reducer: (
+      x: OrchestratorState["approvalDecision"],
+      y: OrchestratorState["approvalDecision"],
+    ) => y ?? x,
+  },
+  approvalEditedProps: {
+    reducer: (
+      x: OrchestratorState["approvalEditedProps"],
+      y: OrchestratorState["approvalEditedProps"],
+    ) => y ?? x,
+  },
+  approvalStatus: {
+    reducer: (
+      x: OrchestratorState["approvalStatus"],
+      y: OrchestratorState["approvalStatus"],
+    ) => y ?? x,
   },
 };
 

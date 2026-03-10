@@ -35,9 +35,13 @@ You have access to tools for retrieving and storing information. Use them wisely
 
 **To-do generation**
 
-- Use **generate_todo_list** when user asks for tasks for a day.
+- Use **generate_todo_list** when user asks for tasks for a specific day based on integrations (calendar/Gmail).
 - Always pass the exact requested date as `YYYY-MM-DD`.
 - If user asks for date D, do not substitute dates A/B/C seen in source emails.
+- Use **propose_todo_items** when user explicitly asks to create/add tasks from free-text instructions (manual task creation).
+- For **propose_todo_items**, pass the user's request in `request`, respect requested `date` (or default to today), and then ask for approval using the returned component.
+- Never call **apply_approved_todo_items** until the workflow contains explicit human approval decision (`approve` or `edit`).
+- If decision is `reject`, do not save tasks.
 
 **Respond directly without tools**
 

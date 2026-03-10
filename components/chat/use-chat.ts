@@ -3,6 +3,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import type {
   ChatMessage,
+  PendingApprovalCard,
   ThinkingState,
   ThinkingStep,
   StreamEvent,
@@ -15,6 +16,7 @@ import {
   getTaskStepLabel,
 } from "@/packages/agents/lib/step-mappings";
 import type { TaskEventRecord } from "@/lib/tasks/task-events";
+import { taskApprovalCardPropsSchema } from "@/packages/agents/schemas/agent-ui.schema";
 
 const initialThinkingState: ThinkingState = {
   isThinking: false,
@@ -64,6 +66,9 @@ export function useChat({
   const [error, setError] = useState<string | null>(null);
   const [taskEvents, setTaskEvents] = useState<TaskEventRecord[]>([]);
   const [failedTaskIds, setFailedTaskIds] = useState<string[]>([]);
+  const [pendingApprovalCards, setPendingApprovalCards] = useState<
+    PendingApprovalCard[]
+  >([]);
   const abortControllerRef = useRef<AbortController | null>(null);
   const pollerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const streamRef = useRef<EventSource | null>(null);
@@ -187,6 +192,58 @@ export function useChat({
     [getLatestJobEvents],
   );
 
+  const buildPendingApprovalCards = useCallback(
+    (events: TaskEventRecord[]): PendingApprovalCard[] => {
+      const latestEvents = getLatestJobEvents(events);
+      const approvals = new Map<string, PendingApprovalCard>();
+      const resolvedProposalIds = new Set<string>();
+
+      latestEvents.forEach((event) => {
+        const proposalId = getPayloadValue<string>(event.payload, "proposalId");
+        if (!proposalId) return;
+
+        if (
+          event.eventType === "approval_submitted" ||
+          event.eventType === "approval_applied" ||
+          event.eventType === "approval_rejected"
+        ) {
+          resolvedProposalIds.add(proposalId);
+          approvals.delete(proposalId);
+          return;
+        }
+
+        if (
+          event.eventType !== "approval_required" ||
+          resolvedProposalIds.has(proposalId)
+        )
+          return;
+
+        const approvalPayload =
+          getPayloadValue<Record<string, unknown>>(event.payload, "approval") ??
+          event.payload;
+        const component = getPayloadValue<string>(approvalPayload, "component");
+        const props = getPayloadValue<Record<string, unknown>>(
+          approvalPayload,
+          "props",
+        );
+        if (component !== "task_approval_card" || !props) return;
+
+        const parsedProps = taskApprovalCardPropsSchema.safeParse(props);
+        if (!parsedProps.success) return;
+
+        approvals.set(proposalId, {
+          taskId: event.taskId,
+          proposalId,
+          component: "task_approval_card",
+          props: parsedProps.data,
+        });
+      });
+
+      return Array.from(approvals.values());
+    },
+    [getLatestJobEvents],
+  );
+
   function isJobFinished(events: TaskEventRecord[]): boolean {
     const latestJobEvent = [...events]
       .reverse()
@@ -259,6 +316,7 @@ export function useChat({
 
       const thinking = buildThinkingState(latestEvents);
       setThinkingState(thinking);
+      setPendingApprovalCards(buildPendingApprovalCards(latestEvents));
 
       const latestJobEvents = getLatestJobEvents(latestEvents);
       const failedEvents = latestJobEvents.filter(
@@ -303,6 +361,7 @@ export function useChat({
     },
     [
       buildThinkingState,
+      buildPendingApprovalCards,
       getLatestJobEvents,
       refreshMessages,
       stopTaskPolling,
@@ -421,6 +480,7 @@ export function useChat({
     setError(null);
     setTaskEvents([]);
     setFailedTaskIds([]);
+    setPendingApprovalCards([]);
     stopTaskPolling();
     stopTaskStreaming();
   }, [initialMessages, stopTaskPolling, stopTaskStreaming]);
@@ -444,6 +504,27 @@ export function useChat({
   const resumeTask = useCallback(
     async (taskId: string) => {
       await fetch(`/api/tasks/${taskId}/resume`, { method: "POST" });
+      startTaskTracking();
+    },
+    [startTaskTracking],
+  );
+
+  const submitApprovalDecision = useCallback(
+    async (params: {
+      taskId: string;
+      proposalId: string;
+      decision: "approve" | "edit" | "reject";
+      editedProps?: PendingApprovalCard["props"];
+    }) => {
+      await fetch(`/api/tasks/${params.taskId}/resume`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          proposalId: params.proposalId,
+          decision: params.decision,
+          editedProps: params.editedProps,
+        }),
+      });
       startTaskTracking();
     },
     [startTaskTracking],
@@ -747,5 +828,7 @@ export function useChat({
     retryTask,
     cancelTask,
     resumeTask,
+    pendingApprovalCards,
+    submitApprovalDecision,
   };
 }

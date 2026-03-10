@@ -1,5 +1,9 @@
 import { StateGraph, END, START } from "@langchain/langgraph";
-import { SystemMessage, AIMessage } from "@langchain/core/messages";
+import {
+  SystemMessage,
+  AIMessage,
+  ToolMessage,
+} from "@langchain/core/messages";
 import type { BaseMessage } from "@langchain/core/messages";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
 import type { DynamicStructuredTool } from "@langchain/core/tools";
@@ -16,6 +20,7 @@ import {
   type OrchestratorState,
   orchestratorChannels,
   createInitialOrchestratorState,
+  type PendingApproval,
 } from "../schemas/orchestrator.schema";
 import { ORCHESTRATOR_SYSTEM_PROMPT } from "../prompts";
 import {
@@ -28,8 +33,10 @@ import {
 } from "../lib/composio";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { storeMemory } from "@/lib/memory/memory-service";
+import { taskApprovalCardPropsSchema } from "../schemas/agent-ui.schema";
 
 import { createTodoGenerator } from "@/lib/integrations";
+import { applyApprovedTodoItemsTool } from "../tools";
 
 // ═══════════════════════════════════════════════════════════════
 // CONTENT EXTRACTION
@@ -67,6 +74,28 @@ function extractTextFromAIMessageContent(content: unknown): string {
       return "";
     })
     .join("");
+}
+
+function parsePendingApprovalFromToolOutput(
+  output: string,
+): PendingApproval | null {
+  try {
+    const parsed = JSON.parse(output) as Record<string, unknown>;
+    if (parsed.component !== "task_approval_card") return null;
+    if (typeof parsed.proposalId !== "string") return null;
+    const props = taskApprovalCardPropsSchema.parse(parsed.props);
+    return {
+      proposalId: parsed.proposalId,
+      component: "task_approval_card",
+      props,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function buildApprovalPendingResponse(): string {
+  return "I prepared a task proposal. Review the approval card below and choose Approve, Edit, or Reject.";
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -183,6 +212,55 @@ async function agentNode(
       nextRoute: "saveMessages",
     };
   }
+}
+
+async function approvalEntryNode(
+  state: OrchestratorState,
+): Promise<Partial<OrchestratorState>> {
+  if (!state.pendingApproval) {
+    return { nextRoute: undefined };
+  }
+
+  const decision = state.approvalDecision;
+  if (!decision) {
+    return {
+      agentResponse: buildApprovalPendingResponse(),
+      nextRoute: "saveMessages",
+      approvalStatus: "pending",
+    };
+  }
+
+  if (decision === "reject") {
+    return {
+      pendingApproval: undefined,
+      approvalDecision: undefined,
+      approvalEditedProps: undefined,
+      approvalStatus: "rejected",
+      agentResponse: "Understood. I did not create any tasks.",
+      nextRoute: "saveMessages",
+    };
+  }
+
+  const approvedProps = taskApprovalCardPropsSchema.parse(
+    decision === "edit"
+      ? (state.approvalEditedProps ?? state.pendingApproval.props)
+      : state.pendingApproval.props,
+  );
+
+  await applyApprovedTodoItemsTool.func({
+    userId: state.userId,
+    proposalId: state.pendingApproval.proposalId,
+    props: approvedProps,
+  });
+
+  return {
+    pendingApproval: undefined,
+    approvalDecision: undefined,
+    approvalEditedProps: undefined,
+    approvalStatus: "applied",
+    agentResponse: `Saved ${approvedProps.items.length} task(s).`,
+    nextRoute: "saveMessages",
+  };
 }
 
 /**
@@ -334,6 +412,16 @@ function routeAfterAgent(state: OrchestratorState): "tools" | "saveMessages" {
   return "saveMessages";
 }
 
+function routeAfterApprovalEntry(
+  state: OrchestratorState,
+): "agent" | "saveMessages" {
+  return state.nextRoute === "saveMessages" ? "saveMessages" : "agent";
+}
+
+function routeAfterTools(state: OrchestratorState): "agent" | "saveMessages" {
+  return state.nextRoute === "saveMessages" ? "saveMessages" : "agent";
+}
+
 interface PendingToolCall {
   toolName: string;
   toolCallId: string;
@@ -344,7 +432,13 @@ interface PendingToolCall {
 }
 
 export interface OrchestratorToolEvent {
-  eventType: "tool_started" | "tool_completed" | "tool_failed";
+  eventType:
+    | "tool_started"
+    | "tool_completed"
+    | "tool_failed"
+    | "approval_required"
+    | "approval_applied"
+    | "approval_rejected";
   toolName: string;
   toolCallId: string;
   toolCallKey: string;
@@ -352,6 +446,7 @@ export interface OrchestratorToolEvent {
   action: "checking" | "completed" | "failed";
   displayLabel: string;
   error?: string;
+  payload?: Record<string, unknown>;
 }
 
 function extractInnerToolSlugs(args: Record<string, unknown>): string[] {
@@ -491,6 +586,34 @@ function createToolNode(
         { messages: state.messages },
         { configurable: {} },
       );
+
+      const proposalIndex = pendingTools.findIndex(
+        (tool) => tool.toolName === "propose_todo_items",
+      );
+      if (proposalIndex >= 0) {
+        const toolMessage = result.messages[proposalIndex];
+        const rawContent =
+          toolMessage instanceof ToolMessage
+            ? toolMessage.content
+            : typeof (toolMessage as { content?: unknown })?.content ===
+                "string"
+              ? (toolMessage as { content: string }).content
+              : "";
+        const pendingApproval = parsePendingApprovalFromToolOutput(
+          typeof rawContent === "string" ? rawContent : "",
+        );
+
+        if (pendingApproval) {
+          return {
+            messages: result.messages,
+            pendingApproval,
+            approvalStatus: "pending",
+            nextRoute: "saveMessages",
+            agentResponse: buildApprovalPendingResponse(),
+          } as Partial<OrchestratorState>;
+        }
+      }
+
       await Promise.all(
         pendingTools.map((tool) =>
           emitToolEvent({
@@ -500,7 +623,10 @@ function createToolNode(
           }),
         ),
       );
-      return { messages: result.messages } as Partial<OrchestratorState>;
+      return {
+        messages: result.messages,
+        nextRoute: undefined,
+      } as Partial<OrchestratorState>;
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
@@ -537,16 +663,23 @@ export function createOrchestratorGraph(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- LangGraph channels type
     channels: orchestratorChannels as any,
   })
+    .addNode("approvalEntry", approvalEntryNode)
     .addNode("agent", (state) => agentNode(state, tools))
     .addNode("tools", toolNode)
     .addNode("saveMessages", saveMessagesNode)
-
-    .addEdge(START, "agent")
+    .addEdge(START, "approvalEntry")
+    .addConditionalEdges("approvalEntry", routeAfterApprovalEntry, {
+      agent: "agent",
+      saveMessages: "saveMessages",
+    })
     .addConditionalEdges("agent", routeAfterAgent, {
       tools: "tools",
       saveMessages: "saveMessages",
     })
-    .addEdge("tools", "agent")
+    .addConditionalEdges("tools", routeAfterTools, {
+      agent: "agent",
+      saveMessages: "saveMessages",
+    })
     .addEdge("saveMessages", END);
 
   return workflow.compile();
@@ -562,6 +695,8 @@ export interface OrchestratorMessageResult {
   assistantMessageId?: string;
   toolsUsed?: string[];
   rewriteCount?: number;
+  pendingApproval?: PendingApproval;
+  approvalStatus?: "pending" | "approved" | "edited" | "rejected" | "applied";
 }
 
 /**
@@ -602,6 +737,10 @@ export async function processOrchestratorMessage(input: {
   callbackUrl?: string;
   preferredModel?: string;
   userMessageId?: string;
+  pendingApproval?: PendingApproval;
+  approvalDecision?: "approve" | "edit" | "reject";
+  approvalEditedProps?: Record<string, unknown>;
+  approvalStatus?: "pending" | "approved" | "edited" | "rejected" | "applied";
   onToolEvent?: (event: OrchestratorToolEvent) => Promise<void> | void;
 }): Promise<OrchestratorMessageResult> {
   const [tools, connectedServices] = await Promise.all([
@@ -622,6 +761,12 @@ export async function processOrchestratorMessage(input: {
     ...input,
     connectedServices,
     userMessageId: input.userMessageId,
+    pendingApproval: input.pendingApproval,
+    approvalDecision: input.approvalDecision,
+    approvalEditedProps: input.approvalEditedProps as
+      | OrchestratorState["approvalEditedProps"]
+      | undefined,
+    approvalStatus: input.approvalStatus,
   });
 
   const result = await graph.invoke(initialState);
@@ -634,6 +779,8 @@ export async function processOrchestratorMessage(input: {
     assistantMessageId: result.assistantMessageId,
     toolsUsed: result.toolsUsed,
     rewriteCount: result.rewriteCount,
+    pendingApproval: result.pendingApproval,
+    approvalStatus: result.approvalStatus,
   };
 }
 
