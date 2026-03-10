@@ -38,6 +38,11 @@ export interface ParsedGmailMessage {
   threadContext?: string;
 }
 
+interface ContentCapOptions {
+  snippetMaxChars?: number;
+  threadContextMaxChars?: number;
+}
+
 // ─── Helpers (internal; used by summarizeThreadPayload and parseGmailMessage) ─
 
 /**
@@ -213,6 +218,27 @@ function summarizeThreadPayload(
   return snippets.join(" || ").slice(0, 6000);
 }
 
+function applyContentCaps(
+  message: ParsedGmailMessage,
+  options?: ContentCapOptions,
+): ParsedGmailMessage {
+  const snippetMaxChars = options?.snippetMaxChars;
+  const threadContextMaxChars = options?.threadContextMaxChars;
+  return {
+    ...message,
+    ...(typeof snippetMaxChars === "number" && snippetMaxChars > 0
+      ? { snippet: (message.snippet ?? "").slice(0, snippetMaxChars) }
+      : {}),
+    ...(typeof threadContextMaxChars === "number" && threadContextMaxChars > 0
+      ? {
+          threadContext: message.threadContext
+            ? message.threadContext.slice(0, threadContextMaxChars)
+            : message.threadContext,
+        }
+      : {}),
+  };
+}
+
 /** Extract plaintext body from GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID response. */
 function extractBodyFromMessagePayload(
   payload: Record<string, unknown>,
@@ -336,7 +362,11 @@ async function enrichMessagesWithMessageBodyFallback(
 export async function fetchGmailMessagesForThread(
   userId: string,
   threadId: string,
-  options?: { targetDateYyyyMmDd?: string },
+  options?: {
+    targetDateYyyyMmDd?: string;
+    snippetMaxChars?: number;
+    threadContextMaxChars?: number;
+  },
 ): Promise<ParsedGmailMessage[]> {
   if (!isComposioEnabled() || !threadId?.trim()) return [];
   const connectedAccountId = await getGmailConnectedAccountId(userId);
@@ -395,7 +425,82 @@ export async function fetchGmailMessagesForThread(
       snippet: (p.snippet ?? "").trim() || threadContext.slice(0, 2000),
     });
   }
-  return parsed;
+  return parsed.map((m) => applyContentCaps(m, options));
+}
+
+/**
+ * Fetch a single Gmail message by messageId. If threadId is available, also
+ * attach thread context for better downstream triage quality.
+ */
+export async function fetchGmailMessageById(
+  userId: string,
+  messageId: string,
+  options?: {
+    targetDateYyyyMmDd?: string;
+    snippetMaxChars?: number;
+    threadContextMaxChars?: number;
+  },
+): Promise<ParsedGmailMessage | null> {
+  if (!isComposioEnabled() || !messageId?.trim()) return null;
+  const connectedAccountId = await getGmailConnectedAccountId(userId);
+  if (!connectedAccountId) return null;
+
+  const res = await executeGmailFetchMessageByMessageId(
+    userId,
+    connectedAccountId,
+    { messageId: messageId.trim() },
+  ).catch(() => null);
+  if (!res?.successful || !res.data) return null;
+
+  const raw = res.data as Record<string, unknown>;
+  const preview =
+    (raw.data_preview as Record<string, unknown> | undefined) ?? {};
+  const normalized = {
+    ...preview,
+    ...raw,
+    messageId: raw.messageId ?? preview.messageId ?? messageId.trim(),
+    threadId: raw.threadId ?? raw.thread_id ?? preview.threadId,
+    subject: raw.subject ?? preview.subject ?? "",
+    sender: raw.sender ?? preview.sender ?? "",
+    snippet:
+      raw.snippet ??
+      preview.snippet ??
+      extractBodyFromMessagePayload(raw).slice(0, 2000),
+    messageTimestamp:
+      raw.messageTimestamp ?? raw.timestamp ?? preview.messageTimestamp ?? "",
+    labelIds: raw.labelIds ?? preview.labelIds ?? [],
+  } as Record<string, unknown>;
+
+  const parsed = parseGmailMessage(normalized);
+  let withContext = parsed;
+  const threadId = parsed.threadId?.trim();
+  if (threadId) {
+    const threadRes = await executeGmailFetchThread(
+      userId,
+      connectedAccountId,
+      {
+        threadId,
+      },
+    ).catch(() => null);
+    if (threadRes?.successful && threadRes.data) {
+      const summarizeOpts = options?.targetDateYyyyMmDd
+        ? { targetDateYyyyMmDd: options.targetDateYyyyMmDd }
+        : undefined;
+      const threadContext = summarizeThreadPayload(
+        threadRes.data as Record<string, unknown>,
+        summarizeOpts,
+      );
+      if (threadContext) {
+        withContext = {
+          ...withContext,
+          threadContext: threadContext.slice(0, 6000),
+          snippet: withContext.snippet || threadContext.slice(0, 2000),
+        };
+      }
+    }
+  }
+
+  return applyContentCaps(withContext, options);
 }
 
 async function mapConcurrent<T, R>(
@@ -637,6 +742,10 @@ export interface FetchGmailEmailsFullOptions {
   sendersAccepted?: string[];
   /** Exclude messages from these senders. Appended to query as -from:a -from:b. */
   sendersBlocked?: string[];
+  /** Optional per-message snippet cap after fetch/parsing. */
+  snippetMaxChars?: number;
+  /** Optional per-message thread context cap after enrichment. */
+  threadContextMaxChars?: number;
 }
 
 /**
@@ -695,7 +804,7 @@ export async function fetchGmailEmailsFull(
       parsed,
       threadOpts,
     );
-    return enrichMessagesWithMessageBodyFallback(
+    const enriched = await enrichMessagesWithMessageBodyFallback(
       userId,
       accountId,
       withThread,
@@ -703,6 +812,7 @@ export async function fetchGmailEmailsFull(
         targetDateYyyyMmDd: options.targetDate,
       },
     );
+    return enriched.map((m) => applyContentCaps(m, options));
   }
-  return parsed;
+  return parsed.map((m) => applyContentCaps(m, options));
 }

@@ -188,6 +188,45 @@ function truncateContent(text: string, maxLen: number): string {
   return text.slice(0, maxLen) + "...";
 }
 
+function toDateString(value: string): string | null {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString().split("T")[0];
+}
+
+function inferDispatchDate(params: {
+  triggerSlug: string;
+  payloadTimestamp?: string;
+  data?: Record<string, unknown>;
+}): string {
+  const { triggerSlug, payloadTimestamp, data } = params;
+  if (triggerSlug.startsWith("GOOGLECALENDAR_")) {
+    const calendarDate =
+      (typeof data?.start_time === "string" && toDateString(data.start_time)) ||
+      (typeof data?.updated_at === "string" && toDateString(data.updated_at)) ||
+      (typeof data?.created_at === "string" && toDateString(data.created_at));
+    if (calendarDate) return calendarDate;
+  }
+
+  if (triggerSlug.startsWith("GMAIL_")) {
+    const gmailDate =
+      (typeof data?.message_timestamp === "string" &&
+        toDateString(data.message_timestamp)) ||
+      (typeof data?.timestamp === "string" && toDateString(data.timestamp)) ||
+      (typeof data?.internal_date === "string" &&
+        toDateString(data.internal_date)) ||
+      (typeof data?.date === "string" && toDateString(data.date));
+    if (gmailDate) return gmailDate;
+  }
+
+  if (payloadTimestamp) {
+    const eventDate = toDateString(payloadTimestamp);
+    if (eventDate) return eventDate;
+  }
+
+  return new Date().toISOString().split("T")[0];
+}
+
 function triggerEventToAtom(
   event: TriggerEventData,
 ): Omit<
@@ -472,7 +511,11 @@ export async function POST(request: NextRequest) {
           : undefined;
         const dispatchResult = await dispatchTodoGenerationTask(result.userId, {
           source: "system.webhook.composio.calendar",
-          date: new Date().toISOString().split("T")[0],
+          date: inferDispatchDate({
+            triggerSlug,
+            payloadTimestamp: payload.timestamp,
+            data: payload.data,
+          }),
           incremental: true,
           cooldownMinutes: 2,
           signalHints,
@@ -624,15 +667,25 @@ export async function POST(request: NextRequest) {
       const signalHints = gmailData
         ? [
             {
-              threadId: gmailData.thread_id as string | undefined,
-              messageId: gmailData.message_id as string | undefined,
+              threadId:
+                (gmailData.thread_id as string | undefined) ??
+                (gmailData.threadId as string | undefined),
+              messageId:
+                (gmailData.message_id as string | undefined) ??
+                (gmailData.messageId as string | undefined) ??
+                (gmailData.gmail_message_id as string | undefined) ??
+                (gmailData.id as string | undefined),
               subject: gmailData.subject as string | undefined,
             },
           ]
         : undefined;
       const dispatchResult = await dispatchTodoGenerationTask(userId, {
         source: `system.webhook.composio.${triggerSlug.split("_")[0].toLowerCase()}`,
-        date: new Date().toISOString().split("T")[0],
+        date: inferDispatchDate({
+          triggerSlug,
+          payloadTimestamp: payload.timestamp,
+          data: gmailData,
+        }),
         incremental: true,
         cooldownMinutes: 2,
         signalHints,

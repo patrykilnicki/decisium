@@ -5,6 +5,7 @@ import * as db from "@/lib/supabase/db";
 import { createLLM } from "@/packages/agents/lib/llm";
 import {
   fetchGmailEmailsFull,
+  fetchGmailMessageById,
   fetchGmailMessagesForThread,
 } from "@/packages/agents/lib/composio-gmail";
 import {
@@ -15,6 +16,9 @@ import {
 import { z } from "zod";
 import type { TriageResult } from "./todo-triage-agent";
 import { storeMemory } from "@/lib/memory/memory-service";
+import { getTaskContext } from "@/packages/agents/lib/task-context";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { createTaskEvent } from "@/lib/tasks/task-events";
 
 export interface TodoSnapshotRow {
   id: string;
@@ -114,6 +118,47 @@ export interface TodoGenerateOptions {
   preferredModel?: string;
 }
 
+type TriageMode = "full" | "incremental";
+type HintStrategy = "none" | "thread" | "message" | "full_fallback";
+
+interface PromptContextBudget {
+  emailSnippetMaxChars: number;
+  emailThreadContextMaxChars: number;
+}
+
+interface RuntimeTriageConfig {
+  mode: TriageMode;
+  verifyEnabled: boolean;
+  allowRawFallback: boolean;
+  gmailMaxPages?: number;
+  contextBudget: PromptContextBudget;
+}
+
+const FULL_TRIAGE_CONFIG: RuntimeTriageConfig = {
+  mode: "full",
+  verifyEnabled: true,
+  allowRawFallback: true,
+  contextBudget: {
+    emailSnippetMaxChars: 2000,
+    emailThreadContextMaxChars: 6000,
+  },
+};
+
+const INCREMENTAL_TRIAGE_CONFIG: RuntimeTriageConfig = {
+  mode: "incremental",
+  verifyEnabled: false,
+  allowRawFallback: false,
+  gmailMaxPages: 8,
+  contextBudget: {
+    emailSnippetMaxChars: 800,
+    emailThreadContextMaxChars: 1500,
+  },
+};
+
+function getRuntimeTriageConfig(isIncremental: boolean): RuntimeTriageConfig {
+  return isIncremental ? INCREMENTAL_TRIAGE_CONFIG : FULL_TRIAGE_CONFIG;
+}
+
 const BATCH_SIZE = 7;
 
 /** Sequential fallback when LangGraph triage fails (e.g. serverless/env issues). */
@@ -123,6 +168,7 @@ async function extractTasksSequential(
   existingItems?: TodoItem[],
   systemPromptTemplate?: string | null,
   preferredModel?: string,
+  contextBudget?: PromptContextBudget,
 ): Promise<TriageResult> {
   const existingItemKeys = (existingItems ?? []).flatMap((item) =>
     buildTodoItemDedupKeys(item),
@@ -147,7 +193,7 @@ async function extractTasksSequential(
 
   for (let i = 0; i < signals.length; i += BATCH_SIZE) {
     const batch = signals.slice(i, i + BATCH_SIZE);
-    const context = signalsToPromptContext(batch);
+    const context = signalsToPromptContext(batch, contextBudget);
     const userContent = `Extract tasks for ${date} from these integration signals:\n\n${context}`;
     const messages = [
       { role: "system" as const, content: systemPrompt },
@@ -240,11 +286,13 @@ async function runTriageSignals(
   existingItems?: TodoItem[],
   promptSettings?: TodoPromptSettings | null,
   preferredModel?: string,
+  runtime?: RuntimeTriageConfig,
 ): Promise<TriageResult> {
   const systemPromptTemplate = buildSystemPromptWithPreferences(
     date,
     promptSettings,
   );
+  const cfg = runtime ?? FULL_TRIAGE_CONFIG;
   try {
     const { triageSignals } = await import("./todo-triage-agent");
     return await triageSignals(
@@ -252,7 +300,13 @@ async function runTriageSignals(
       date,
       existingItems,
       systemPromptTemplate ?? undefined,
-      { preferredModel },
+      {
+        preferredModel,
+        mode: cfg.mode,
+        verifyEnabled: cfg.verifyEnabled,
+        allowRawFallback: cfg.allowRawFallback,
+        contextBudget: cfg.contextBudget,
+      },
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -266,6 +320,7 @@ async function runTriageSignals(
       existingItems,
       systemPromptTemplate ?? undefined,
       preferredModel,
+      cfg.contextBudget,
     );
   }
 }
@@ -575,6 +630,7 @@ async function fetchGmailSignals(
   userId: string,
   date: string,
   scope?: TodoEmailScope | null,
+  runtime?: RuntimeTriageConfig,
 ): Promise<GmailSignal[]> {
   const gmailDate = date.replace(/-/g, "/");
   const nextDay = nextDayDateString(date).replace(/-/g, "/");
@@ -584,6 +640,14 @@ async function fetchGmailSignals(
     query,
     withThreadContext: true,
     targetDate: date,
+    ...(runtime?.gmailMaxPages ? { maxPages: runtime.gmailMaxPages } : {}),
+    ...(runtime?.contextBudget
+      ? {
+          snippetMaxChars: runtime.contextBudget.emailSnippetMaxChars,
+          threadContextMaxChars:
+            runtime.contextBudget.emailThreadContextMaxChars,
+        }
+      : {}),
     ...(hasAnyScope(scope)
       ? {
           labelIdsAccepted: scope!.labelIdsAccepted,
@@ -671,6 +735,33 @@ async function getTodoPromptSettings(
   return { toggles, customInstructions };
 }
 
+function filterGmailSignalsByScope(
+  signals: GmailSignal[],
+  scope: TodoEmailScope | null,
+): GmailSignal[] {
+  if (!hasAnyScope(scope)) return signals;
+  const blockedSenders = new Set(
+    (scope?.sendersBlocked ?? []).map((e) => e.toLowerCase().trim()),
+  );
+  const blockedLabels = new Set(scope?.labelIdsBlocked ?? []);
+  if (blockedSenders.size === 0 && blockedLabels.size === 0) return signals;
+
+  return signals.filter((s) => {
+    if (blockedSenders.size > 0) {
+      const senderEmail = (s.sender ?? "").toLowerCase().includes("<")
+        ? (s.sender ?? "")
+            .replace(/.*<([^>]+)>.*/, "$1")
+            .trim()
+            .toLowerCase()
+        : (s.sender ?? "").trim().toLowerCase();
+      if (blockedSenders.has(senderEmail)) return false;
+    }
+    if (blockedLabels.size > 0 && s.labels.some((l) => blockedLabels.has(l)))
+      return false;
+    return true;
+  });
+}
+
 function buildPreferencesBlock(t: Required<TodoPromptToggles>): string {
   const lines: string[] = [
     "USER PREFERENCES (apply these over the rules below):",
@@ -737,41 +828,69 @@ async function fetchSignalsForHints(
   userId: string,
   date: string,
   hints: SignalHint[],
+  runtime: RuntimeTriageConfig,
 ): Promise<{
   signals: IntegrationSignal[];
   promptSettings: TodoPromptSettings | null;
   emailScopeUsed: TodoEmailScope | null;
+  hintStrategy: HintStrategy;
 } | null> {
   const hasEventId = hints.some((h) => Boolean(h.eventId));
   const threadIds = [
     ...new Set(hints.map((h) => h.threadId).filter(Boolean) as string[]),
   ];
-  const hasGmailHints =
-    threadIds.length > 0 || hints.some((h) => Boolean(h.messageId));
+  const messageIds = [
+    ...new Set(hints.map((h) => h.messageId).filter(Boolean) as string[]),
+  ];
+  const hasGmailHints = threadIds.length > 0 || messageIds.length > 0;
   if (hasEventId || !hasGmailHints) return null;
-  if (threadIds.length === 0) return null;
 
   const [scope, promptSettings] = await Promise.all([
     getTodoEmailScope(supabase, userId),
     getTodoPromptSettings(supabase, userId),
   ]);
-
-  const allParsed: Awaited<ReturnType<typeof fetchGmailMessagesForThread>> = [];
-  for (const threadId of threadIds) {
-    const messages = await fetchGmailMessagesForThread(userId, threadId, {
-      targetDateYyyyMmDd: date,
-    });
-    allParsed.push(...messages);
-  }
-  if (allParsed.length === 0) {
+  const toggles = {
+    ...DEFAULT_TODO_PROMPT_TOGGLES,
+    ...promptSettings?.toggles,
+  };
+  if (!toggles.fromEmails) {
     return {
       signals: [],
       promptSettings: promptSettings ?? null,
       emailScopeUsed: scope ?? null,
+      hintStrategy: "none",
     };
   }
 
-  let gmailSignals: GmailSignal[] = allParsed.map((msg) => ({
+  const allParsed: Awaited<ReturnType<typeof fetchGmailMessagesForThread>> = [];
+  let hintStrategy: HintStrategy = "none";
+  for (const threadId of threadIds) {
+    const messages = await fetchGmailMessagesForThread(userId, threadId, {
+      targetDateYyyyMmDd: date,
+      snippetMaxChars: runtime.contextBudget.emailSnippetMaxChars,
+      threadContextMaxChars: runtime.contextBudget.emailThreadContextMaxChars,
+    });
+    allParsed.push(...messages);
+    if (messages.length > 0) hintStrategy = "thread";
+  }
+
+  if (threadIds.length === 0 || allParsed.length === 0) {
+    for (const messageId of messageIds) {
+      const message = await fetchGmailMessageById(userId, messageId, {
+        targetDateYyyyMmDd: date,
+        snippetMaxChars: runtime.contextBudget.emailSnippetMaxChars,
+        threadContextMaxChars: runtime.contextBudget.emailThreadContextMaxChars,
+      });
+      if (!message) continue;
+      allParsed.push(message);
+      if (hintStrategy === "none") hintStrategy = "message";
+    }
+  }
+  if (allParsed.length === 0) {
+    return null;
+  }
+
+  const gmailSignals = allParsed.map((msg) => ({
     provider: "gmail" as const,
     subject: msg.subject,
     sender: msg.sender,
@@ -782,41 +901,13 @@ async function fetchSignalsForHints(
     threadContext: msg.threadContext,
     labels: msg.labels,
   }));
-
-  if (hasAnyScope(scope)) {
-    const blockedSenders = new Set(
-      (scope!.sendersBlocked ?? []).map((e) => e.toLowerCase().trim()),
-    );
-    const blockedLabels = new Set(scope!.labelIdsBlocked ?? []);
-    if (blockedSenders.size > 0 || blockedLabels.size > 0) {
-      gmailSignals = gmailSignals.filter((s) => {
-        if (blockedSenders.size > 0) {
-          const senderEmail = (s.sender ?? "").toLowerCase().includes("<")
-            ? (s.sender ?? "")
-                .replace(/.*<([^>]+)>.*/, "$1")
-                .trim()
-                .toLowerCase()
-            : (s.sender ?? "").trim().toLowerCase();
-          if (blockedSenders.has(senderEmail)) return false;
-        }
-        if (
-          blockedLabels.size > 0 &&
-          s.labels.some((l) => blockedLabels.has(l))
-        )
-          return false;
-        return true;
-      });
-    }
-  }
-
-  if (promptSettings?.toggles?.fromEmails === false) {
-    gmailSignals = [];
-  }
+  const filtered = filterGmailSignalsByScope(gmailSignals, scope);
 
   return {
-    signals: gmailSignals,
+    signals: filtered,
     promptSettings: promptSettings ?? null,
     emailScopeUsed: scope ?? null,
+    hintStrategy,
   };
 }
 
@@ -825,41 +916,44 @@ async function fetchAllSignals(
   supabase: SupabaseClient<Database>,
   userId: string,
   date: string,
+  runtime: RuntimeTriageConfig,
 ): Promise<{
   signals: IntegrationSignal[];
   promptSettings: TodoPromptSettings | null;
   /** Scope applied when fetching Gmail (for logging). Null = no filter. */
   emailScopeUsed: TodoEmailScope | null;
+  hintStrategy: HintStrategy;
 }> {
   const [scope, promptSettings] = await Promise.all([
     getTodoEmailScope(supabase, userId),
     getTodoPromptSettings(supabase, userId),
   ]);
-  const calendarSignals = fetchCalendarSignalsFromSupabase(
-    supabase,
-    userId,
-    date,
-  ).catch((err) => {
-    console.warn("[todo-generator] google_calendar fetch error:", err);
-    return [] as CalendarEventSignal[];
-  });
-  const gmailSignals = fetchGmailSignals(userId, date, scope).catch((err) => {
-    console.warn("[todo-generator] gmail fetch error:", err);
-    return [] as GmailSignal[];
-  });
+  const toggles = {
+    ...DEFAULT_TODO_PROMPT_TOGGLES,
+    ...promptSettings?.toggles,
+  };
+
+  const calendarSignals = toggles.fromCalendar
+    ? fetchCalendarSignalsFromSupabase(supabase, userId, date).catch((err) => {
+        console.warn("[todo-generator] google_calendar fetch error:", err);
+        return [] as CalendarEventSignal[];
+      })
+    : Promise.resolve([] as CalendarEventSignal[]);
+
+  const gmailSignals = toggles.fromEmails
+    ? fetchGmailSignals(userId, date, scope, runtime).catch((err) => {
+        console.warn("[todo-generator] gmail fetch error:", err);
+        return [] as GmailSignal[];
+      })
+    : Promise.resolve([] as GmailSignal[]);
+
   const [cal, gmail] = await Promise.all([calendarSignals, gmailSignals]);
-  let signals: IntegrationSignal[] = [...cal, ...gmail];
-  const t = promptSettings?.toggles ?? {};
-  if (t.fromCalendar === false) {
-    signals = signals.filter((s) => s.provider !== "google_calendar");
-  }
-  if (t.fromEmails === false) {
-    signals = signals.filter((s) => s.provider !== "gmail");
-  }
+  const signals: IntegrationSignal[] = [...cal, ...gmail];
   return {
     signals,
     promptSettings: promptSettings ?? null,
     emailScopeUsed: scope ?? null,
+    hintStrategy: "none",
   };
 }
 
@@ -867,8 +961,8 @@ async function fetchAllSignals(
 // LLM-powered task extraction
 // ═══════════════════════════════════════════════════════════════
 
-const EMAIL_SNIPPET_MAX = 2000;
-const EMAIL_THREAD_CONTEXT_MAX = 6000;
+const DEFAULT_EMAIL_SNIPPET_MAX = 2000;
+const DEFAULT_EMAIL_THREAD_CONTEXT_MAX = 6000;
 
 /**
  * Calendar event is a "meeting" (needs preparation task) when there is more than one
@@ -878,7 +972,15 @@ function isMeetingByParticipants(participants: string[]): boolean {
   return participants.length > 1;
 }
 
-export function signalsToPromptContext(signals: IntegrationSignal[]): string {
+export function signalsToPromptContext(
+  signals: IntegrationSignal[],
+  contextBudget?: PromptContextBudget,
+): string {
+  const snippetMaxChars =
+    contextBudget?.emailSnippetMaxChars ?? DEFAULT_EMAIL_SNIPPET_MAX;
+  const threadContextMaxChars =
+    contextBudget?.emailThreadContextMaxChars ??
+    DEFAULT_EMAIL_THREAD_CONTEXT_MAX;
   return signals
     .map((signal) => {
       if (signal.provider === "google_calendar") {
@@ -902,10 +1004,10 @@ export function signalsToPromptContext(signals: IntegrationSignal[]): string {
         return parts.filter(Boolean).join(" | ");
       }
       const g = signal as GmailSignal;
-      const snippet = (g.snippet ?? "").trim().slice(0, EMAIL_SNIPPET_MAX);
+      const snippet = (g.snippet ?? "").trim().slice(0, snippetMaxChars);
       const threadContext = (g.threadContext ?? "")
         .trim()
-        .slice(0, EMAIL_THREAD_CONTEXT_MAX);
+        .slice(0, threadContextMaxChars);
       const useThreadOnly =
         threadContext.length > 0 && threadContext.length >= snippet.length;
       const content = useThreadOnly
@@ -922,70 +1024,58 @@ export function signalsToPromptContext(signals: IntegrationSignal[]): string {
     .join("\n\n");
 }
 
-const REPLY_TASKS_SECTION_TEXT = `REPLY TASKS — strict evidence required:
-Do NOT create a "reply" or "respond" task just because the user hasn't replied to a thread. A reply task is warranted ONLY when the thread content contains concrete evidence that a response is expected:
-- The other party asked a direct question
-- The other party made an explicit request (send something, confirm, decide, approve)
-- The user previously committed to follow up or deliver something
-If the last message in the thread is a neutral statement, acknowledgment, or informational update with no question or request directed at the user — skip it entirely. Closing messages (e.g. "OK", "Thanks", "Got it", "Noted", confirmations) do not require a response and must NOT generate a task.
-If the LAST message in the thread is from the user (the account owner / recipient — check who sent the final part of the conversation in the Content), do NOT create a reply or follow-up task for that thread; the user has already responded.
-
+const REPLY_TASKS_SECTION_TEXT = `REPLY TASKS:
+Create reply/follow-up tasks only with explicit evidence in thread content:
+- direct question to the user
+- explicit request (send/confirm/decide/approve)
+- prior user commitment to deliver/follow up
+If the last message is from the user, or is only neutral acknowledgment/info ("ok", "thanks", "noted"), do not create a reply task.
 `;
 
-const TASK_EXTRACTION_TEMPLATE = `You are an intelligent task extraction system for a personal productivity app.
+const TASK_EXTRACTION_TEMPLATE = `You extract actionable tasks from calendar/email signals.
 
 TARGET DATE: {{targetDate}}
 
-You receive signals from the user's connected integrations — calendar events and emails — for the target date.
-Each email is shown with its content (preview and/or thread context). Use the same approach as when summarizing emails for the user: read each email's content in detail before deciding if it requires action.
+Analyze each signal semantically (not keyword matching). For emails, read Subject + From + Content in full; do not rely on subject alone.
 
-Your job: analyze every signal and decide whether it requires the user to take a concrete action.
-Read each email's content (Subject, From, and Content section) in full before judging actionability—do not rely on subject line alone.
-Use semantic understanding of the content, not keyword matching or hard-coded rules.
-There is no predefined list of "actionable" or "non-actionable" categories — you must reason about each signal individually.
-
-DECISION FRAMEWORK — ask yourself for each signal:
-- Does this signal imply the user needs to DO something (reply, prepare, create, review, decide, deliver, follow up)?
-- Is there evidence in the content that someone is waiting for the user, or that the user committed to something?
+Decision rules:
+- Create a task only when concrete user action is implied (reply, prepare, review, decide, deliver, follow up).
+- Use evidence from the signal content.
 - {{calendarGuidance}}
-- CALENDAR RULES (apply in order): Each calendar signal is labeled "Kind: Meeting" or "Kind: Time block". (1) If Kind: Meeting (2+ participants): create exactly one meeting-preparation task based on title, description, and participants. (2) If Kind: Time block (single or no participants): create a task ONLY when the title and/or description semantically describe concrete work to be done (e.g. "create website", "draft proposal", "review document"). Use semantic understanding, not keyword lists. Do NOT create a task for generic reserves like "Focus time", "Deep work", "Block", "Reserve", "Busy" — those are just time blocks; omit them from your output.
-- For emails: read the Content section (preview and thread context) in full. Is the user expected to respond, take action, or make a decision — or is this informational / automated / marketing?
-- For email threads: read the full conversation flow in the Content. The Content shows messages in chronological order; "From:" or the sender name indicates who wrote each part. Who spoke last? Is the ball in the user's court? If the other party asked a question or is waiting for the user to reply, send something, or follow up — create a task. This includes Re: threads from colleagues, clients, or support.
+- Calendar hard rule: Kind: Meeting -> one prep task. Kind: Time block -> task only if title/description clearly describe real work; skip generic reserve blocks.
+- For email threads, determine who spoke last. If the other side is waiting on the user, create one task. Max one task per thread.
+{{replyTasksSection}}
+{{skipRules}}
+When uncertain, prefer recall over misses, but keep evidence-based.
 
-{{replyTasksSection}}{{skipRules}}
-For everything else — create a task if there is any reasonable chance the user should act. When in doubt, include a task; missing an actionable signal is worse than including a borderline one.
+Output requirements:
+1. dueAt must be "{{targetDate}}T00:00:00.000Z".
+2. No duplicates; max one task per email thread.
+3. All generated text in English.
+4. confidence in range 0.0-1.0.
+5. actionabilityEvidence must be a short supporting quote/fact.
+6. priority:
+   - normal (default)
+   - urgent only with explicit time pressure. If urgent, include urgentReason with concrete date/time fact; do not use the word "today".
 
-TASK RULES:
-1. Each task dueAt MUST be "{{targetDate}}T00:00:00.000Z".
-2. Do NOT create duplicate tasks for the same underlying action. For email threads: at most ONE task per conversation (one per thread); if multiple signals belong to the same thread, output only one task for that thread (the single most actionable one), and only if the user has not already replied (last message in the thread is not from the user).
-3. Write titles as concise action items starting with a verb. Always output all generated text (title, summary, suggestedNextAction, actionabilityEvidence, urgentReason) in English, regardless of the signal language.
-4. Set confidence (0.0–1.0) reflecting how certain you are that user action is truly required.
-5. Set actionabilityEvidence: a short quote or fact from the signal that proves the user must act.
-
-PRIORITY — two levels:
-- "normal" (default): most tasks.
-- "urgent": ONLY when you find explicit evidence of time pressure in the signal content — someone directly waiting for the user, a hard same-day deadline, or a scheduled commitment with a specific time. You MUST set "urgentReason" with a concrete fact from the signal. Do NOT use the word "today" in urgentReason — use the actual date or time from the signal instead (e.g. "Scheduled at 09:00 UTC" or "Deadline 2026-03-04").
-  If you cannot quote a specific sentence or fact that proves it cannot wait, use "normal".
-
-Return a JSON array. Each object (all string fields in English):
+Return ONLY a JSON array of objects:
 {
   "title": "short actionable title in English (max 80 chars)",
-  "summary": "one sentence in English explaining what needs to be done",
+  "summary": "one sentence in English explaining required action",
   "priority": "normal" or "urgent",
-  "urgentReason": "only when urgent — concrete fact from the signal, max ~80 chars. Do not use the word 'today'; use date/time from the signal. Omit for normal.",
+  "urgentReason": "required only when urgent; concrete fact, max ~80 chars",
   "sourceProvider": "google_calendar" or "gmail",
   "sourceType": "calendar_event" or "message",
   "sourceExternalId": "ID from the source signal",
-  "actionabilityEvidence": "short quote or fact in English proving user action is required",
+  "actionabilityEvidence": "short quote/fact proving action is required",
   "confidence": 0.0 to 1.0,
-  "suggestedNextAction": "concrete next step in English the user should take",
+  "suggestedNextAction": "concrete next step in English",
   "tags": ["relevant", "tags"]
 }
 
-Return ONLY the JSON array. No markdown, no explanation.
+No markdown, no prose, only JSON array.
 {{examplesLine}}
-You must output a task for every signal that meets the criteria above — do not limit how many tasks you return. If 10 signals are actionable, return 10 tasks. Omitting an actionable signal is an error.
-Return [] only when no signal implies a concrete user action.`;
+Return [] only if no signal requires concrete user action.`;
 
 function buildCalendarGuidance(t: Required<TodoPromptToggles>): string {
   if (!t.prepForMeetings) {
@@ -1246,6 +1336,67 @@ function buildSignalsSummary(signals: IntegrationSignal[]): Json {
   }) as Json;
 }
 
+interface OptimizationMeta {
+  mode: TriageMode;
+  hintStrategy: HintStrategy;
+  verifyEnabled: boolean;
+  allowRawFallback: boolean;
+  contextBudget: PromptContextBudget;
+  fetchedSignals: { total: number; gmail: number; calendar: number };
+  hintCount: number;
+}
+
+function buildOptimizationMetaLine(meta: OptimizationMeta): string {
+  return [
+    `mode=${meta.mode}`,
+    `hintStrategy=${meta.hintStrategy}`,
+    `verifyEnabled=${meta.verifyEnabled}`,
+    `allowRawFallback=${meta.allowRawFallback}`,
+    `hintCount=${meta.hintCount}`,
+    `signalsTotal=${meta.fetchedSignals.total}`,
+    `signalsGmail=${meta.fetchedSignals.gmail}`,
+    `signalsCalendar=${meta.fetchedSignals.calendar}`,
+    `snippetMax=${meta.contextBudget.emailSnippetMaxChars}`,
+    `threadMax=${meta.contextBudget.emailThreadContextMaxChars}`,
+  ].join(" ");
+}
+
+async function logTodoOptimizationEvent(meta: OptimizationMeta): Promise<void> {
+  const taskContext = getTaskContext();
+  if (!taskContext?.taskId || !taskContext.userId || !taskContext.sessionId)
+    return;
+
+  try {
+    const client = createAdminClient();
+    await createTaskEvent(client, {
+      taskId: taskContext.taskId,
+      sessionId: taskContext.sessionId,
+      userId: taskContext.userId,
+      eventType: "todo_optimization",
+      nodeKey: taskContext.nodeKey ?? "insights.generate_todo_list",
+      eventKeySuffix: `${meta.mode}:${meta.hintStrategy}:${meta.hintCount}`,
+      payload: {
+        mode: meta.mode,
+        hint_strategy: meta.hintStrategy,
+        verify_enabled: meta.verifyEnabled,
+        allow_raw_fallback: meta.allowRawFallback,
+        hint_count: meta.hintCount,
+        fetched_signals: meta.fetchedSignals,
+        context_budget: {
+          snippet_max_chars: meta.contextBudget.emailSnippetMaxChars,
+          thread_context_max_chars:
+            meta.contextBudget.emailThreadContextMaxChars,
+        },
+      },
+    });
+  } catch (err) {
+    console.warn(
+      "[todo-generator] Failed to log optimization task event:",
+      err,
+    );
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════
 // TodoGenerator — day-scoped, generate-once logic
 // ═══════════════════════════════════════════════════════════════
@@ -1414,6 +1565,7 @@ export class TodoGenerator {
     date: string,
     options?: TodoGenerateOptions,
   ): Promise<TodoListOutput> {
+    const runtime = getRuntimeTriageConfig(true);
     const metadata = await this.getSnapshotMetadataForDate(userId, date);
     if (!metadata) return this.generateForDate(userId, date, options);
     const existingItems = await this.getTodoItemsForDate(
@@ -1425,6 +1577,7 @@ export class TodoGenerator {
     let signals: IntegrationSignal[];
     let promptSettings: TodoPromptSettings | null;
     let emailScopeUsed: TodoEmailScope | null;
+    let hintStrategy: HintStrategy = "none";
 
     if (options?.signalHints?.length) {
       const hinted = await fetchSignalsForHints(
@@ -1432,23 +1585,48 @@ export class TodoGenerator {
         userId,
         date,
         options.signalHints,
+        runtime,
       );
       if (hinted) {
         signals = hinted.signals;
         promptSettings = hinted.promptSettings;
         emailScopeUsed = hinted.emailScopeUsed;
+        hintStrategy = hinted.hintStrategy;
       } else {
-        const full = await fetchAllSignals(this.supabase, userId, date);
+        const full = await fetchAllSignals(
+          this.supabase,
+          userId,
+          date,
+          runtime,
+        );
         signals = filterSignalsByHints(full.signals, options.signalHints);
         promptSettings = full.promptSettings;
         emailScopeUsed = full.emailScopeUsed;
+        hintStrategy = "full_fallback";
       }
     } else {
-      const full = await fetchAllSignals(this.supabase, userId, date);
+      const full = await fetchAllSignals(this.supabase, userId, date, runtime);
       signals = full.signals;
       promptSettings = full.promptSettings;
       emailScopeUsed = full.emailScopeUsed;
+      hintStrategy = full.hintStrategy;
     }
+
+    const optimizationMeta: OptimizationMeta = {
+      mode: runtime.mode,
+      hintStrategy,
+      verifyEnabled: runtime.verifyEnabled,
+      allowRawFallback: runtime.allowRawFallback,
+      contextBudget: runtime.contextBudget,
+      fetchedSignals: {
+        total: signals.length,
+        gmail: signals.filter((s) => s.provider === "gmail").length,
+        calendar: signals.filter((s) => s.provider === "google_calendar")
+          .length,
+      },
+      hintCount: options?.signalHints?.length ?? 0,
+    };
+    await logTodoOptimizationEvent(optimizationMeta);
 
     if (signals.length === 0) {
       return TodoListOutputSchema.parse({
@@ -1471,6 +1649,7 @@ export class TodoGenerator {
       existingItems,
       promptSettings,
       options?.preferredModel,
+      runtime,
     );
     const durationMs = Date.now() - startedAt;
 
@@ -1484,6 +1663,7 @@ export class TodoGenerator {
       durationMs,
       emailScopeUsed: scopeToLogJson(emailScopeUsed),
       promptSettingsUsed: promptSettingsToLogJson(promptSettings),
+      optimizationMeta,
     });
 
     const newItemsFiltered = filterItemsByDeletedKeys(
@@ -1817,6 +1997,7 @@ export class TodoGenerator {
     date: string,
     options?: TodoGenerateOptions,
   ): Promise<TodoListOutput> {
+    const runtime = getRuntimeTriageConfig(false);
     if (!userId || typeof userId !== "string" || userId.trim() === "") {
       throw new Error(
         "[todo-generator] generateForDate: userId is required and must be a non-empty string",
@@ -1828,11 +2009,23 @@ export class TodoGenerator {
       return this.buildEmptyList(userId, date, "initial_generation");
     }
 
-    const { signals, promptSettings, emailScopeUsed } = await fetchAllSignals(
-      this.supabase,
-      userId,
-      date,
-    );
+    const { signals, promptSettings, emailScopeUsed, hintStrategy } =
+      await fetchAllSignals(this.supabase, userId, date, runtime);
+    const optimizationMeta: OptimizationMeta = {
+      mode: runtime.mode,
+      hintStrategy,
+      verifyEnabled: runtime.verifyEnabled,
+      allowRawFallback: runtime.allowRawFallback,
+      contextBudget: runtime.contextBudget,
+      fetchedSignals: {
+        total: signals.length,
+        gmail: signals.filter((s) => s.provider === "gmail").length,
+        calendar: signals.filter((s) => s.provider === "google_calendar")
+          .length,
+      },
+      hintCount: 0,
+    };
+    await logTodoOptimizationEvent(optimizationMeta);
     if (signals.length === 0) {
       const empty = this.buildEmptyList(userId, date, "initial_generation");
       await this.replaceTodoItemsForDate(userId, date, []);
@@ -1851,6 +2044,7 @@ export class TodoGenerator {
         durationMs: Date.now() - startedAt,
         emailScopeUsed: scopeToLogJson(emailScopeUsed),
         promptSettingsUsed: promptSettingsToLogJson(promptSettings),
+        optimizationMeta,
       });
       return empty;
     }
@@ -1863,6 +2057,7 @@ export class TodoGenerator {
       undefined,
       promptSettings,
       options?.preferredModel,
+      runtime,
     );
     const durationMs = Date.now() - startedAt;
 
@@ -1881,6 +2076,7 @@ export class TodoGenerator {
       durationMs,
       emailScopeUsed: scopeToLogJson(emailScopeUsed),
       promptSettingsUsed: promptSettingsToLogJson(promptSettings),
+      optimizationMeta,
     });
 
     // Avoid duplicate runs: another request may have already written a snapshot
@@ -2071,8 +2267,19 @@ export class TodoGenerator {
       errorMessage?: string;
       emailScopeUsed?: Json | null;
       promptSettingsUsed?: Json | null;
+      optimizationMeta?: OptimizationMeta;
     },
   ): Promise<void> {
+    const optimizationMetaLine = payload.optimizationMeta
+      ? buildOptimizationMetaLine(payload.optimizationMeta)
+      : null;
+    const userContentPreviewRaw = payload.extractionLog
+      ? payload.extractionLog.userContent
+      : "";
+    const userContentPreview = optimizationMetaLine
+      ? `${optimizationMetaLine}\n${userContentPreviewRaw}`.trim()
+      : userContentPreviewRaw || null;
+
     const logRow = {
       user_id: userId,
       date,
@@ -2083,8 +2290,8 @@ export class TodoGenerator {
       llm_system_prompt_preview: payload.extractionLog
         ? payload.extractionLog.systemPrompt.slice(0, 8000)
         : null,
-      llm_user_content_preview: payload.extractionLog
-        ? payload.extractionLog.userContent.slice(0, 16000)
+      llm_user_content_preview: userContentPreview
+        ? userContentPreview.slice(0, 16000)
         : null,
       llm_raw_response: payload.extractionLog?.rawResponse ?? null,
       extracted_count: payload.extractedCount,
