@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useMemo } from "react";
+import { memo } from "react";
 import { cn } from "@/lib/utils";
 import { CentralIcon } from "@/components/ui/central-icon";
 import { MarkdownContent } from "./markdown-content";
@@ -42,7 +42,7 @@ function StepIcon({ status }: { status: ThinkingStepStatus }) {
   }
 }
 
-function CurrentStep({ step }: { step: ThinkingStep }) {
+function StepRow({ step }: { step: ThinkingStep }) {
   return (
     <div className="flex items-center gap-2 text-sm font-medium animate-in fade-in-0 slide-in-from-bottom-1 duration-300">
       <StepIcon status={step.status} />
@@ -65,28 +65,6 @@ function ThinkingMessageComponent({
   streamedContent,
   isVisible,
 }: ThinkingMessageProps) {
-  // Find the current active step (running step, or last completed step if no running step)
-  const currentStep = useMemo(() => {
-    if (steps.length === 0) return null;
-
-    // Prefer the most recent running step so tool-level updates override generic parent steps.
-    const runningStep = [...steps]
-      .reverse()
-      .find((step) => step.status === "running");
-    if (runningStep) return runningStep;
-
-    // If no running step, find the last completed step
-    const completedSteps = steps.filter((step) => step.status === "completed");
-    if (completedSteps.length > 0) {
-      // Return the last completed step (highest index)
-      return completedSteps[completedSteps.length - 1];
-    }
-
-    // If no completed steps, return the first pending step
-    const pendingStep = steps.find((step) => step.status === "pending");
-    return pendingStep || null;
-  }, [steps]);
-
   if (!isVisible) return null;
 
   return (
@@ -100,17 +78,18 @@ function ThinkingMessageComponent({
       <div className="flex flex-col gap-2 max-w-[85%] sm:max-w-[75%]">
         <div className="rounded-2xl">
           <div className="flex flex-col gap-2">
-            {/* Show tool step label when active, otherwise show "Thinking..." */}
-            {currentStep && currentStep.label !== "Thinking..." ? (
-              <CurrentStep step={currentStep} />
-            ) : (
+            {/* Persistent top-to-bottom steps list */}
+            {steps.length > 0 &&
+              steps.map((step) => <StepRow key={step.stepId} step={step} />)}
+
+            {steps.length === 0 && (
               <span className="text-sm font-medium text-muted-foreground">
                 Thinking...
               </span>
             )}
 
             {/* Loading indicator when no steps yet */}
-            {!currentStep && steps.length === 0 && !streamedContent && (
+            {steps.length === 0 && !streamedContent && (
               <div className="flex items-center gap-2">
                 <div className="flex gap-1">
                   <span className="size-4 bg-foreground/30 rounded-full animate-bounce [animation-delay:-0.3s]" />

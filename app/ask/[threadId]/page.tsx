@@ -12,6 +12,8 @@ import { Button } from "@/components/ui/button";
 import { CentralIcon } from "@/components/ui/central-icon";
 import { useAskLayout } from "@/app/ask/ask-layout-context";
 import type { AskMessage } from "@/types/database";
+import { AgentUiRenderer } from "@/components/agent-ui";
+import type { TaskApprovalCardProps } from "@/packages/agents/schemas/agent-ui.schema";
 
 function transformMessage(msg: AskMessage): ChatMessageType {
   return {
@@ -28,6 +30,9 @@ export default function ThreadPage() {
   const { threads } = useAskLayout();
 
   const [initialLoading, setInitialLoading] = useState(true);
+  const [submittingProposalId, setSubmittingProposalId] = useState<
+    string | null
+  >(null);
 
   const {
     messages,
@@ -40,6 +45,8 @@ export default function ThreadPage() {
     retryTask,
     cancelTask,
     resumeTask,
+    pendingApprovalCards,
+    submitApprovalDecision,
   } = useChat({
     apiEndpoint: `/api/ask/threads/${threadId}/messages`,
     mode: "task",
@@ -81,6 +88,59 @@ export default function ThreadPage() {
     [sendMessage],
   );
 
+  const handleApprove = useCallback(
+    async (taskId: string, proposalId: string) => {
+      setSubmittingProposalId(proposalId);
+      try {
+        await submitApprovalDecision({
+          taskId,
+          proposalId,
+          decision: "approve",
+        });
+      } finally {
+        setSubmittingProposalId(null);
+      }
+    },
+    [submitApprovalDecision],
+  );
+
+  const handleReject = useCallback(
+    async (taskId: string, proposalId: string) => {
+      setSubmittingProposalId(proposalId);
+      try {
+        await submitApprovalDecision({
+          taskId,
+          proposalId,
+          decision: "reject",
+        });
+      } finally {
+        setSubmittingProposalId(null);
+      }
+    },
+    [submitApprovalDecision],
+  );
+
+  const handleEditApprove = useCallback(
+    async (
+      taskId: string,
+      proposalId: string,
+      props: TaskApprovalCardProps,
+    ) => {
+      setSubmittingProposalId(proposalId);
+      try {
+        await submitApprovalDecision({
+          taskId,
+          proposalId,
+          decision: "edit",
+          editedProps: props,
+        });
+      } finally {
+        setSubmittingProposalId(null);
+      }
+    },
+    [submitApprovalDecision],
+  );
+
   const failedTasks = failedTaskIds ?? [];
   const currentThread = threads.find((t) => t.id === threadId);
   const threadTitle = currentThread?.title || "Untitled Conversation";
@@ -100,13 +160,22 @@ export default function ThreadPage() {
           </div>
         </div>
       ) : (
-        <ChatContainer
-          messages={messages}
-          thinkingState={thinkingState}
-          onSend={handleSend}
-          isLoading={isLoading}
-          placeholder="Ask about your patterns, history, or insights..."
-        />
+        <>
+          <ChatContainer
+            messages={messages}
+            thinkingState={thinkingState}
+            onSend={handleSend}
+            isLoading={isLoading}
+            placeholder="Ask about your patterns, history, or insights..."
+          />
+          <AgentUiRenderer
+            cards={pendingApprovalCards}
+            submittingProposalId={submittingProposalId}
+            onApprove={handleApprove}
+            onReject={handleReject}
+            onEditApprove={handleEditApprove}
+          />
+        </>
       )}
 
       {failedTasks.length > 0 && (

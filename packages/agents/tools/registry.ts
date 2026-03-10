@@ -12,6 +12,8 @@ import {
   supabaseStoreTool,
   embeddingGeneratorTool,
   generateTodoListTool,
+  proposeTodoItemsTool,
+  applyApprovedTodoItemsTool,
   listCalendarEventsTool,
   fetchGmailEmailsTool,
   analyzeGmailEmailsTool,
@@ -175,6 +177,18 @@ function initializeRegistry(): void {
 
   toolRegistry.set("generate_todo_list", {
     tool: generateTodoListTool,
+    category: "utility",
+    isExternal: false,
+  });
+
+  toolRegistry.set("propose_todo_items", {
+    tool: proposeTodoItemsTool,
+    category: "utility",
+    isExternal: false,
+  });
+
+  toolRegistry.set("apply_approved_todo_items", {
+    tool: applyApprovedTodoItemsTool,
     category: "utility",
     isExternal: false,
   });
@@ -358,6 +372,8 @@ export function getDefaultTools(
 
   if (config.includeTodoGenerator !== false) {
     tools.push(generateTodoListTool);
+    tools.push(proposeTodoItemsTool);
+    tools.push(applyApprovedTodoItemsTool);
   }
 
   if (config.includeListCalendarEvents !== false) {
@@ -421,7 +437,7 @@ export function getToolsForAgent(
       config.includeMemorySearch = true;
       config.includeSupabaseStore = true;
       config.includeEmbeddingGenerator = true;
-      config.includeTodoGenerator = false;
+      config.includeTodoGenerator = true;
       break;
 
     case "orchestrator":
@@ -475,6 +491,8 @@ const TOOLS_REQUIRING_USER_ID = [
   "vault_update_document",
   "fetch_gmail_emails",
   "analyze_gmail_emails",
+  "propose_todo_items",
+  "apply_approved_todo_items",
 ] as const;
 
 interface BoundUserToolContext {
@@ -990,6 +1008,60 @@ function createToolsWithBoundUserId(
           document_id: args.document_id,
           title: args.title,
           content_md: args.content_md,
+        }),
+    }),
+    new DynamicStructuredTool({
+      name: "propose_todo_items",
+      description:
+        "Generate a todo task proposal component for user approval. Do not save tasks yet.",
+      schema: z.object({
+        request: z
+          .string()
+          .min(1)
+          .describe(
+            "Natural language instruction from the user for tasks to create.",
+          ),
+        date: z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}$/)
+          .optional()
+          .describe("Task date in YYYY-MM-DD. Defaults to today."),
+        maxItems: z
+          .number()
+          .int()
+          .min(1)
+          .max(20)
+          .default(5)
+          .describe("Maximum number of tasks to generate and save."),
+        preferredModel: z
+          .string()
+          .optional()
+          .describe("Optional LLM model override."),
+      }),
+      func: async (args) =>
+        proposeTodoItemsTool.func({
+          userId,
+          request: args.request,
+          date: args.date,
+          maxItems: args.maxItems,
+          preferredModel: args.preferredModel,
+        }),
+    }),
+    new DynamicStructuredTool({
+      name: "apply_approved_todo_items",
+      description:
+        "Save approved todo items proposal to database after human confirmation.",
+      schema: z.object({
+        proposalId: z.string().uuid().describe("Approval proposal id."),
+        props: z
+          .record(z.unknown())
+          .describe("Approved task_approval_card props payload."),
+      }),
+      func: async (args) =>
+        applyApprovedTodoItemsTool.func({
+          userId,
+          proposalId: args.proposalId,
+          props: args.props,
         }),
     }),
     new DynamicStructuredTool({

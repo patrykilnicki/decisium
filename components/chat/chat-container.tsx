@@ -83,7 +83,11 @@ export function ChatContainer({
               <ThinkingMessage
                 steps={thinkingState.steps}
                 streamedContent={thinkingState.streamedContent}
-                isVisible={thinkingState.isThinking}
+                isVisible={
+                  thinkingState.isThinking ||
+                  thinkingState.steps.length > 0 ||
+                  Boolean(thinkingState.streamedContent)
+                }
               />
             )}
 
