@@ -284,7 +284,13 @@ async function extractBatch(state: {
   systemPromptTemplate?: string;
   preferredModel?: string;
 }): Promise<Partial<typeof TriageState.State>> {
-  const { batchSignals, batchIndex, date, systemPromptTemplate, preferredModel } = state;
+  const {
+    batchSignals,
+    batchIndex,
+    date,
+    systemPromptTemplate,
+    preferredModel,
+  } = state;
   const prompt =
     systemPromptTemplate ??
     TASK_EXTRACTION_PROMPT.replace(/\{\{targetDate\}\}/g, date);

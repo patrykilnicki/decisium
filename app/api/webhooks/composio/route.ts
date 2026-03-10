@@ -542,11 +542,17 @@ export async function POST(request: NextRequest) {
     // Only SENT (user sent email) triggers resolve — check if related tasks are done.
     // All other Gmail triggers (e.g. GMAIL_NEW_GMAIL_MESSAGE) trigger todo merge only.
     if (triggerSlug === GMAIL_EMAIL_SENT_TRIGGER && userId) {
-      const { data: profile } = await db.selectOne(supabase, "users", {
-        id: userId,
-      }, { columns: "preferred_llm_model" });
-      const preferredModel = (profile as { preferred_llm_model?: string } | null)
-        ?.preferred_llm_model ?? undefined;
+      const { data: profile } = await db.selectOne(
+        supabase,
+        "users",
+        {
+          id: userId,
+        },
+        { columns: "preferred_llm_model" },
+      );
+      const preferredModel =
+        (profile as { preferred_llm_model?: string } | null)
+          ?.preferred_llm_model ?? undefined;
       const eventData = payload.data as unknown as GmailSentEventPayload;
       const result = await resolveGmailReply(supabase, userId, eventData, {
         preferredModel,

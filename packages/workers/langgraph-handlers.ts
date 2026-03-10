@@ -33,10 +33,18 @@ async function getPreferredModelForUser(
   client: SupabaseClient<Database>,
   userId: string,
 ): Promise<string | undefined> {
-  const { data } = await db.selectOne(client, "users", { id: userId }, {
-    columns: "preferred_llm_model",
-  });
-  return (data as { preferred_llm_model?: string } | null)?.preferred_llm_model ?? undefined;
+  const { data } = await db.selectOne(
+    client,
+    "users",
+    { id: userId },
+    {
+      columns: "preferred_llm_model",
+    },
+  );
+  return (
+    (data as { preferred_llm_model?: string } | null)?.preferred_llm_model ??
+    undefined
+  );
 }
 
 function buildNextTask(params: {

@@ -144,7 +144,8 @@ async function agentNode(
       typeof rawContent === "string" && rawContent.trim().length > 0
         ? rawContent
         : (() => {
-            const model = state.preferredModel || process.env.LLM_MODEL || "openai/gpt-4o";
+            const model =
+              state.preferredModel || process.env.LLM_MODEL || "openai/gpt-4o";
             console.warn(
               `[agentNode] Empty LLM response for model ${model}. Response content type: ${typeof response.content}, ` +
                 (Array.isArray(response.content)

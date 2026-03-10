@@ -674,7 +674,9 @@ async function logEmailGuardrailToDb(payload: {
       eventKeySuffix: payload.event_key_suffix,
       payload: {
         relative_window: payload.relative_window,
-        ...(payload.cache_hit !== undefined && { cache_hit: payload.cache_hit }),
+        ...(payload.cache_hit !== undefined && {
+          cache_hit: payload.cache_hit,
+        }),
         ...(payload.start_date && { start_date: payload.start_date }),
         ...(payload.end_date && { end_date: payload.end_date }),
         ...(payload.timezone && { timezone: payload.timezone }),

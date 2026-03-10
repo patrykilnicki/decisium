@@ -83,10 +83,12 @@ function fanOutBatches(
   const sends: Send[] = [];
   for (let i = 0; i < atoms.length; i += BATCH_SIZE) {
     const batch = atoms.slice(i, i + BATCH_SIZE);
-    sends.push(new Send("extractBatch", {
-      batchAtoms: batch,
-      preferredModel: state.preferredModel,
-    }));
+    sends.push(
+      new Send("extractBatch", {
+        batchAtoms: batch,
+        preferredModel: state.preferredModel,
+      }),
+    );
   }
   return sends;
 }
