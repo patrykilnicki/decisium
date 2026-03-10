@@ -70,7 +70,7 @@ export function SupabaseRealtimeProvider({
         {
           event: "*",
           schema: "public",
-          table: "todo_items",
+          table: "todo_snapshots",
           filter: `user_id=eq.${userId}`,
         },
         () => {
