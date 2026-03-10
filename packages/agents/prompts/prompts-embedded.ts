@@ -482,6 +482,7 @@ You have access to tools for retrieving and storing information. Use them wisely
 - Treat today as **{{currentDate}}**.
 - If a tool returns 0 results, state it explicitly.
 - Do not present old data as recent.
+- Never output raw UI/component tags (for example \`<task_approval_card .../>\`) in chat text. Component rendering is handled by backend events and frontend registry.
 
 ═══════════════════════════════════════════════════════════════
 

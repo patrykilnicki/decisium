@@ -113,66 +113,46 @@ export function useChat({
   const buildThinkingState = useCallback(
     (events: TaskEventRecord[]): ThinkingState => {
       const latestEvents = getLatestJobEvents(events);
-      const stepsById = new Map<
-        string,
-        { step: ThinkingStep; firstTimestamp: number }
-      >();
-
-      latestEvents.forEach((event) => {
-        const isNodeEvent = event.eventType.startsWith("node_");
-        const isToolEvent = event.eventType.startsWith("tool_");
-        if (!isNodeEvent && !isToolEvent) return;
-
-        const payloadTaskType = getPayloadValue<string>(
-          event.payload,
-          "taskType",
-        );
-        const nodeKey =
-          event.nodeKey ??
-          (typeof payloadTaskType === "string" ? payloadTaskType : "");
-        if (!nodeKey) return;
-
-        const toolCallId = getPayloadValue<string>(event.payload, "toolCallId");
-        const toolCallKey = getPayloadValue<string>(
-          event.payload,
-          "toolCallKey",
-        );
-        const toolName = getPayloadValue<string>(event.payload, "toolName");
-        const stepId = isToolEvent
-          ? `tool:${toolCallId ?? toolCallKey ?? toolName ?? event.id}`
-          : nodeKey;
-        const fallbackLabel = isNodeEvent
-          ? getTaskStepLabel(nodeKey as TaskType)
-          : "Using tool";
-        const label = getDynamicStepLabel({
-          eventType: event.eventType,
-          fallbackLabel,
-          payload: event.payload,
-        });
-        const timestamp = new Date(event.createdAt).getTime();
-        const existing = stepsById.get(stepId);
-        const status =
-          event.eventType === "node_started" ||
-          event.eventType === "tool_started"
-            ? "running"
-            : event.eventType === "node_completed" ||
-                event.eventType === "tool_completed"
-              ? "completed"
-              : "error";
-
-        if (!existing) {
-          stepsById.set(stepId, {
-            step: { stepId, label, status, timestamp },
-            firstTimestamp: timestamp,
+      const steps: ThinkingStep[] = latestEvents
+        .filter((event) => {
+          const isNodeEvent = event.eventType.startsWith("node_");
+          const isToolEvent = event.eventType.startsWith("tool_");
+          return isNodeEvent || isToolEvent;
+        })
+        .map((event) => {
+          const isNodeEvent = event.eventType.startsWith("node_");
+          const payloadTaskType = getPayloadValue<string>(
+            event.payload,
+            "taskType",
+          );
+          const nodeKey =
+            event.nodeKey ??
+            (typeof payloadTaskType === "string" ? payloadTaskType : "");
+          const fallbackLabel = isNodeEvent
+            ? getTaskStepLabel(nodeKey as TaskType)
+            : "Using tool";
+          const label = getDynamicStepLabel({
+            eventType: event.eventType,
+            fallbackLabel,
+            payload: event.payload,
           });
-        } else {
-          existing.step.status = status;
-        }
-      });
+          const status =
+            event.eventType === "node_started" ||
+            event.eventType === "tool_started"
+              ? "running"
+              : event.eventType === "node_completed" ||
+                  event.eventType === "tool_completed"
+                ? "completed"
+                : "error";
 
-      const steps = Array.from(stepsById.values())
-        .sort((a, b) => a.firstTimestamp - b.firstTimestamp)
-        .map((entry) => entry.step);
+          return {
+            stepId: `${event.id}:${event.eventType}`,
+            label,
+            status,
+            timestamp: new Date(event.createdAt).getTime(),
+          } satisfies ThinkingStep;
+        })
+        .sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0));
 
       const latestJobEvent = [...latestEvents]
         .reverse()
@@ -348,6 +328,9 @@ export function useChat({
       }
 
       if (isJobFinished(latestJobEvents)) {
+        const latestJobEvent = [...latestJobEvents]
+          .reverse()
+          .find((event) => event.eventType.startsWith("job_"));
         const withinGrace =
           Date.now() - taskStreamOpenedAtRef.current < TASK_STREAM_GRACE_MS;
         if (withinGrace && latestEvents.length === 0) {
@@ -355,6 +338,9 @@ export function useChat({
           return;
         }
         await refreshMessages();
+        if (latestJobEvent?.eventType === "job_completed") {
+          setThinkingState(initialThinkingState);
+        }
         stopTaskPolling();
         stopTaskStreaming();
       }
