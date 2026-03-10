@@ -12,7 +12,7 @@ export function createDeepAgentConfig(config?: {
   /** When provided (e.g. from user context), used for the date layer instead of UTC */
   currentDate?: string;
 }): { llm: ReturnType<typeof createLLM>; systemPrompt: string } {
-  const model = config?.model || process.env.LLM_MODEL;
+  const model = config?.model || process.env.LLM_MODEL || "openai/gpt-4o";
   const temperature = config?.temperature ?? 0.7;
 
   const llm = createLLM({

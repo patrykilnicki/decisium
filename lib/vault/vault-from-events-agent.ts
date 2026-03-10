@@ -69,6 +69,7 @@ export async function runVaultFromEventsAgent(
     sinceAt?: string | null;
     atomIds?: string[];
     externalIds?: string[];
+    preferredModel?: string;
   },
 ): Promise<VaultFromEventsResult> {
   const client = getClient();
@@ -77,7 +78,9 @@ export async function runVaultFromEventsAgent(
     return { documentsCreated: 0, documentsUpdated: 0, actionsProcessed: 0 };
   }
 
-  const { actions } = await triageAtomsToActions(atoms);
+  const { actions } = await triageAtomsToActions(atoms, {
+    preferredModel: options?.preferredModel,
+  });
 
   let documentsCreated = 0;
 

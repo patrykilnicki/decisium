@@ -110,6 +110,8 @@ export interface TodoGenerateOptions {
   runType?: string;
   /** When provided, filter fetched signals to only matching ones (webhook optimization). */
   signalHints?: SignalHint[];
+  /** User's preferred LLM model (e.g. from users.preferred_llm_model). Used by webhook/task agents. */
+  preferredModel?: string;
 }
 
 const BATCH_SIZE = 7;
@@ -120,6 +122,7 @@ async function extractTasksSequential(
   date: string,
   existingItems?: TodoItem[],
   systemPromptTemplate?: string | null,
+  preferredModel?: string,
 ): Promise<TriageResult> {
   const existingItemKeys = (existingItems ?? []).flatMap((item) =>
     buildTodoItemDedupKeys(item),
@@ -133,7 +136,11 @@ async function extractTasksSequential(
     rawPreview: string;
   }[] = [];
 
-  const llm = createLLM({ temperature: 0.15, maxTokens: 8192 });
+  const llm = createLLM({
+    model: preferredModel || process.env.LLM_MODEL || "openai/gpt-4o",
+    temperature: 0.15,
+    maxTokens: 8192,
+  });
   const systemPrompt =
     systemPromptTemplate ??
     TASK_EXTRACTION_PROMPT.replace(/\{\{targetDate\}\}/g, date);
@@ -232,6 +239,7 @@ async function runTriageSignals(
   date: string,
   existingItems?: TodoItem[],
   promptSettings?: TodoPromptSettings | null,
+  preferredModel?: string,
 ): Promise<TriageResult> {
   const systemPromptTemplate = buildSystemPromptWithPreferences(
     date,
@@ -244,6 +252,7 @@ async function runTriageSignals(
       date,
       existingItems,
       systemPromptTemplate ?? undefined,
+      { preferredModel },
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -256,6 +265,7 @@ async function runTriageSignals(
       date,
       existingItems,
       systemPromptTemplate ?? undefined,
+      preferredModel,
     );
   }
 }
@@ -1460,6 +1470,7 @@ export class TodoGenerator {
       date,
       existingItems,
       promptSettings,
+      options?.preferredModel,
     );
     const durationMs = Date.now() - startedAt;
 
@@ -1851,6 +1862,7 @@ export class TodoGenerator {
       date,
       undefined,
       promptSettings,
+      options?.preferredModel,
     );
     const durationMs = Date.now() - startedAt;
 

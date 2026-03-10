@@ -18,6 +18,9 @@ import {
   taskSearchTool,
 } from "./index";
 import { getComposioToolsForUser } from "../lib/composio";
+import { getTaskContext } from "../lib/task-context";
+import { createTaskEvent } from "@/lib/tasks/task-events";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 // ═══════════════════════════════════════════════════════════════
 // TYPE DEFINITIONS
@@ -650,6 +653,38 @@ function setCachedRelativeWindow(
   });
 }
 
+async function logEmailGuardrailToDb(payload: {
+  relative_window: string;
+  cache_hit?: boolean;
+  start_date?: string;
+  end_date?: string;
+  timezone?: string;
+  event_key_suffix: "classification" | "applied";
+}): Promise<void> {
+  const ctx = getTaskContext();
+  if (!ctx?.taskId || !ctx.sessionId || !ctx.userId) return;
+  try {
+    const client = createAdminClient();
+    await createTaskEvent(client, {
+      taskId: ctx.taskId,
+      sessionId: ctx.sessionId,
+      userId: ctx.userId,
+      eventType: "email_guardrail",
+      nodeKey: "orchestrator.invoke",
+      eventKeySuffix: payload.event_key_suffix,
+      payload: {
+        relative_window: payload.relative_window,
+        ...(payload.cache_hit !== undefined && { cache_hit: payload.cache_hit }),
+        ...(payload.start_date && { start_date: payload.start_date }),
+        ...(payload.end_date && { end_date: payload.end_date }),
+        ...(payload.timezone && { timezone: payload.timezone }),
+      },
+    });
+  } catch (err) {
+    console.warn("[email-guardrail] Failed to write task event:", err);
+  }
+}
+
 async function inferRelativeEmailWindow(params: {
   userMessage?: string;
   preferredModel?: string;
@@ -664,12 +699,19 @@ async function inferRelativeEmailWindow(params: {
   });
   if (cacheKey) {
     const cached = getCachedRelativeWindow(cacheKey);
-    if (cached) return cached;
+    if (cached) {
+      await logEmailGuardrailToDb({
+        relative_window: cached,
+        cache_hit: true,
+        event_key_suffix: "classification",
+      });
+      return cached;
+    }
   }
 
   try {
     const llm = createLLM({
-      model: params.preferredModel || process.env.LLM_MODEL,
+      model: params.preferredModel || process.env.LLM_MODEL || "openai/gpt-4o",
       temperature: 0,
       maxTokens: 40,
     }).withStructuredOutput(relativeEmailWindowSchema);
@@ -688,8 +730,18 @@ async function inferRelativeEmailWindow(params: {
 
     const resolved = result.window;
     if (cacheKey) setCachedRelativeWindow(cacheKey, resolved);
+    await logEmailGuardrailToDb({
+      relative_window: resolved,
+      cache_hit: false,
+      event_key_suffix: "classification",
+    });
     return resolved;
   } catch {
+    await logEmailGuardrailToDb({
+      relative_window: "none",
+      cache_hit: false,
+      event_key_suffix: "classification",
+    });
     return "none";
   }
 }
@@ -734,6 +786,14 @@ async function resolveStrictRelativeEmailQuery(params: {
     startDate = getStartOfMonth(baseDate);
     endDate = getStartOfMonth(addMonths(baseDate, 1));
   }
+
+  await logEmailGuardrailToDb({
+    relative_window: window,
+    start_date: startDate,
+    end_date: endDate,
+    timezone,
+    event_key_suffix: "applied",
+  });
 
   const startEpoch = getUtcEpochForLocalMidnight(startDate, timezone);
   const endEpoch = getUtcEpochForLocalMidnight(endDate, timezone);
@@ -990,6 +1050,7 @@ function createToolsWithBoundUserId(
       func: async (args) =>
         analyzeGmailEmailsTool.func({
           userId,
+          preferredModel,
           query: await resolveStrictRelativeEmailQuery({
             query: args.query,
             threadId,
@@ -1183,7 +1244,7 @@ async function inferOrchestratorIntentToolConfig(
 
   try {
     const llm = createLLM({
-      model: preferredModel || process.env.LLM_MODEL,
+      model: preferredModel || process.env.LLM_MODEL || "openai/gpt-4o",
       temperature: 0,
       maxTokens: 120,
     }).withStructuredOutput(toolIntentSchema);

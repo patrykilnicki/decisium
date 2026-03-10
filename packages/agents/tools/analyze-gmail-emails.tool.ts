@@ -36,6 +36,7 @@ const schema = z.object({
       "Max emails to fetch and analyze. Default 100. Use higher for broader queries.",
     ),
   userId: z.string().uuid().optional(),
+  preferredModel: z.string().optional(),
 });
 
 export const analyzeGmailEmailsTool = new DynamicStructuredTool({
@@ -43,7 +44,13 @@ export const analyzeGmailEmailsTool = new DynamicStructuredTool({
   description:
     "Fetch FULL email content and run subagent analysis for summarize/analyze/insights requests. Use when user asks to summarize many emails, find what's important, or analyze inbox — this avoids truncated snippets. For simple list or count, use fetch_gmail_emails.",
   schema,
-  func: async ({ query, analysisFocus, maxResults, userId: argsUserId }) => {
+  func: async ({
+    query,
+    analysisFocus,
+    maxResults,
+    userId: argsUserId,
+    preferredModel,
+  }) => {
     const contextUserId = getTaskContext()?.userId;
     const userId = argsUserId ?? contextUserId;
     if (!userId) {
@@ -75,7 +82,9 @@ export const analyzeGmailEmailsTool = new DynamicStructuredTool({
       threadContext: m.threadContext,
     }));
 
-    const result = await analyzeEmails(emailsForAnalysis, analysisFocus);
+    const result = await analyzeEmails(emailsForAnalysis, analysisFocus, {
+      preferredModel,
+    });
 
     return JSON.stringify({
       analysis: result.analysis,

@@ -28,6 +28,8 @@ interface ActivityAtom {
 
 const VaultTriageState = Annotation.Root({
   atoms: Annotation<ActivityAtom[]>(),
+  /** User's preferred LLM model (e.g. from users.preferred_llm_model). */
+  preferredModel: Annotation<string | undefined>(),
   batchedActions: Annotation<VaultAction[]>({
     reducer: (a, b) => [...a, ...b],
     default: () => [],
@@ -81,18 +83,24 @@ function fanOutBatches(
   const sends: Send[] = [];
   for (let i = 0; i < atoms.length; i += BATCH_SIZE) {
     const batch = atoms.slice(i, i + BATCH_SIZE);
-    sends.push(new Send("extractBatch", { batchAtoms: batch }));
+    sends.push(new Send("extractBatch", {
+      batchAtoms: batch,
+      preferredModel: state.preferredModel,
+    }));
   }
   return sends;
 }
 
 async function extractBatch(state: {
   batchAtoms: ActivityAtom[];
+  preferredModel?: string;
 }): Promise<Partial<typeof VaultTriageState.State>> {
-  const { batchAtoms } = state;
+  const { batchAtoms, preferredModel } = state;
   const context = atomsToContext(batchAtoms);
 
-  const llm = createLLM({ model: "gpt-4o-mini" });
+  const llm = createLLM({
+    model: preferredModel || process.env.LLM_MODEL || "openai/gpt-4o",
+  });
   const messages = [
     { role: "system" as const, content: SYSTEM_PROMPT },
     {
@@ -178,13 +186,17 @@ export interface VaultTriageResult {
 
 export async function triageAtomsToActions(
   atoms: ActivityAtom[],
+  options?: { preferredModel?: string },
 ): Promise<VaultTriageResult> {
   if (atoms.length === 0) {
     return { actions: [], batchCount: 0, errors: [] };
   }
 
   const graph = buildVaultTriageGraph();
-  const result = await graph.invoke({ atoms });
+  const result = await graph.invoke({
+    atoms,
+    preferredModel: options?.preferredModel,
+  });
   const batchCount = Math.ceil(atoms.length / BATCH_SIZE);
 
   return {

@@ -264,8 +264,13 @@ async function analyzeReplyWithLlm(
   replyText: string,
   subject: string | undefined,
   originalThreadContext?: string,
+  preferredModel?: string,
 ): Promise<ReplyAnalysis> {
-  const llm = createLLM({ temperature: 0.1, maxTokens: 256 });
+  const llm = createLLM({
+    model: preferredModel || process.env.LLM_MODEL || "openai/gpt-4o",
+    temperature: 0.1,
+    maxTokens: 256,
+  });
   const structuredLlm = llm.withStructuredOutput(ReplyAnalysisSchema, {
     name: "reply_analysis",
     strict: true,
@@ -321,6 +326,7 @@ export async function resolveGmailReply(
   supabase: SupabaseClient<Database>,
   userId: string,
   payload: GmailSentEventPayload,
+  options?: { preferredModel?: string },
 ): Promise<ResolveGmailReplyResult> {
   const payloadKeys = Object.keys(payload).filter(
     (k) => payload[k as keyof GmailSentEventPayload] != null,
@@ -553,6 +559,7 @@ export async function resolveGmailReply(
         replyText,
         payload.subject,
         originalThreadContext || undefined,
+        options?.preferredModel,
       );
 
       analyses.push({

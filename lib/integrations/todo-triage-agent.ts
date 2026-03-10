@@ -90,6 +90,8 @@ const TriageState = Annotation.Root({
   existingItemKeys: Annotation<string[]>,
   /** When set, full system prompt (with preferences + date). Otherwise use TASK_EXTRACTION_PROMPT. */
   systemPromptTemplate: Annotation<string | undefined>,
+  /** User's preferred LLM model (e.g. from users.preferred_llm_model). */
+  preferredModel: Annotation<string | undefined>,
 
   batchSignalGroups: Annotation<BatchSignalGroup[]>({
     reducer: (a, b) => [...a, ...b],
@@ -123,8 +125,13 @@ async function invokeLlmForTasks(
   batchIndex: number,
   systemPromptTemplate: string,
   isVerification: boolean,
+  preferredModel?: string,
 ): Promise<Partial<typeof TriageState.State>> {
-  const llm = createLLM({ temperature: 0.15, maxTokens: 8192 });
+  const llm = createLLM({
+    model: preferredModel || process.env.LLM_MODEL || "openai/gpt-4o",
+    temperature: 0.15,
+    maxTokens: 8192,
+  });
   const systemPrompt = systemPromptTemplate.includes("{{targetDate}}")
     ? systemPromptTemplate.replace(/\{\{targetDate\}\}/g, date)
     : systemPromptTemplate;
@@ -260,6 +267,7 @@ function fanOutBatches(state: typeof TriageState.State): Send[] | string {
         batchIndex: Math.floor(i / BATCH_SIZE),
         date,
         systemPromptTemplate,
+        preferredModel: state.preferredModel,
       }),
     );
   }
@@ -274,8 +282,9 @@ async function extractBatch(state: {
   batchIndex: number;
   date: string;
   systemPromptTemplate?: string;
+  preferredModel?: string;
 }): Promise<Partial<typeof TriageState.State>> {
-  const { batchSignals, batchIndex, date, systemPromptTemplate } = state;
+  const { batchSignals, batchIndex, date, systemPromptTemplate, preferredModel } = state;
   const prompt =
     systemPromptTemplate ??
     TASK_EXTRACTION_PROMPT.replace(/\{\{targetDate\}\}/g, date);
@@ -286,6 +295,7 @@ async function extractBatch(state: {
     batchIndex,
     prompt,
     false,
+    preferredModel,
   );
 
   return {
@@ -319,6 +329,7 @@ function fanOutVerify(state: typeof TriageState.State): Send[] | string {
         batchIndex: group.batchIndex,
         date: state.date,
         systemPromptTemplate: state.systemPromptTemplate,
+        preferredModel: state.preferredModel,
       }),
     );
   }
@@ -337,6 +348,7 @@ async function verifyBatch(state: {
   batchIndex: number;
   date: string;
   systemPromptTemplate?: string;
+  preferredModel?: string;
 }): Promise<Partial<typeof TriageState.State>> {
   let verifyPrompt = VERIFY_EXTRACTION_PROMPT;
   if (state.systemPromptTemplate) {
@@ -375,6 +387,7 @@ async function verifyBatch(state: {
     state.batchIndex,
     verifyPrompt,
     true,
+    state.preferredModel,
   );
 }
 
@@ -474,12 +487,14 @@ export interface TriageResult {
  * Process integration signals through the triage agent.
  * Drop-in replacement for the old extractTasksWithLlm.
  * @param systemPromptTemplate - Optional full system prompt (with preferences + date). When omitted, TASK_EXTRACTION_PROMPT is used.
+ * @param options - Optional { preferredModel } for user's preferred LLM (e.g. from users.preferred_llm_model).
  */
 export async function triageSignals(
   signals: IntegrationSignal[],
   date: string,
   existingItems?: TodoItem[],
   systemPromptTemplate?: string,
+  options?: { preferredModel?: string },
 ): Promise<TriageResult> {
   if (signals.length === 0) {
     return { items: [], extractionLog: null, batchCount: 0, errors: [] };
@@ -495,6 +510,7 @@ export async function triageSignals(
     allSignals: signals,
     existingItemKeys,
     systemPromptTemplate,
+    preferredModel: options?.preferredModel,
   });
 
   const logs = (result.extractionLogs ?? []).sort(

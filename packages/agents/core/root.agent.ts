@@ -103,11 +103,13 @@ async function rootResponseAgentNode(
     return {};
   }
 
+  const resolvedModel =
+    state.preferredModel || process.env.LLM_MODEL || "openai/gpt-4o";
   const responseAgent = createBaseAgent({
     systemPrompt: ROOT_AGENT_SYSTEM_PROMPT,
     agentType: "root",
     currentDate: state.currentDate,
-    model: state.preferredModel,
+    model: resolvedModel,
   }) as RootAgentInvokable;
 
   // Build conversation history including the new user message
@@ -136,7 +138,7 @@ async function rootResponseAgentNode(
     agentType: "root_response_agent",
     nodeKey: "root_response_agent",
     taskType: "root.response_agent",
-    model: state.preferredModel || process.env.LLM_MODEL || "openai/gpt-4o",
+    model: resolvedModel,
     temperature: 0.7,
     systemPrompt,
     messages: [{ role: "user", content: prompt }],
