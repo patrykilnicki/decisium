@@ -229,33 +229,59 @@ const ReplyAnalysisSchema = z.object({
 
 type ReplyAnalysis = z.infer<typeof ReplyAnalysisSchema>;
 
-const REPLY_ANALYSIS_PROMPT = `You are a task-status inference engine. You receive an existing task (title, summary, and what completing it looks like) that was created from an incoming email, the original email thread for context, and the user's outgoing reply in that same email thread. The reply may include quoted/forwarded content (e.g. lines with ">", or blocks after "On ... wrote:"). Focus your analysis on the part the user newly wrote—usually the opening portion—and base your action on whether that new content fulfills the task. Your job is to infer the correct action.
+const REPLY_ANALYSIS_PROMPT = `Infer task status from a user's sent email reply.
 
-## Actions
+You get:
+- existing task (title, summary, completion expectation)
+- original thread context (what was requested)
+- user's outgoing reply (may include quoted text)
 
-**done** – The reply's *semantic meaning* indicates the task obligation is fulfilled.
-Signals: the user delivered the requested artifact, confirmed completion, sent the information that was asked for, or the conversation makes clear nothing further is needed from the user. If the task was to "reply with X" or "send X" and the user's message clearly contains or delivers X (e.g. a quote, confirmation, document, answer), choose "done".
+Use only the user's newly written content. Ignore quoted/forwarded thread text.
 
-**update** – The reply commits to a concrete future action or timeline that changes when/how the task should be tracked.
-Signals: explicit postponement with a date/time, scope change, delegation to someone else with a follow-up date. When you choose "update", you MUST set at least one of updatedTitle or updatedDueAt.
+Actions:
+- done: reply clearly fulfills the task obligation (delivered requested info/file/answer/confirmation; no further user action needed).
+- update: reply changes plan/timing/scope; set updatedTitle and/or updatedDueAt.
+- in_progress: work started but not finished.
+- no_change: no reliable status change (acknowledgment, pleasantries, unrelated, auto-reply, ambiguous).
 
-**in_progress** – The reply signals active, ongoing work without completion.
-Signals: partial delivery ("here's part one"), explicit "working on it" language, request for clarification before finishing.
+Strictness for done:
+- choose done only with clear semantic evidence of completion.
+- if unsure, choose no_change.
 
-**no_change** – The reply carries no actionable status change for the task.
-Signals: acknowledgments ("OK", "Thanks", "Got it"), forwarding without comment, auto-replies, signatures-only, pleasantries, or content unrelated to the task obligation.
+Rules:
+- Compare reply to "What completing the task looks like".
+- For update, use YYYY-MM-DD for updatedDueAt; resolve relative dates against {{today}}.
+- Use English for reason and updatedTitle.
+- For done or no_change, omit updatedTitle and updatedDueAt.
+- confidence must be 0.0-1.0.
+- reason: one short sentence in English with concrete evidence.`;
 
-## Rules
-- When an "Original email thread" is provided, use it to understand what was asked of the user and what the user was expected to do. This is the full conversation that led to the task creation. Compare the user's reply against these expectations.
-- The reply may include quoted/forwarded content (e.g. "On ... wrote:", lines with ">"). Identify what the user newly wrote versus quoted thread, and base your decision on the user's new content only.
-- Detect the user's language automatically; do not assume any particular language.
-- Focus on the *intent* of the reply, not keywords. A one-word reply that fulfills the task obligation counts as "done".
-- Compare the reply to "What completing the task looks like": if the user did that (e.g. sent a quote when the task was to send a quote), choose "done".
-- If the reply is ambiguous, prefer "no_change" over a wrong status update.
-- For "update": use YYYY-MM-DD for updatedDueAt. Resolve relative dates (e.g. "tomorrow", "Friday") against today: {{today}}. Use English for updatedTitle and reason.
-- For "done" or "no_change": omit updatedTitle and updatedDueAt.
-- confidence: a number 0.0–1.0 indicating how certain you are about your chosen action. 1.0 = absolutely certain, 0.5 = ambiguous/guessing.
-- reason: one sentence in English explaining your decision.`;
+function normalizeAnalysisAction(analysis: ReplyAnalysis): ReplyAnalysis {
+  const confidence = analysis.confidence ?? 0;
+  if (analysis.action === "done" && confidence < 0.6) {
+    return {
+      ...analysis,
+      action: "no_change",
+      reason:
+        analysis.reason ??
+        "Reply likely does not provide clear completion evidence.",
+    };
+  }
+  if (
+    analysis.action === "update" &&
+    !analysis.updatedDueAt &&
+    !analysis.updatedTitle
+  ) {
+    return {
+      ...analysis,
+      action: "in_progress",
+      reason:
+        analysis.reason ??
+        "Reply indicates progress but no concrete schedule/scope update.",
+    };
+  }
+  return analysis;
+}
 
 async function analyzeReplyWithLlm(
   taskTitle: string,
@@ -264,8 +290,13 @@ async function analyzeReplyWithLlm(
   replyText: string,
   subject: string | undefined,
   originalThreadContext?: string,
+  preferredModel?: string,
 ): Promise<ReplyAnalysis> {
-  const llm = createLLM({ temperature: 0.1, maxTokens: 256 });
+  const llm = createLLM({
+    model: preferredModel || process.env.LLM_MODEL || "openai/gpt-4o",
+    temperature: 0.1,
+    maxTokens: 256,
+  });
   const structuredLlm = llm.withStructuredOutput(ReplyAnalysisSchema, {
     name: "reply_analysis",
     strict: true,
@@ -321,6 +352,7 @@ export async function resolveGmailReply(
   supabase: SupabaseClient<Database>,
   userId: string,
   payload: GmailSentEventPayload,
+  options?: { preferredModel?: string },
 ): Promise<ResolveGmailReplyResult> {
   const payloadKeys = Object.keys(payload).filter(
     (k) => payload[k as keyof GmailSentEventPayload] != null,
@@ -546,14 +578,16 @@ export async function resolveGmailReply(
 
   for (const { date, item } of toProcess) {
     try {
-      const analysis = await analyzeReplyWithLlm(
+      const rawAnalysis = await analyzeReplyWithLlm(
         item.title,
         item.summary,
         item.suggestedNextAction ?? item.summary,
         replyText,
         payload.subject,
         originalThreadContext || undefined,
+        options?.preferredModel,
       );
+      const analysis = normalizeAnalysisAction(rawAnalysis);
 
       analyses.push({
         itemId: item.id,

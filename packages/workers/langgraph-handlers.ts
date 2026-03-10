@@ -27,6 +27,25 @@ import {
   createSyncPipeline,
 } from "@/lib/integrations";
 import { runVaultFromEventsAgent } from "@/lib/vault/vault-from-events-agent";
+import * as db from "@/lib/supabase/db";
+
+async function getPreferredModelForUser(
+  client: SupabaseClient<Database>,
+  userId: string,
+): Promise<string | undefined> {
+  const { data } = await db.selectOne(
+    client,
+    "users",
+    { id: userId },
+    {
+      columns: "preferred_llm_model",
+    },
+  );
+  return (
+    (data as { preferred_llm_model?: string } | null)?.preferred_llm_model ??
+    undefined
+  );
+}
 
 function buildNextTask(params: {
   parentTaskId: string;
@@ -262,6 +281,7 @@ async function handleInsightsGenerateTodoList(
   const date = state.date ?? new Date().toISOString().split("T")[0];
   const force = state.force ?? true;
   const incremental = state.incremental ?? false;
+  const preferredModel = await getPreferredModelForUser(options.client, userId);
 
   const result = await runNodeWithEvents({
     client: options.client,
@@ -275,6 +295,7 @@ async function handleInsightsGenerateTodoList(
       const opts = {
         generatedFromEvent: eventSource,
         signalHints: state.signalHints,
+        preferredModel,
       };
 
       if (incremental) {
@@ -311,6 +332,7 @@ async function handleVaultSyncFromEvents(
   }>(task);
 
   const userId = state.userId || task.user_id;
+  const preferredModel = await getPreferredModelForUser(options.client, userId);
 
   const result = await runNodeWithEvents({
     client: options.client,
@@ -321,6 +343,7 @@ async function handleVaultSyncFromEvents(
       runVaultFromEventsAgent(userId, {
         sinceAt: state.sinceAt,
         externalIds: state.externalIds,
+        preferredModel,
       }),
   });
 

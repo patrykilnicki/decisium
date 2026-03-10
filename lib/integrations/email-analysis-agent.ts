@@ -92,6 +92,7 @@ export interface EmailAnalysisResult {
 export async function analyzeEmails(
   emails: EmailForAnalysis[],
   analysisFocus: string,
+  options?: { preferredModel?: string },
 ): Promise<EmailAnalysisResult> {
   const focus =
     analysisFocus || "Summarize these emails and highlight what's important.";
@@ -106,7 +107,11 @@ export async function analyzeEmails(
     };
   }
 
-  const llm = createLLM({ temperature: 0.2, maxTokens: 4096 });
+  const llm = createLLM({
+    model: options?.preferredModel || process.env.LLM_MODEL || "openai/gpt-4o",
+    temperature: 0.2,
+    maxTokens: 4096,
+  });
   const totalBatches = Math.ceil(emails.length / BATCH_SIZE);
   const batchedSummaries = new Array<string>(totalBatches);
 

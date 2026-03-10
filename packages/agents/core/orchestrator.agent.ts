@@ -83,7 +83,7 @@ async function agentNode(
   tools: DynamicStructuredTool[],
 ): Promise<Partial<OrchestratorState>> {
   const llm = createLLM({
-    model: state.preferredModel || process.env.LLM_MODEL,
+    model: state.preferredModel || process.env.LLM_MODEL || "openai/gpt-4o",
     temperature: 0.1,
     maxTokens: 8192,
   });
@@ -144,7 +144,8 @@ async function agentNode(
       typeof rawContent === "string" && rawContent.trim().length > 0
         ? rawContent
         : (() => {
-            const model = state.preferredModel || process.env.LLM_MODEL;
+            const model =
+              state.preferredModel || process.env.LLM_MODEL || "openai/gpt-4o";
             console.warn(
               `[agentNode] Empty LLM response for model ${model}. Response content type: ${typeof response.content}, ` +
                 (Array.isArray(response.content)

@@ -30,41 +30,37 @@ const BATCH_SIZE = 7;
 // VERIFICATION PROMPT
 // ═══════════════════════════════════════════════════════════════
 
-const VERIFY_EXTRACTION_PROMPT = `You are a second-opinion reviewer for a personal task extraction system.
+const VERIFY_EXTRACTION_PROMPT = `Second-opinion pass for missed tasks.
 
 TARGET DATE: {{targetDate}}
 
-A previous analysis of these integration signals found NO actionable tasks.
-Your job: review every signal below and determine if any were incorrectly skipped.
+Previous pass found 0 actionable tasks. Re-check all signals and recover any missed actionable item.
 
-For EACH signal, briefly state:
-1. Whether the user needs to take a concrete action (reply, prepare, review, decide, deliver, follow up).
-2. Why or why not (one sentence).
+Rules:
+- Actionable means concrete user action (reply/prepare/review/decide/deliver/follow up).
+- Keep evidence-based decisions.
+- Skip clear automated-only or pure marketing/newsletter signals without personal request.
+- Calendar: Kind: Meeting -> prep task. Kind: Time block -> task only if title/description clearly describe concrete work.
+- Email threads: if last message is from the user, do not create reply/follow-up.
+- Max one task per thread.
+- All generated text in English.
 
-If a signal IS actionable, include a task for it. Even borderline signals where the user *might* need to act should produce a task — it is better to surface a low-confidence task than to miss a real one.
-
-Signals that are clearly automated notifications (CI bots, marketing, newsletters with no personal request) can be skipped.
-For calendar: respect the "Kind" label. "Kind: Meeting (2+ participants)" — create a preparation task. "Kind: Time block" — create a task ONLY if title/description clearly describe concrete work (e.g. "do something "); otherwise skip (time reserve).
-For email threads: read the Content in full. If the LAST message in the thread is from the user (the account owner / recipient), do NOT create a reply or follow-up task for that thread. Create at most ONE task per thread (one per conversation).
-
-Always output all generated text (title, summary, suggestedNextAction, etc.) in English.
-
-Return a JSON array of tasks. Each object:
+Return ONLY a JSON array:
 {
   "title": "short actionable title in English (max 80 chars)",
-  "summary": "one sentence in English explaining what needs to be done",
+  "summary": "one sentence in English",
   "priority": "normal" or "urgent",
-  "urgentReason": "only when urgent — concrete fact from the signal, max ~80 chars. Omit for normal.",
+  "urgentReason": "only when urgent",
   "sourceProvider": "google_calendar" or "gmail",
   "sourceType": "calendar_event" or "message",
   "sourceExternalId": "ID from the source signal",
-  "actionabilityEvidence": "short quote or fact in English proving user action is required",
+  "actionabilityEvidence": "short quote/fact proving required action",
   "confidence": 0.0 to 1.0,
-  "suggestedNextAction": "concrete next step in English the user should take",
+  "suggestedNextAction": "concrete next step in English",
   "tags": ["relevant", "tags"]
 }
 
-Return ONLY the JSON array. Return [] only when every signal is genuinely non-actionable.`;
+Return [] only if truly non-actionable.`;
 
 // ═══════════════════════════════════════════════════════════════
 // STATE
@@ -84,12 +80,23 @@ interface BatchExtractionLog {
   isVerification: boolean;
 }
 
+interface PromptContextBudget {
+  emailSnippetMaxChars: number;
+  emailThreadContextMaxChars: number;
+}
+
 const TriageState = Annotation.Root({
   date: Annotation<string>,
   allSignals: Annotation<IntegrationSignal[]>,
   existingItemKeys: Annotation<string[]>,
   /** When set, full system prompt (with preferences + date). Otherwise use TASK_EXTRACTION_PROMPT. */
   systemPromptTemplate: Annotation<string | undefined>,
+  /** User's preferred LLM model (e.g. from users.preferred_llm_model). */
+  preferredModel: Annotation<string | undefined>,
+  mode: Annotation<"full" | "incremental">,
+  verifyEnabled: Annotation<boolean>,
+  allowRawFallback: Annotation<boolean>,
+  contextBudget: Annotation<PromptContextBudget | undefined>,
 
   batchSignalGroups: Annotation<BatchSignalGroup[]>({
     reducer: (a, b) => [...a, ...b],
@@ -123,12 +130,21 @@ async function invokeLlmForTasks(
   batchIndex: number,
   systemPromptTemplate: string,
   isVerification: boolean,
+  preferredModel?: string,
+  options?: {
+    allowRawFallback?: boolean;
+    contextBudget?: PromptContextBudget;
+  },
 ): Promise<Partial<typeof TriageState.State>> {
-  const llm = createLLM({ temperature: 0.15, maxTokens: 8192 });
+  const llm = createLLM({
+    model: preferredModel || process.env.LLM_MODEL || "openai/gpt-4o",
+    temperature: 0.15,
+    maxTokens: 8192,
+  });
   const systemPrompt = systemPromptTemplate.includes("{{targetDate}}")
     ? systemPromptTemplate.replace(/\{\{targetDate\}\}/g, date)
     : systemPromptTemplate;
-  const context = signalsToPromptContext(batchSignals);
+  const context = signalsToPromptContext(batchSignals, options?.contextBudget);
   const userContent = `Extract tasks for ${date} from these integration signals:\n\n${context}`;
   const messages = [
     { role: "system" as const, content: systemPrompt },
@@ -183,6 +199,15 @@ async function invokeLlmForTasks(
         msg,
       );
     }
+  }
+
+  if (options?.allowRawFallback === false) {
+    return {
+      errors: [
+        `Batch ${batchIndex}${isVerification ? " (verify)" : ""}: structured output failed and raw fallback disabled`,
+      ],
+      extractionLogs: [makeLog(0, 0, "")],
+    };
   }
 
   // 2. Fallback: raw invoke + JSON extraction
@@ -260,6 +285,9 @@ function fanOutBatches(state: typeof TriageState.State): Send[] | string {
         batchIndex: Math.floor(i / BATCH_SIZE),
         date,
         systemPromptTemplate,
+        preferredModel: state.preferredModel,
+        allowRawFallback: state.allowRawFallback,
+        contextBudget: state.contextBudget,
       }),
     );
   }
@@ -274,8 +302,17 @@ async function extractBatch(state: {
   batchIndex: number;
   date: string;
   systemPromptTemplate?: string;
+  preferredModel?: string;
+  allowRawFallback?: boolean;
+  contextBudget?: PromptContextBudget;
 }): Promise<Partial<typeof TriageState.State>> {
-  const { batchSignals, batchIndex, date, systemPromptTemplate } = state;
+  const {
+    batchSignals,
+    batchIndex,
+    date,
+    systemPromptTemplate,
+    preferredModel,
+  } = state;
   const prompt =
     systemPromptTemplate ??
     TASK_EXTRACTION_PROMPT.replace(/\{\{targetDate\}\}/g, date);
@@ -286,6 +323,11 @@ async function extractBatch(state: {
     batchIndex,
     prompt,
     false,
+    preferredModel,
+    {
+      allowRawFallback: state.allowRawFallback,
+      contextBudget: state.contextBudget,
+    },
   );
 
   return {
@@ -299,6 +341,7 @@ async function extractBatch(state: {
  * that produced 0 tasks and re-examine them via verifyBatch.
  */
 function fanOutVerify(state: typeof TriageState.State): Send[] | string {
+  if (state.verifyEnabled === false) return "finalize";
   const logs = state.extractionLogs ?? [];
   const groups = state.batchSignalGroups ?? [];
 
@@ -319,6 +362,9 @@ function fanOutVerify(state: typeof TriageState.State): Send[] | string {
         batchIndex: group.batchIndex,
         date: state.date,
         systemPromptTemplate: state.systemPromptTemplate,
+        preferredModel: state.preferredModel,
+        allowRawFallback: state.allowRawFallback,
+        contextBudget: state.contextBudget,
       }),
     );
   }
@@ -337,6 +383,9 @@ async function verifyBatch(state: {
   batchIndex: number;
   date: string;
   systemPromptTemplate?: string;
+  preferredModel?: string;
+  allowRawFallback?: boolean;
+  contextBudget?: PromptContextBudget;
 }): Promise<Partial<typeof TriageState.State>> {
   let verifyPrompt = VERIFY_EXTRACTION_PROMPT;
   if (state.systemPromptTemplate) {
@@ -375,6 +424,11 @@ async function verifyBatch(state: {
     state.batchIndex,
     verifyPrompt,
     true,
+    state.preferredModel,
+    {
+      allowRawFallback: state.allowRawFallback,
+      contextBudget: state.contextBudget,
+    },
   );
 }
 
@@ -474,12 +528,20 @@ export interface TriageResult {
  * Process integration signals through the triage agent.
  * Drop-in replacement for the old extractTasksWithLlm.
  * @param systemPromptTemplate - Optional full system prompt (with preferences + date). When omitted, TASK_EXTRACTION_PROMPT is used.
+ * @param options - Optional { preferredModel } for user's preferred LLM (e.g. from users.preferred_llm_model).
  */
 export async function triageSignals(
   signals: IntegrationSignal[],
   date: string,
   existingItems?: TodoItem[],
   systemPromptTemplate?: string,
+  options?: {
+    preferredModel?: string;
+    mode?: "full" | "incremental";
+    verifyEnabled?: boolean;
+    allowRawFallback?: boolean;
+    contextBudget?: PromptContextBudget;
+  },
 ): Promise<TriageResult> {
   if (signals.length === 0) {
     return { items: [], extractionLog: null, batchCount: 0, errors: [] };
@@ -495,6 +557,11 @@ export async function triageSignals(
     allSignals: signals,
     existingItemKeys,
     systemPromptTemplate,
+    preferredModel: options?.preferredModel,
+    mode: options?.mode ?? "full",
+    verifyEnabled: options?.verifyEnabled ?? true,
+    allowRawFallback: options?.allowRawFallback ?? true,
+    contextBudget: options?.contextBudget,
   });
 
   const logs = (result.extractionLogs ?? []).sort(
@@ -518,7 +585,7 @@ export async function triageSignals(
 
   const extractionLog: TodoExtractionLog = {
     systemPrompt,
-    userContent: `[${batchCount} batches of ~${BATCH_SIZE} signals, ${verifyCount} verified]`,
+    userContent: `[mode=${options?.mode ?? "full"} verifyEnabled=${options?.verifyEnabled ?? true} rawFallback=${options?.allowRawFallback ?? true}] [${batchCount} batches of ~${BATCH_SIZE} signals, ${verifyCount} verified]`,
     rawResponse: rawResponsePreview,
     parsedCount: totalParsed,
     filteredCount: totalFiltered,
