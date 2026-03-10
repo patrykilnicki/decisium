@@ -1,3 +1,4 @@
+import "@/lib/suppress-url-parse-deprecation";
 import { createClient } from "@supabase/supabase-js";
 import { supabaseConfig } from "@/lib/config/supabase";
 import type { Database } from "@/types/supabase";

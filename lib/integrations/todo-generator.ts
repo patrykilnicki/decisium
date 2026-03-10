@@ -1431,6 +1431,12 @@ interface TodoItemDbRow {
   suggested_next_action: string;
 }
 
+const inFlightInitialGeneration = new Map<string, Promise<TodoListOutput>>();
+
+function buildGenerationKey(userId: string, date: string): string {
+  return `${userId}:${date}`;
+}
+
 function parseTodoUpdateReason(
   value: unknown,
 ): TodoListOutput["updatedBecause"] {
@@ -1546,7 +1552,20 @@ export class TodoGenerator {
         updatedBecause: "cached",
       });
     }
-    return this.generateForDate(userId, date, options);
+
+    const generationKey = buildGenerationKey(userId, date);
+    const inFlight = inFlightInitialGeneration.get(generationKey);
+    if (inFlight) return inFlight;
+
+    const generationPromise = this.generateForDate(
+      userId,
+      date,
+      options,
+    ).finally(() => {
+      inFlightInitialGeneration.delete(generationKey);
+    });
+    inFlightInitialGeneration.set(generationKey, generationPromise);
+    return generationPromise;
   }
 
   async regenerateForDate(

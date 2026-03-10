@@ -38,6 +38,8 @@ function toAskThread(row: {
   };
 }
 
+const THREAD_TITLE_FALLBACK = "New chat";
+
 export async function createThread(
   userId: string,
   title?: string,
@@ -46,7 +48,7 @@ export async function createThread(
 
   const { data, error } = await db.insertOne(supabase, "ask_threads", {
     user_id: userId,
-    title: title || "New Conversation",
+    title: title || THREAD_TITLE_FALLBACK,
   });
 
   if (error || !data) {
@@ -82,15 +84,21 @@ const ASK_HISTORY_MAX_MESSAGES = 12;
 const ASK_HISTORY_MAX_CHARS_PER_MESSAGE = 500;
 const ASK_HISTORY_MAX_TOTAL_CHARS = 6000;
 
-/** Generate a short thread title from the first message. Uses a simple LLM prompt; fallback to truncation. */
+/** Generate a short, ChatGPT-style thread title from the first message. Always in English. */
 export async function generateThreadTitle(
   firstMessage: string,
 ): Promise<string> {
   const trimmed = firstMessage.trim();
-  if (!trimmed) return "New Conversation";
+  if (!trimmed) return THREAD_TITLE_FALLBACK;
   try {
     const llm = getDefaultLLM();
-    const prompt = `Based on this message, reply with a very short thread title (max 6 words). Reply only with the title, no quotes or punctuation.\n\nMessage: ${trimmed.slice(0, 500)}`;
+    const prompt = `Generate a short chat title for this message. Rules:
+- Write the title in English only, even if the message is in another language.
+- Keep it to 3-6 words. Be concise and descriptive (e.g. "How to center a div", "Python list comprehension", "Explain quantum computing").
+- Capture the main topic or question. No quotes, no punctuation at the end.
+- Reply with nothing but the title, no explanation.
+
+Message: ${trimmed.slice(0, 500)}`;
     const response = await llm.invoke([new HumanMessage(prompt)]);
     const text =
       typeof response.content === "string"
@@ -100,10 +108,12 @@ export async function generateThreadTitle(
               .map((c) => ("text" in c ? c.text : ""))
               .join("")
           : "";
-    const title =
-      text.trim().slice(0, 80) ||
-      trimmed.slice(0, TITLE_FALLBACK_MAX_LEN).trim();
-    return title || "New Conversation";
+    const raw = text
+      .trim()
+      .replace(/^["']|["']$/g, "")
+      .slice(0, 80);
+    const title = raw || trimmed.slice(0, TITLE_FALLBACK_MAX_LEN).trim();
+    return title || THREAD_TITLE_FALLBACK;
   } catch {
     return trimmed.length <= TITLE_FALLBACK_MAX_LEN
       ? trimmed
@@ -116,7 +126,7 @@ export async function createThreadWithFirstMessage(
   userId: string,
   initialMessage: string,
 ): Promise<AskThread> {
-  const thread = await createThread(userId, "New Conversation");
+  const thread = await createThread(userId, THREAD_TITLE_FALLBACK);
   const threadId = thread.id;
   if (!threadId) throw new Error("Created thread missing id");
   await sendMessage(threadId, { content: initialMessage, role: "user" });
