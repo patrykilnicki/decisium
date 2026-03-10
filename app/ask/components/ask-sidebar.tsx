@@ -69,7 +69,7 @@ export function AskSidebar() {
                 )}
               >
                 <span className="block truncate">
-                  {thread.title || "Untitled Conversation"}
+                  {thread.title || "New chat"}
                 </span>
               </Link>
             );

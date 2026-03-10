@@ -124,7 +124,7 @@ function sortMergedTasks(
 
 interface IntegrationTodoListResponse {
   items: IntegrationTodoItem[];
-  hasSnapshot?: boolean;
+  hasSnapshot: boolean;
 }
 
 /** Normalize priority from API (supports legacy low/medium/high -> normal). */
@@ -730,10 +730,10 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
       credentials: "include",
     })
       .then((r) => (r.ok ? r.json() : null))
-      .then((payload: Partial<IntegrationTodoListResponse> | null) => {
+      .then((payload: IntegrationTodoListResponse | null) => {
         if (payload && Array.isArray(payload.items)) {
           setIntegrationTasks(payload.items.map(normalizeTodoItem));
-          setHasSnapshot(true);
+          setHasSnapshot(payload.hasSnapshot ?? null);
         }
       });
   }, [userId, selectedDate, timezone]);
@@ -935,14 +935,13 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
           setHasSnapshot(null);
           return;
         }
-        const payload =
-          (await response.json()) as Partial<IntegrationTodoListResponse>;
+        const payload = (await response.json()) as IntegrationTodoListResponse;
         setIntegrationTasks(
           Array.isArray(payload.items)
             ? payload.items.map(normalizeTodoItem)
             : [],
         );
-        setHasSnapshot(payload.hasSnapshot ?? true);
+        setHasSnapshot(payload.hasSnapshot ?? null);
       } catch (err) {
         if ((err as { name?: string }).name !== "AbortError") {
           setIntegrationTasks([]);
@@ -1006,14 +1005,13 @@ export function HomeContent({ userName, userId }: HomeContentProps) {
         credentials: "include",
       });
       if (!response.ok) return;
-      const payload =
-        (await response.json()) as Partial<IntegrationTodoListResponse>;
+      const payload = (await response.json()) as IntegrationTodoListResponse;
       setIntegrationTasks(
         Array.isArray(payload.items)
           ? payload.items.map(normalizeTodoItem)
           : [],
       );
-      setHasSnapshot(true);
+      setHasSnapshot(payload.hasSnapshot ?? null);
     } finally {
       setGeneratingTasks(false);
       generatingRef.current = false;

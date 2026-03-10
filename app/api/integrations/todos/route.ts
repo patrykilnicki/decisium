@@ -61,8 +61,9 @@ export async function GET(request: NextRequest) {
       : await generator.getOrGenerateForDate(user.id, date, {
           generatedFromEvent: "api.todos.get",
         });
+    const hasSnapshot = await generator.hasSnapshotForDate(user.id, date);
 
-    return NextResponse.json({ ...payload, hasSnapshot: true });
+    return NextResponse.json({ ...payload, hasSnapshot });
   } catch (error) {
     return NextResponse.json(
       {
