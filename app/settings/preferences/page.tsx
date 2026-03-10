@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,54 +18,39 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { COMMON_TIMEZONES, getTimeZoneLabel } from "@/lib/timezones";
+import { useUserPreferences } from "@/contexts/user-preferences-context";
 
 const DEFAULT_THEME = "light" as const;
 
+function getDetectedTimezone(): string {
+  try {
+    if (
+      typeof Intl !== "undefined" &&
+      Intl.DateTimeFormat?.().resolvedOptions?.().timeZone
+    ) {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone;
+    }
+  } catch {
+    // ignore
+  }
+  return "UTC";
+}
+
 export default function SettingsPreferencesPage() {
   const { setTheme: setNextTheme } = useTheme();
+  const { preferences, refetch, hasFetched } = useUserPreferences();
   const [timezone, setTimezone] = useState<string>("UTC");
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [notification, setNotification] = useState<{
     type: "success" | "error";
     message: string;
   } | null>(null);
 
-  const fetchPreferences = useCallback(async () => {
-    try {
-      const res = await fetch("/api/settings/preferences");
-      if (!res.ok) return;
-      const data = await res.json();
-      let detected: string | undefined;
-      try {
-        if (
-          typeof Intl !== "undefined" &&
-          Intl.DateTimeFormat?.().resolvedOptions?.().timeZone
-        ) {
-          detected = Intl.DateTimeFormat().resolvedOptions().timeZone;
-        }
-      } catch {
-        // ignore
-      }
-      setTimezone(data.timezone ?? detected ?? "UTC");
-    } catch {
-      try {
-        setTimezone(
-          typeof Intl !== "undefined"
-            ? (Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC")
-            : "UTC",
-        );
-      } catch {
-        setTimezone("UTC");
-      }
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
   useEffect(() => {
-    fetchPreferences();
-  }, [fetchPreferences]);
+    if (hasFetched) {
+      setTimezone(preferences.timezone ?? getDetectedTimezone());
+    }
+  }, [hasFetched, preferences.timezone]);
 
   useEffect(() => {
     if (!notification) return;
@@ -88,6 +73,7 @@ export default function SettingsPreferencesPage() {
         const err = await res.json();
         throw new Error(err.error ?? "Failed to save");
       }
+      await refetch();
       setNextTheme(DEFAULT_THEME);
       setNotification({ type: "success", message: "Preferences saved" });
     } catch (e) {
@@ -100,7 +86,7 @@ export default function SettingsPreferencesPage() {
     }
   }
 
-  if (loading) {
+  if (!hasFetched) {
     return (
       <div className="space-y-8">
         <h2 className="text-2xl font-semibold">Preferences</h2>

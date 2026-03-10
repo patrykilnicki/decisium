@@ -5,6 +5,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useState,
 } from "react";
 
@@ -18,12 +19,16 @@ const defaultPreferences: UserPreferences = {
   theme: null,
 };
 
-const UserPreferencesContext = createContext<{
+interface UserPreferencesContextValue {
   preferences: UserPreferences;
   refetch: () => Promise<void>;
-}>({
+  hasFetched: boolean;
+}
+
+const UserPreferencesContext = createContext<UserPreferencesContextValue>({
   preferences: defaultPreferences,
   refetch: async () => {},
+  hasFetched: false,
 });
 
 export function UserPreferencesProvider({
@@ -33,6 +38,7 @@ export function UserPreferencesProvider({
 }) {
   const [preferences, setPreferences] =
     useState<UserPreferences>(defaultPreferences);
+  const [hasFetched, setHasFetched] = useState(false);
 
   const refetch = useCallback(async () => {
     try {
@@ -45,16 +51,18 @@ export function UserPreferencesProvider({
       });
     } catch {
       setPreferences(defaultPreferences);
+    } finally {
+      setHasFetched(true);
     }
   }, []);
 
-  useEffect(() => {
-    const id = setTimeout(() => refetch(), 0);
-    return () => clearTimeout(id);
-  }, [refetch]);
+  const value = useMemo<UserPreferencesContextValue>(
+    () => ({ preferences, refetch, hasFetched }),
+    [preferences, refetch, hasFetched],
+  );
 
   return (
-    <UserPreferencesContext.Provider value={{ preferences, refetch }}>
+    <UserPreferencesContext.Provider value={value}>
       {children}
     </UserPreferencesContext.Provider>
   );
@@ -64,7 +72,19 @@ export function useUserPreferences() {
   return useContext(UserPreferencesContext);
 }
 
+/**
+ * Returns user timezone. Triggers loading preferences on first use (home, summaries,
+ * collections, chat) so we don't fetch on every page—only when timezone is needed.
+ */
 export function useUserTimezone(): string | undefined {
-  const { preferences } = useUserPreferences();
+  const ctx = useContext(UserPreferencesContext);
+  const { hasFetched, preferences, refetch } = ctx;
+
+  useEffect(() => {
+    if (!hasFetched) {
+      refetch();
+    }
+  }, [hasFetched, refetch]);
+
   return preferences.timezone ?? undefined;
 }

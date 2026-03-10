@@ -1,8 +1,18 @@
 "use client";
 
+import { useEffect } from "react";
 import { ProtectedRoute } from "@/components/auth/protected-route";
 import { AppLayout } from "@/components/layout/app-layout";
 import { SettingsNav } from "@/app/settings/components/settings-nav";
+import { useUserPreferences } from "@/contexts/user-preferences-context";
+
+function SettingsPreferencesLoader() {
+  const { refetch } = useUserPreferences();
+  useEffect(() => {
+    refetch();
+  }, [refetch]);
+  return null;
+}
 
 export default function SettingsLayout({
   children,
@@ -12,6 +22,7 @@ export default function SettingsLayout({
   return (
     <ProtectedRoute>
       <AppLayout>
+        <SettingsPreferencesLoader />
         <div className="relative flex min-h-full flex-1 flex-col items-center bg-background bg-[url('/bg.svg')] bg-no-repeat bg-left-top bg-[length:auto_50vh] dark:bg-[url('/bg-dark.svg')]">
           <div className="flex h-full w-full min-h-0">
             <SettingsNav />

@@ -1,48 +1,44 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { ProtectedRoute } from "@/components/auth/protected-route";
 import { AppLayout } from "@/components/layout/app-layout";
-import { HomeContent } from "@/app/home/components/home-content";
 import { HomePageSkeleton } from "@/app/home/components/home-page-skeleton";
-import { createClient } from "@/lib/supabase/client";
+import { useAuth } from "@/contexts/auth-context";
 import { CentralIcon } from "@/components/ui/central-icon";
+
+const HomeContent = dynamic(
+  () =>
+    import("@/app/home/components/home-content").then((m) => ({
+      default: m.HomeContent,
+    })),
+  {
+    loading: () => (
+      <div className="flex h-full min-h-0 flex-col overflow-y-auto overflow-x-hidden overscroll-y-auto scroll-smooth">
+        <HomePageSkeleton />
+      </div>
+    ),
+  },
+);
 
 const POLL_INTERVAL_MS = 1500;
 
 function HomePageContent() {
   const searchParams = useSearchParams();
   const isPreparing = searchParams.get("preparing") === "1";
-  const [userName, setUserName] = useState<string | null>(null);
-  const [userId, setUserId] = useState<string | null>(null);
-  const [userLoaded, setUserLoaded] = useState(false);
+  const { user } = useAuth();
   const [syncReady, setSyncReady] = useState(!isPreparing);
 
-  useEffect(() => {
-    async function fetchUser() {
-      const supabase = createClient();
-      try {
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-        if (user) {
-          const name =
-            user.user_metadata?.full_name ??
-            user.user_metadata?.name ??
-            user.email?.split("@")[0];
-          setUserName(name ?? "there");
-          setUserId(user.id);
-        } else {
-          setUserName("there");
-          setUserId(null);
-        }
-      } finally {
-        setUserLoaded(true);
-      }
-    }
-    fetchUser();
-  }, []);
+  const userName =
+    user != null
+      ? (user.user_metadata?.full_name ??
+        user.user_metadata?.name ??
+        user.email?.split("@")[0] ??
+        "there")
+      : "there";
+  const userId = user?.id ?? null;
 
   useEffect(() => {
     if (!isPreparing) return;
@@ -83,10 +79,6 @@ function HomePageContent() {
             <p className="text-xs text-muted-foreground">
               Syncing your calendar and data...
             </p>
-          </div>
-        ) : !userLoaded ? (
-          <div className="flex h-full min-h-0 flex-col overflow-y-auto overflow-x-hidden overscroll-y-auto scroll-smooth">
-            <HomePageSkeleton />
           </div>
         ) : (
           <div className="flex h-full min-h-0 flex-col overflow-y-auto overflow-x-hidden overscroll-y-auto scroll-smooth">

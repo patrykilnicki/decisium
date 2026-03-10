@@ -88,7 +88,4 @@ export async function deleteCurrentUser(): Promise<{ error: Error | null }> {
   return { error: null };
 }
 
-/** @deprecated Use getCurrentUser from @/lib/user-client */
-export const getCurrentUserClient = getCurrentUser;
-
 export type { CurrentUser, CurrentUserUpdate } from "@/lib/user";

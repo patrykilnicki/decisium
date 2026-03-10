@@ -1,5 +1,5 @@
 "use client";
-import { getCurrentUserClient } from "@/lib/user-client";
+import { getCurrentUser } from "@/lib/user-client";
 import type { CurrentUser } from "@/lib/user";
 import { memo, useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
@@ -23,7 +23,7 @@ function ChatMessageComponent({
 
   useEffect(() => {
     async function fetchUser() {
-      const user = await getCurrentUserClient();
+      const user = await getCurrentUser();
       setCurrentUser(user);
     }
     fetchUser();

@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useAuth } from "@/contexts/auth-context";
 
 const REALTIME_CHANNEL = "realtime:db-changes";
 
@@ -19,26 +20,12 @@ export function SupabaseRealtimeProvider({
 }: {
   children: React.ReactNode;
 }) {
-  const [userId, setUserId] = useState<string | null>(null);
+  const { user } = useAuth();
+  const userId = user?.id ?? null;
+
   const [calendarVersion, setCalendarVersion] = useState(0);
   const [tasksVersion, setTasksVersion] = useState(0);
   const [isConnected, setIsConnected] = useState(false);
-
-  useEffect(() => {
-    const supabase = createClient();
-
-    function handleAuthChange() {
-      supabase.auth.getUser().then(({ data: { user } }) => {
-        setUserId(user?.id ?? null);
-      });
-    }
-
-    handleAuthChange();
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(handleAuthChange);
-    return () => subscription.unsubscribe();
-  }, []);
 
   useEffect(() => {
     if (!userId) {

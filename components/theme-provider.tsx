@@ -2,28 +2,26 @@
 
 import { ThemeProvider as NextThemesProvider, useTheme } from "next-themes";
 import { useEffect, useRef } from "react";
+import { useUserPreferences } from "@/contexts/user-preferences-context";
 
 /**
- * Syncs the theme from the user's saved preferences (DB) into next-themes
+ * Syncs the theme from the user's saved preferences (context/DB) into next-themes
  * so that the UI reflects their choice across sessions.
+ * Uses preferences from UserPreferencesContext (no separate fetch).
  */
 function ThemeSyncFromDb() {
   const { setTheme } = useTheme();
+  const { preferences } = useUserPreferences();
   const synced = useRef(false);
 
   useEffect(() => {
-    if (synced.current) return;
-    fetch("/api/settings/preferences")
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        const theme = data?.theme;
-        if (theme && ["light", "dark", "system"].includes(theme)) {
-          synced.current = true;
-          setTheme(theme);
-        }
-      })
-      .catch(() => {});
-  }, [setTheme]);
+    const theme = preferences.theme;
+    if (!theme || synced.current) return;
+    if (["light", "dark", "system"].includes(theme)) {
+      synced.current = true;
+      setTheme(theme);
+    }
+  }, [preferences.theme, setTheme]);
 
   return null;
 }
