@@ -591,7 +591,16 @@ function createToolNode(
         (tool) => tool.toolName === "propose_todo_items",
       );
       if (proposalIndex >= 0) {
-        const toolMessage = result.messages[proposalIndex];
+        const proposalToolCallId = pendingTools[proposalIndex].toolCallId;
+        const reversedMessages = [...result.messages].reverse();
+        const toolMessage =
+          reversedMessages.find(
+            (message) =>
+              message instanceof ToolMessage &&
+              typeof message.tool_call_id === "string" &&
+              message.tool_call_id === proposalToolCallId,
+          ) ??
+          reversedMessages.find((message) => message instanceof ToolMessage);
         const rawContent =
           toolMessage instanceof ToolMessage
             ? toolMessage.content
