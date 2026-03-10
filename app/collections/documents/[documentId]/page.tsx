@@ -1,15 +1,34 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { ProtectedRoute } from "@/components/auth/protected-route";
 import { AppLayout } from "@/components/layout/app-layout";
 import { Skeleton } from "@/components/ui/skeleton";
-import { VaultEditor } from "@/app/collections/components/vault-editor";
 import { getDocument, updateDocument } from "@/app/actions/vault";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+
+const VaultEditor = dynamic(
+  () =>
+    import("@/app/collections/components/vault-editor").then((m) => ({
+      default: m.VaultEditor,
+    })),
+  {
+    loading: () => (
+      <div className="flex-1 overflow-y-auto p-4">
+        <div className="space-y-3">
+          {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
+            <Skeleton key={i} className="h-4 w-full" />
+          ))}
+          <Skeleton className="h-4 w-3/4" />
+        </div>
+      </div>
+    ),
+  },
+);
 
 interface DocumentData {
   id: string;

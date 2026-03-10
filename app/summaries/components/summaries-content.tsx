@@ -1,12 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
 import {
   getDailySummaries,
   getWeeklySummaries,
   getMonthlySummaries,
 } from "@/app/actions/summaries";
+import { useAuth } from "@/contexts/auth-context";
 import { DaySummaryCard } from "@/app/summaries/components/day-summary-card";
 import { WeeklySummaryCard } from "@/app/summaries/components/weekly-summary-card";
 import { MonthlySummaryCard } from "@/app/summaries/components/monthly-summary-card";
@@ -40,6 +40,7 @@ const EMPTY_MESSAGE =
   "No summaries yet. Summaries are generated automatically from your Daily entries.";
 
 export function SummariesContent() {
+  const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [dailySummaries, setDailySummaries] = useState<DailySummaryRow[]>([]);
   const [weeklySummaries, setWeeklySummaries] = useState<WeeklySummaryRow[]>(
@@ -50,17 +51,17 @@ export function SummariesContent() {
   );
 
   const loadSummaries = useCallback(async () => {
-    const supabase = createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) return;
+    const userId = user?.id;
+    if (!userId) {
+      setLoading(false);
+      return;
+    }
 
     try {
       const [daily, weekly, monthly] = await Promise.all([
-        getDailySummaries(user.id),
-        getWeeklySummaries(user.id),
-        getMonthlySummaries(user.id),
+        getDailySummaries(userId),
+        getWeeklySummaries(userId),
+        getMonthlySummaries(userId),
       ]);
       setDailySummaries(daily as unknown as DailySummaryRow[]);
       setWeeklySummaries(weekly as unknown as WeeklySummaryRow[]);
@@ -70,7 +71,7 @@ export function SummariesContent() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user?.id]);
 
   useEffect(() => {
     loadSummaries();

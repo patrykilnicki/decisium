@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
-import { Domine, Geist, Geist_Mono, Inter } from "next/font/google";
+import { Domine, Inter } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
+import { AuthProvider } from "@/contexts/auth-context";
 import { UserPreferencesProvider } from "@/contexts/user-preferences-context";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
@@ -10,16 +11,6 @@ const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 const domine = Domine({
   subsets: ["latin"],
   variable: "--font-serif",
-});
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
 });
 
 export const metadata: Metadata = {
@@ -37,14 +28,14 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={inter.variable} suppressHydrationWarning>
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} ${domine.variable} antialiased`}
-      >
-        <ThemeProvider>
+      <body className={`${inter.variable} ${domine.variable} antialiased`}>
+        <AuthProvider>
           <UserPreferencesProvider>
-            <TooltipProvider>{children}</TooltipProvider>
+            <ThemeProvider>
+              <TooltipProvider>{children}</TooltipProvider>
+            </ThemeProvider>
           </UserPreferencesProvider>
-        </ThemeProvider>
+        </AuthProvider>
       </body>
     </html>
   );
