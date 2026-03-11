@@ -190,6 +190,15 @@ export function useChat({
       const isJobFinished =
         latestJobEvent?.eventType === "job_completed" ||
         latestJobEvent?.eventType === "job_failed";
+
+      if (latestJobEvent?.eventType === "job_completed") {
+        return {
+          isThinking: false,
+          steps: [],
+          streamedContent: undefined,
+        };
+      }
+
       const hasJobActivity = latestEvents.length > 0 || steps.length > 0;
       const isThinking = !isJobFinished && hasJobActivity;
 

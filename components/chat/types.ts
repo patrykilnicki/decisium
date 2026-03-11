@@ -78,6 +78,7 @@ export interface ChatContainerProps {
   onSend: (message: string) => Promise<void>;
   isLoading?: boolean;
   placeholder?: string;
+  inlineContent?: React.ReactNode;
 }
 
 // SSE event types for streaming
