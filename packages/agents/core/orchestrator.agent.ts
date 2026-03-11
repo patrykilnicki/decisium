@@ -216,6 +216,7 @@ async function agentNode(
 
 async function approvalEntryNode(
   state: OrchestratorState,
+  onToolEvent?: (event: OrchestratorToolEvent) => Promise<void> | void,
 ): Promise<Partial<OrchestratorState>> {
   if (!state.pendingApproval) {
     return { nextRoute: undefined };
@@ -247,11 +248,42 @@ async function approvalEntryNode(
       : state.pendingApproval.props,
   );
 
-  await applyApprovedTodoItemsTool.func({
-    userId: state.userId,
-    proposalId: state.pendingApproval.proposalId,
-    props: approvedProps,
+  const applyToolCall: PendingToolCall = {
+    toolName: "apply_approved_todo_items",
+    toolCallId: `approval_apply:${state.pendingApproval.proposalId}`,
+    toolCallKey: `apply_approved_todo_items:${state.pendingApproval.proposalId}`,
+    callIndex: 1,
+  };
+
+  await emitToolEvent({
+    onToolEvent,
+    eventType: "tool_started",
+    tool: applyToolCall,
+    displayLabelOverride: "Applying approved tasks...",
   });
+
+  try {
+    await applyApprovedTodoItemsTool.func({
+      userId: state.userId,
+      proposalId: state.pendingApproval.proposalId,
+      props: approvedProps,
+    });
+    await emitToolEvent({
+      onToolEvent,
+      eventType: "tool_completed",
+      tool: applyToolCall,
+      displayLabelOverride: "Approved tasks applied",
+    });
+  } catch (error) {
+    await emitToolEvent({
+      onToolEvent,
+      eventType: "tool_failed",
+      tool: applyToolCall,
+      error: error instanceof Error ? error.message : String(error),
+      displayLabelOverride: "Could not apply approved tasks",
+    });
+    throw error;
+  }
 
   return {
     pendingApproval: undefined,
@@ -613,6 +645,13 @@ function createToolNode(
         );
 
         if (pendingApproval) {
+          await emitToolEvent({
+            onToolEvent,
+            eventType: "tool_completed",
+            tool: pendingTools[proposalIndex],
+            displayLabelOverride: "Task proposal ready",
+          });
+
           return {
             messages: result.messages,
             pendingApproval,
@@ -672,7 +711,7 @@ export function createOrchestratorGraph(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- LangGraph channels type
     channels: orchestratorChannels as any,
   })
-    .addNode("approvalEntry", approvalEntryNode)
+    .addNode("approvalEntry", (state) => approvalEntryNode(state, onToolEvent))
     .addNode("agent", (state) => agentNode(state, tools))
     .addNode("tools", toolNode)
     .addNode("saveMessages", saveMessagesNode)
