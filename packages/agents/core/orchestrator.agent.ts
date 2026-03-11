@@ -290,7 +290,7 @@ async function approvalEntryNode(
     approvalDecision: undefined,
     approvalEditedProps: undefined,
     approvalStatus: "applied",
-    agentResponse: `Saved ${approvedProps.items.length} task(s).`,
+    agentResponse: `Done — I added ${approvedProps.items.length} task(s) to your list.`,
     nextRoute: "saveMessages",
   };
 }

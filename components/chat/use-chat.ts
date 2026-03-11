@@ -113,6 +113,30 @@ export function useChat({
   const buildThinkingState = useCallback(
     (events: TaskEventRecord[]): ThinkingState => {
       const latestEvents = getLatestJobEvents(events);
+      const latestApprovalSubmittedIndex = latestEvents.findLastIndex(
+        (event) => event.eventType === "approval_submitted",
+      );
+      const hasApprovalFlow = latestApprovalSubmittedIndex >= 0;
+      if (hasApprovalFlow) {
+        const hasFailureAfterApproval = latestEvents
+          .slice(latestApprovalSubmittedIndex + 1)
+          .some(
+            (event) =>
+              event.eventType === "tool_failed" ||
+              event.eventType === "node_failed" ||
+              event.eventType === "job_failed",
+          );
+
+        // For approval/apply flow we keep UI quiet and rely on final assistant message.
+        if (!hasFailureAfterApproval) {
+          return {
+            isThinking: false,
+            steps: [],
+            streamedContent: undefined,
+          };
+        }
+      }
+
       const stepsById = new Map<
         string,
         { step: ThinkingStep; firstTimestamp: number }
