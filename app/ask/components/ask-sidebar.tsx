@@ -31,7 +31,7 @@ export function AskSidebar() {
 
   return (
     <aside
-      className="flex w-[272px] shrink-0 flex-col border-r border-border/40"
+      className="flex h-full min-h-0 w-[272px] shrink-0 flex-col border-r border-border/40"
       aria-label="Conversations"
     >
       <div className="flex flex-col gap-2 px-6 py-7 text-sm font-semibold text-foreground">
@@ -48,7 +48,7 @@ export function AskSidebar() {
         </Button>
       </div>
       <nav
-        className="flex min-h-[200px] flex-col gap-0 px-3"
+        className="flex min-h-0 flex-1 flex-col gap-0 overflow-y-auto px-3 pb-4"
         aria-label="Thread list"
       >
         {threadsLoading ? (

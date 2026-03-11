@@ -146,44 +146,44 @@ export default function ThreadPage() {
   const threadTitle = currentThread?.title || "Untitled Conversation";
 
   return (
-    <div className="relative flex min-h-0 flex-1 flex-col">
+    <div className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden">
       <header className="shrink-0 border-b border-border bg-background px-4 py-3">
         <h1 className="truncate text-lg font-semibold text-foreground">
           {threadTitle}
         </h1>
       </header>
       {initialLoading ? (
-        <div className="flex flex-1 items-center justify-center min-h-0">
+        <div className="flex min-h-0 flex-1 items-center justify-center">
           <div className="flex flex-col items-center gap-3 text-muted-foreground">
             <CentralIcon name="IconLoader" size={24} className="animate-spin" />
             <span className="text-sm">Loading messages...</span>
           </div>
         </div>
       ) : (
-        <>
-          <ChatContainer
-            messages={messages}
-            thinkingState={thinkingState}
-            onSend={handleSend}
-            isLoading={isLoading}
-            placeholder="Ask about your patterns, history, or insights..."
-          />
-          <AgentUiRenderer
-            cards={pendingApprovalCards}
-            submittingProposalId={submittingProposalId}
-            onApprove={handleApprove}
-            onReject={handleReject}
-            onEditApprove={handleEditApprove}
-          />
-        </>
+        <ChatContainer
+          messages={messages}
+          thinkingState={thinkingState}
+          onSend={handleSend}
+          isLoading={isLoading}
+          placeholder="Ask about your patterns, history, or insights..."
+          inlineContent={
+            <AgentUiRenderer
+              cards={pendingApprovalCards}
+              submittingProposalId={submittingProposalId}
+              onApprove={handleApprove}
+              onReject={handleReject}
+              onEditApprove={handleEditApprove}
+            />
+          }
+        />
       )}
 
       {failedTasks.length > 0 && (
-        <div className="shrink-0 px-4 pb-4">
+        <div className="pointer-events-none absolute bottom-20 left-4 right-4 z-10 mx-auto max-w-3xl">
           <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <span>Some steps failed. You can retry, resume, or cancel.</span>
-              <div className="flex gap-2">
+              <div className="pointer-events-auto flex gap-2">
                 <Button
                   size="sm"
                   variant="outline"

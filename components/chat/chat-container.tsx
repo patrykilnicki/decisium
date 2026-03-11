@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useEffect, useCallback, useState } from "react";
+import { useRef, useEffect, useCallback, useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { CentralIcon } from "@/components/ui/central-icon";
 import { ChatMessage } from "./chat-message";
@@ -14,11 +14,21 @@ export function ChatContainer({
   onSend,
   isLoading = false,
   placeholder = "Type a message...",
+  inlineContent,
 }: ChatContainerProps) {
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const lastUserMessageRef = useRef<HTMLDivElement>(null);
+  const lastAutoFocusedUserMessageIdRef = useRef<string | null>(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [isNearBottom, setIsNearBottom] = useState(true);
+
+  const lastUserMessageId = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      if (messages[i].role === "user") return messages[i].id;
+    }
+    return null;
+  }, [messages]);
 
   // Check if user is near the bottom of the scroll area
   const checkScrollPosition = useCallback(() => {
@@ -35,10 +45,23 @@ export function ChatContainer({
 
   // Auto-scroll to bottom when new messages arrive (if user is near bottom)
   useEffect(() => {
-    if (isNearBottom && bottomRef.current) {
+    if (isNearBottom && bottomRef.current && !thinkingState?.isThinking) {
       bottomRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [messages, thinkingState?.isThinking, isNearBottom]);
+
+  // On each new user turn, pin their last message near top while assistant is generating.
+  useEffect(() => {
+    if (!thinkingState?.isThinking) return;
+    if (!lastUserMessageId || !lastUserMessageRef.current) return;
+    if (lastAutoFocusedUserMessageIdRef.current === lastUserMessageId) return;
+
+    lastUserMessageRef.current.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+    lastAutoFocusedUserMessageIdRef.current = lastUserMessageId;
+  }, [thinkingState?.isThinking, lastUserMessageId]);
 
   // Scroll to bottom immediately on initial load
   useEffect(() => {
@@ -75,7 +98,14 @@ export function ChatContainer({
           // Messages List
           <div className="max-w-4xl mx-auto p-4 space-y-4">
             {messages.map((message) => (
-              <ChatMessage key={message.id} message={message} />
+              <div
+                key={message.id}
+                ref={
+                  message.id === lastUserMessageId ? lastUserMessageRef : null
+                }
+              >
+                <ChatMessage message={message} />
+              </div>
             ))}
 
             {/* Thinking/Loading State as inline message */}
@@ -90,6 +120,8 @@ export function ChatContainer({
                 }
               />
             )}
+
+            {inlineContent}
 
             {/* Scroll anchor */}
             <div ref={bottomRef} />
