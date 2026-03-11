@@ -113,46 +113,76 @@ export function useChat({
   const buildThinkingState = useCallback(
     (events: TaskEventRecord[]): ThinkingState => {
       const latestEvents = getLatestJobEvents(events);
-      const steps: ThinkingStep[] = latestEvents
-        .filter((event) => {
-          const isNodeEvent = event.eventType.startsWith("node_");
-          const isToolEvent = event.eventType.startsWith("tool_");
-          return isNodeEvent || isToolEvent;
-        })
-        .map((event) => {
-          const isNodeEvent = event.eventType.startsWith("node_");
-          const payloadTaskType = getPayloadValue<string>(
-            event.payload,
-            "taskType",
-          );
-          const nodeKey =
-            event.nodeKey ??
-            (typeof payloadTaskType === "string" ? payloadTaskType : "");
-          const fallbackLabel = isNodeEvent
-            ? getTaskStepLabel(nodeKey as TaskType)
-            : "Using tool";
-          const label = getDynamicStepLabel({
-            eventType: event.eventType,
-            fallbackLabel,
-            payload: event.payload,
-          });
-          const status =
-            event.eventType === "node_started" ||
-            event.eventType === "tool_started"
-              ? "running"
-              : event.eventType === "node_completed" ||
-                  event.eventType === "tool_completed"
-                ? "completed"
-                : "error";
+      const stepsById = new Map<
+        string,
+        { step: ThinkingStep; firstTimestamp: number }
+      >();
+      const orderedStepIds: string[] = [];
 
-          return {
-            stepId: `${event.id}:${event.eventType}`,
-            label,
-            status,
-            timestamp: new Date(event.createdAt).getTime(),
-          } satisfies ThinkingStep;
-        })
-        .sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0));
+      latestEvents.forEach((event) => {
+        const isNodeEvent = event.eventType.startsWith("node_");
+        const isToolEvent = event.eventType.startsWith("tool_");
+        if (!isNodeEvent && !isToolEvent) return;
+
+        const payloadTaskType = getPayloadValue<string>(
+          event.payload,
+          "taskType",
+        );
+        const nodeKey =
+          event.nodeKey ??
+          (typeof payloadTaskType === "string" ? payloadTaskType : "");
+        if (!nodeKey && isNodeEvent) return;
+
+        const toolCallId = getPayloadValue<string>(event.payload, "toolCallId");
+        const toolCallKey = getPayloadValue<string>(
+          event.payload,
+          "toolCallKey",
+        );
+        const toolName = getPayloadValue<string>(event.payload, "toolName");
+        const stepId = isToolEvent
+          ? `tool:${toolCallId ?? toolCallKey ?? toolName ?? event.id}`
+          : `node:${nodeKey}`;
+
+        const fallbackLabel = isNodeEvent
+          ? getTaskStepLabel(nodeKey as TaskType)
+          : "Using tool";
+        const label = getDynamicStepLabel({
+          eventType: event.eventType,
+          fallbackLabel,
+          payload: event.payload,
+        });
+        const timestamp = new Date(event.createdAt).getTime();
+        const status =
+          event.eventType === "node_started" ||
+          event.eventType === "tool_started"
+            ? "running"
+            : event.eventType === "node_completed" ||
+                event.eventType === "tool_completed"
+              ? "completed"
+              : "error";
+
+        const existing = stepsById.get(stepId);
+        if (!existing) {
+          stepsById.set(stepId, {
+            step: { stepId, label, status, timestamp },
+            firstTimestamp: timestamp,
+          });
+          orderedStepIds.push(stepId);
+        } else {
+          existing.step.status = status;
+          existing.step.label = label;
+          existing.step.timestamp = timestamp;
+        }
+      });
+
+      const steps = orderedStepIds
+        .map((stepId) => stepsById.get(stepId))
+        .filter(
+          (entry): entry is { step: ThinkingStep; firstTimestamp: number } =>
+            entry != null,
+        )
+        .sort((a, b) => a.firstTimestamp - b.firstTimestamp)
+        .map((entry) => entry.step);
 
       const latestJobEvent = [...latestEvents]
         .reverse()
