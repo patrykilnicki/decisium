@@ -10,8 +10,10 @@ import {
   taskApprovalItemSchema,
 } from "../schemas/agent-ui.schema";
 
+// Optional fields must be .optional().nullable() for OpenAI structured output API
 const GeneratedTodoItemSchema = taskApprovalItemSchema.extend({
-  dueAt: z.string().datetime().optional(),
+  dueAt: z.string().datetime().optional().nullable(),
+  confidence: z.number().min(0).max(1).optional().nullable(),
 });
 
 const GeneratedTodoListSchema = z.object({
