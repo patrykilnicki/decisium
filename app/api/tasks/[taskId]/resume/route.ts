@@ -40,7 +40,34 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const approval = parsedSubmission.success ? parsedSubmission.data : null;
     const currentInput =
       (taskData.input as { state?: Record<string, unknown> } | null) ?? {};
-    const currentState = currentInput.state ?? {};
+    const outputState = ((
+      taskData.output as { state?: Record<string, unknown> } | null
+    )?.state ?? null) as Record<string, unknown> | null;
+    const currentState = outputState ?? currentInput.state ?? {};
+    const currentPendingApproval =
+      (currentState.pendingApproval as { proposalId?: string } | undefined) ??
+      undefined;
+
+    if (approval && !currentPendingApproval?.proposalId) {
+      return NextResponse.json(
+        { error: "No pending approval for this task" },
+        { status: 409 },
+      );
+    }
+
+    const pendingProposalId = currentPendingApproval?.proposalId;
+
+    if (
+      approval &&
+      pendingProposalId &&
+      pendingProposalId !== approval.proposalId
+    ) {
+      return NextResponse.json(
+        { error: "Approval proposal does not match current pending proposal" },
+        { status: 409 },
+      );
+    }
+
     const nextState = {
       ...currentState,
       ...(approval
@@ -78,8 +105,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const taskRow = updated as Task;
     const jobId = await resolveRootTaskId(adminClient, taskId);
+    let createdApprovalEvent: Awaited<ReturnType<typeof createTaskEvent>> =
+      null;
     if (approval) {
-      await createTaskEvent(adminClient, {
+      createdApprovalEvent = await createTaskEvent(adminClient, {
         taskId,
         sessionId: taskRow.session_id,
         userId: taskRow.user_id,
@@ -96,6 +125,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           edited: approval.decision === "edit",
         },
       });
+
+      if (!createdApprovalEvent) {
+        return NextResponse.json({
+          ok: true,
+          duplicate: true,
+          message: "Approval already submitted",
+        });
+      }
     }
     await createTaskEvent(adminClient, {
       taskId,
