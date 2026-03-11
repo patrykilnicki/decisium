@@ -86,7 +86,7 @@ export function ChatContainer({
   const isEmpty = messages.length === 0 && !thinkingState?.isThinking;
 
   return (
-    <div className="flex flex-col h-full min-h-0">
+    <div className="relative flex h-full min-h-0 flex-col">
       {/* Messages Area */}
       <div
         ref={scrollAreaRef}
@@ -144,13 +144,15 @@ export function ChatContainer({
         </div>
       )}
 
-      {/* Input Area */}
-      <ChatInput
-        onSend={onSend}
-        disabled={false}
-        isLoading={isLoading || thinkingState?.isThinking}
-        placeholder={placeholder}
-      />
+      {/* Input Area — fixed at bottom, not scrollable */}
+      <div className="shrink-0">
+        <ChatInput
+          onSend={onSend}
+          disabled={false}
+          isLoading={isLoading || thinkingState?.isThinking}
+          placeholder={placeholder}
+        />
+      </div>
     </div>
   );
 }

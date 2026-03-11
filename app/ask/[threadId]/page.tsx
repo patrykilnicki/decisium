@@ -160,22 +160,24 @@ export default function ThreadPage() {
           </div>
         </div>
       ) : (
-        <ChatContainer
-          messages={messages}
-          thinkingState={thinkingState}
-          onSend={handleSend}
-          isLoading={isLoading}
-          placeholder="Ask about your patterns, history, or insights..."
-          inlineContent={
-            <AgentUiRenderer
-              cards={pendingApprovalCards}
-              submittingProposalId={submittingProposalId}
-              onApprove={handleApprove}
-              onReject={handleReject}
-              onEditApprove={handleEditApprove}
-            />
-          }
-        />
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <ChatContainer
+            messages={messages}
+            thinkingState={thinkingState}
+            onSend={handleSend}
+            isLoading={isLoading}
+            placeholder="Ask about your patterns, history, or insights..."
+            inlineContent={
+              <AgentUiRenderer
+                cards={pendingApprovalCards}
+                submittingProposalId={submittingProposalId}
+                onApprove={handleApprove}
+                onReject={handleReject}
+                onEditApprove={handleEditApprove}
+              />
+            }
+          />
+        </div>
       )}
 
       {failedTasks.length > 0 && (
